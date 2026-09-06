@@ -1,0 +1,106 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg-dark: #0f1013;
+  --panel-bg: #16181d;
+  --panel-border: #232730;
+  --accent: #00d2ff;
+  --accent-hover: #33e1ff;
+  --accent-dim: rgba(0, 210, 255, 0.15);
+  --color-disconnect: #f97316;
+  --color-disconnect-dim: rgba(249, 115, 22, 0.15);
+  --color-info: #c084fc;
+  --color-info-muted: #a855f7;
+  --color-info-dim: rgba(168, 85, 247, 0.12);
+  --color-info-border: rgba(168, 85, 247, 0.28);
+  --color-link: #00d2ff;
+  --color-link-hover: #5eead4;
+  --text-main: #e2e8f0;
+  --text-muted: #717d91;
+  --text-dim: #475569;
+  --pixel-off: #1b1e24;
+  --pixel-on: #e2e8f0;
+  --grid-line: rgba(255, 255, 255, 0.05);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  overflow-x: hidden;
+  min-height: 100vh;
+  width: 100vw;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+button {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  outline: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+input, select {
+  font-family: inherit;
+}
+
+/* Tooltip container */
+.has-tooltip {
+  position: relative;
+}
+
+.has-tooltip .tooltip {
+  visibility: hidden;
+  position: absolute;
+  z-index: 50;
+  background-color: #1a1e26;
+  color: #e2e8f0;
+  text-align: center;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.has-tooltip:hover .tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2f3b;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3e4656;
+}
