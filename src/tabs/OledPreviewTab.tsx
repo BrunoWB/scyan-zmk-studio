@@ -77,7 +77,19 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   const [battery, setBattery] = useState<number>(88);
   const [currentLayer, setCurrentLayer] = useState<number>(0);
   const [wpm, setWpm] = useState<number>(68);
+  const [wpmHistory, setWpmHistory] = useState<number[]>(() => Array(128).fill(0));
   const [splitConnected, setSplitConnected] = useState<boolean>(true);
+
+  // Time-progressing WPM history ticker (continuous 1Hz sampling using ref to avoid reset on keypress/decay)
+  const wpmRef = useRef(wpm);
+  wpmRef.current = wpm;
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setWpmHistory(prev => [...prev.slice(1), wpmRef.current]);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Keymap Layout: dynamic from GitHub, defaults to empty 5x3 blank layout
   const [keymapLayout, setKeymapLayout] = useState<ParsedKeymapLayout>(DEFAULT_EMPTY_5X3_LAYOUT);
@@ -399,6 +411,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
             currentLayer,
             layerNames,
             wpm,
+            wpmHistory,
             splitConnected,
             customText,
             instances,
@@ -548,6 +561,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
             currentLayer,
             layerNames,
             wpm,
+            wpmHistory,
             splitConnected,
             customText,
             instances,
@@ -617,6 +631,8 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     battery,
     currentLayer,
     wpm,
+    wpmHistory,
+    instances,
     splitConnected,
     customText,
     layerNames,

@@ -19,12 +19,14 @@ import {
   Lock,
   Globe,
   Info,
+  Unplug,
 } from 'lucide-react';
 import type {
   GitHubRepoConfig,
   WorkflowRunInfo,
   GitHubConnectionState,
   GitHubRepositoryItem,
+  RepoPrerequisites,
 } from '../services/githubService';
 import {
   saveStoredGitHubConfig,
@@ -47,6 +49,9 @@ export interface HeaderBarProps {
   isSettingsOpen: boolean;
   setIsSettingsOpen: (open: boolean) => void;
   showToast?: (type: 'success' | 'error', message: string) => void;
+  repoPrereqs?: RepoPrerequisites | null;
+  isInstallingStudio?: boolean;
+  onInstallStudio?: () => void;
 }
 
 const GithubIcon = ({ size = 16, className = '' }: { size?: number; className?: string }) => (
@@ -93,6 +98,9 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   isSettingsOpen,
   setIsSettingsOpen,
   showToast,
+  repoPrereqs,
+  isInstallingStudio,
+  onInstallStudio,
 }) => {
   const [tempConfig, setTempConfig] = useState<GitHubRepoConfig>(config);
   const [workflowRun, setWorkflowRun] = useState<WorkflowRunInfo | null>(null);
@@ -417,36 +425,80 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         {/* Live GitHub Connection Status Widget */}
         <div className="git-status-wrapper">
           {connection.status === 'connected' ? (
-            <button
-              className="git-status-chip connected"
-              onClick={() => setIsSettingsOpen(true)}
-              title={`Connected as @${connection.user?.login} to ${config.owner}/${config.repo} (${config.branch}). Click to switch repository.`}
-            >
-              <span className="status-ping cyan"></span>
-              {connection.user?.avatarUrl ? (
-                <img
-                  src={connection.user.avatarUrl}
-                  alt={connection.user.login}
-                  className="git-user-avatar"
-                />
-              ) : (
-                <GithubIcon size={13} className="text-cyan-400" />
-              )}
-              <span className="git-repo-name">{config.owner}/{config.repo}</span>
-              <span className="git-branch-tag">
-                <GitBranch size={11} />
-                {config.branch}
-              </span>
-              {connection.repo?.hasPushAccess ? (
-                <span className="git-access-badge write" title="Push permission verified">
-                  Push OK
+            repoPrereqs && !repoPrereqs.isInstalled ? (
+              <div
+                className="git-status-chip connected install-needed"
+                title={`Connected to ${config.owner}/${config.repo}. Scyan Studio setup is required to save.`}
+              >
+                <div className="status-chip-left" onClick={() => setIsSettingsOpen(true)}>
+                  <span className="status-ping orange"></span>
+                  {connection.user?.avatarUrl ? (
+                    <img
+                      src={connection.user.avatarUrl}
+                      alt={connection.user.login}
+                      className="git-user-avatar"
+                    />
+                  ) : (
+                    <GithubIcon size={13} className="text-cyan-400" />
+                  )}
+                  <span className="git-repo-name">{config.owner}/{config.repo}</span>
+                  <span className="git-status-text text-amber-400 text-xs">Setup Required</span>
+                </div>
+                <button
+                  type="button"
+                  className="git-install-header-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onInstallStudio?.();
+                  }}
+                  disabled={isInstallingStudio}
+                  title="Install Scyan Studio module, config & assets into this repository"
+                >
+                  {isInstallingStudio ? (
+                    <>
+                      <RefreshCw size={11} className="spin" />
+                      <span>Installing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <WolfLogo size={12} />
+                      <span>Install Studio</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : (
+              <button
+                className="git-status-chip connected"
+                onClick={() => setIsSettingsOpen(true)}
+                title={`Connected as @${connection.user?.login} to ${config.owner}/${config.repo} (${config.branch}). Click to switch repository.`}
+              >
+                <span className="status-ping cyan"></span>
+                {connection.user?.avatarUrl ? (
+                  <img
+                    src={connection.user.avatarUrl}
+                    alt={connection.user.login}
+                    className="git-user-avatar"
+                  />
+                ) : (
+                  <GithubIcon size={13} className="text-cyan-400" />
+                )}
+                <span className="git-repo-name">{config.owner}/{config.repo}</span>
+                <span className="git-branch-tag">
+                  <GitBranch size={11} />
+                  {config.branch}
                 </span>
-              ) : (
-                <span className="git-access-badge read" title="Read only: commit requires write permissions">
-                  Read Only
-                </span>
-              )}
-            </button>
+                {connection.repo?.hasPushAccess ? (
+                  <span className="git-access-badge write" title="Push permission verified">
+                    Push OK
+                  </span>
+                ) : (
+                  <span className="git-access-badge read" title="Read only: commit requires write permissions">
+                    Read Only
+                  </span>
+                )}
+              </button>
+            )
           ) : connection.status === 'connecting' ? (
             <div className="git-status-chip connecting">
               <RefreshCw size={12} className="spin text-amber-400" />
@@ -467,12 +519,12 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             <button
               className="git-status-chip disconnected"
               onClick={() => setIsSettingsOpen(true)}
-              title="GitHub not connected. Click to authorize repository access."
+              title="Studio is in preview mode. Connect your GitHub repository to unlock editing."
             >
               <div className="status-chip-left">
                 <span className="status-ping orange"></span>
-                <GithubIcon size={14} className="text-orange-400" />
-                <span className="git-status-text">Git Disconnected</span>
+                <Unplug size={14} className="text-orange-400 shrink-0" />
+                <span className="git-status-text">Studio is in preview mode</span>
               </div>
               <span className="git-connect-btn-tag">Connect</span>
             </button>

@@ -19,6 +19,7 @@ export interface WidgetInstanceConfig {
     height: number;
     gridSize: number;
     targetSpeed: number;
+    timeWindow?: number;
   };
 }
 
@@ -78,6 +79,7 @@ export interface WidgetRenderContext {
   currentLayer?: number;
   layerNames?: string[];
   wpm?: number;
+  wpmHistory?: number[]; // Rolling samples over time (oldest to newest, or chronological)
   splitConnected?: boolean;
   customText?: string;
   side?: 'left' | 'right';
@@ -86,6 +88,8 @@ export interface WidgetRenderContext {
   activeInstanceId?: string;
   customizations?: WidgetCustomizationMap;
   bongoState?: 0 | 1 | 2; // 0: idle/neutral, 1: tap left, 2: tap right
+  blockWidth?: number;
+  blockHeight?: number;
 }
 
 export interface DisplayWidgetDefinition {
@@ -93,6 +97,7 @@ export interface DisplayWidgetDefinition {
   name: string;
   category: WidgetCategory;
   tier: 1 | 2 | 3;
+  requiresMaster?: boolean;
   description: string;
   defaultWidth: number;
   minWidth: number;

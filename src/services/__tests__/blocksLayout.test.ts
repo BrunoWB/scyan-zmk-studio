@@ -368,7 +368,7 @@ describe('Blocks Tab Layout & Interaction Mechanics', () => {
 
       const wpm = getWidgetDefinition('wpm')!;
       expect(wpm.defaultWidth).toBe(28);
-      expect(wpm.defaultHeight).toBe(18);
+      expect(wpm.defaultHeight).toBe(10);
 
     });
   });

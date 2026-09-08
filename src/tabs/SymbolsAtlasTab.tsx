@@ -301,7 +301,15 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
             }
             setPendingNewSlice(null);
           }}
+          onSelectSlices={(ids) => {
+            setSelectedSliceIds(new Set(ids));
+            setPendingNewSlice(null);
+          }}
           onNewSelection={rect => {
+            if (!rect) {
+              setPendingNewSlice(null);
+              return;
+            }
             setSelectedSliceIds(new Set());
             setPendingNewSlice(rect);
           }}

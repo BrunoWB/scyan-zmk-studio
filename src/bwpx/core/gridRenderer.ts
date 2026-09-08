@@ -7,6 +7,7 @@ export interface GhostOverlay {
   y: number;
   w: number;
   h: number;
+  rects?: { x: number; y: number; w: number; h: number }[];
 }
 
 export interface SelectionOverlay {
@@ -147,6 +148,16 @@ export function renderBwpxCanvas(
     const targetX = ghost.x;
     const targetY = ghost.y;
 
+    // Fill background so black is NOT treated as transparent layer and overrides beneath
+    ctx.fillStyle = bgColor;
+    if (ghost.rects && ghost.rects.length > 0) {
+      ghost.rects.forEach(r => {
+        ctx.fillRect(r.x * zoom, r.y * zoom, r.w * zoom, r.h * zoom);
+      });
+    } else {
+      ctx.fillRect(targetX * zoom, targetY * zoom, ghost.w * zoom, ghost.h * zoom);
+    }
+
     ctx.fillStyle = 'rgba(192, 132, 252, 0.7)';
     ctx.shadowColor = '#c084fc';
     ctx.shadowBlur = 10;
@@ -160,8 +171,15 @@ export function renderBwpxCanvas(
     ctx.fillStyle = 'rgba(192, 132, 252, 0.12)';
     ctx.lineWidth = 1.5;
     ctx.setLineDash([4, 4]);
-    ctx.strokeRect(targetX * zoom, targetY * zoom, ghost.w * zoom, ghost.h * zoom);
-    ctx.fillRect(targetX * zoom, targetY * zoom, ghost.w * zoom, ghost.h * zoom);
+    if (ghost.rects && ghost.rects.length > 0) {
+      ghost.rects.forEach(r => {
+        ctx.strokeRect(r.x * zoom, r.y * zoom, r.w * zoom, r.h * zoom);
+        ctx.fillRect(r.x * zoom, r.y * zoom, r.w * zoom, r.h * zoom);
+      });
+    } else {
+      ctx.strokeRect(targetX * zoom, targetY * zoom, ghost.w * zoom, ghost.h * zoom);
+      ctx.fillRect(targetX * zoom, targetY * zoom, ghost.w * zoom, ghost.h * zoom);
+    }
     ctx.setLineDash([]);
   }
 

@@ -151,7 +151,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
 
       const patchedWidget = widget as DisplayWidgetDefinition & { instanceId?: string };
       const activeInstance = instances?.[widget.id]?.find(i => i.id === patchedWidget.instanceId);
-      const { width: naturalW, height: naturalH } = getWidgetNaturalSize(widget, symbolSlices, activeInstance);
+      const { width: naturalW, height: naturalH } = getWidgetNaturalSize(widget, symbolSlices, activeInstance, fontGlyphs, fontMappings);
 
       // Find lowest occupied Y coordinate to append cleanly
       let nextY = widget.defaultPlacement.defaultY;
@@ -227,7 +227,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
 
       const patchedWidget = currentWidget as DisplayWidgetDefinition & { instanceId?: string };
       const activeInstance = instances?.[currentWidget.id]?.find(i => i.id === patchedWidget.instanceId);
-      const naturalSize = getWidgetNaturalSize(currentWidget, symbolSlices, activeInstance);
+      const naturalSize = getWidgetNaturalSize(currentWidget, symbolSlices, activeInstance, fontGlyphs, fontMappings);
 
       // Hit-test targeting the active/focused screens
       const targetScreenSuffix = focusedScreenMode;
@@ -292,7 +292,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         const side = active.targetSide;
         const patchedWidget = active.widget as DisplayWidgetDefinition & { instanceId?: string };
         const activeInstance = instances?.[active.widget.id]?.find(i => i.id === patchedWidget.instanceId);
-        const { width: naturalW, height: naturalH } = getWidgetNaturalSize(active.widget, symbolSlices, activeInstance);
+        const { width: naturalW, height: naturalH } = getWidgetNaturalSize(active.widget, symbolSlices, activeInstance, fontGlyphs, fontMappings);
         const newBlock: LayoutBlock = {
           id: `block-${active.widget.id}-${Date.now()}`,
           widgetType: active.widget.id,

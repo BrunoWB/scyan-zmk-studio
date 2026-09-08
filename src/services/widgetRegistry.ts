@@ -262,6 +262,93 @@ export function blitSlice(
 }
 
 /**
+ * Accurately measures the visual pixel ink extent of a text string based on font glyphs/mappings.
+ * Each character advances by its advanceX, and the final visual boundary reflects the maximum ink extent.
+ */
+export function measureTextWidth(
+  str: string,
+  fontGlyphs?: FontGlyph[],
+  fontMappings?: FontCharMapping[],
+  size: 'small' | 'big' = 'small'
+): number {
+  if (!str) return 0;
+  let curX = 0;
+  let maxX = 0;
+
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    if (char === ' ') {
+      curX += size === 'big' ? 6 : 4;
+      continue;
+    }
+
+    let glyphWidth = size === 'big' ? 6 : 4;
+    let advanceX = size === 'big' ? 7 : 5;
+    let found = false;
+
+    // 1. Try fontMappings
+    if (fontMappings && fontMappings.length > 0) {
+      let m = fontMappings.find(item => item.chars.includes(char));
+      if (!m) {
+        m = fontMappings.find(item => item.chars.toUpperCase().includes(char.toUpperCase()));
+      }
+      const slot = m ? (size === 'big' ? (m.big || m.small) : (m.small || m.big)) : null;
+      if (slot) {
+        glyphWidth = slot.width;
+        advanceX = slot.advanceX ?? (slot.width + 1);
+        found = true;
+      }
+    }
+
+    // 2. Try fontGlyphs
+    if (!found && fontGlyphs && fontGlyphs.length > 0) {
+      const cpDirect = char.codePointAt(0) || 0;
+      const cpUpper = char.toUpperCase().codePointAt(0) || 0;
+      const glyph = fontGlyphs.find(g => g.codepoint === cpDirect || g.codepoint === cpUpper);
+      if (glyph) {
+        glyphWidth = glyph.width;
+        advanceX = glyph.advanceX;
+        found = true;
+      }
+    }
+
+    // 3. Fallback to 3x5 punctuation bitmap
+    if (!found) {
+      const punct = PUNCTUATION_3X5[char];
+      if (punct) {
+        const scale = size === 'big' ? 2 : 1;
+        glyphWidth = 3 * scale;
+        advanceX = 3 * scale + 1;
+        found = true;
+      }
+    }
+
+    // 4. Fallback character metrics if atlas/glyphs not yet loaded
+    if (!found) {
+      const upperChar = char.toUpperCase();
+      if (['M', 'W', 'Y', 'T', 'V'].includes(upperChar)) {
+        glyphWidth = 5;
+        advanceX = 6;
+      } else if (['I', '1'].includes(upperChar)) {
+        glyphWidth = 3;
+        advanceX = 4;
+      } else {
+        glyphWidth = 4;
+        advanceX = 5;
+      }
+    }
+
+    const extent = curX + glyphWidth;
+    if (extent > maxX) {
+      maxX = extent;
+    }
+    curX += advanceX;
+  }
+
+  return maxX > 0 ? maxX : curX;
+}
+
+/**
  * Utility to draw text using fontMappings or fontGlyphs into destGrid at (startX, startY).
  * Falls back to 3x5 punctuation bitmaps when punctuation symbols are missing from the font atlas.
  */
@@ -550,6 +637,7 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     name: 'Output Status',
     category: 'status',
     tier: 1,
+    requiresMaster: true,
     description: 'Active keystroke output: USB cable symbol or Bluetooth profile (P1-P5).',
     defaultWidth: 12,
     minWidth: 8,
@@ -642,6 +730,7 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     name: 'Caps Lock Indicator',
     category: 'status',
     tier: 1,
+    requiresMaster: true,
     description: 'Caps lock indicator pill or [CAPS] text indicator.',
     defaultWidth: 14,
     minWidth: 10,
@@ -679,6 +768,7 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     name: 'Layer Banner',
     category: 'layer',
     tier: 2,
+    requiresMaster: true,
     description: 'Shows active keyboard layer frame brackets and text name.',
     defaultWidth: 24,
     minWidth: 18,
@@ -716,12 +806,13 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     name: 'WPM Meter',
     category: 'typing',
     tier: 2,
+    requiresMaster: true,
     description: 'Typing speed readout interpolating up to a target.',
     defaultWidth: 28,
-    minWidth: 24,
+    minWidth: 8,
     maxWidth: 32,
-    defaultHeight: 18,
-    minHeight: 16,
+    defaultHeight: 10,
+    minHeight: 5,
     maxHeight: 28,
     icon: 'gauge',
     associatedSliceIds: ['SYMBOL_ARROW_HEAD'],
@@ -784,6 +875,7 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     name: 'WPM Chart',
     category: 'typing',
     tier: 2,
+    requiresMaster: true,
     description: 'Line chart widget of typing speed over time.',
     defaultWidth: 32,
     minWidth: 16,
@@ -797,8 +889,14 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     slots: [],
     render: (grid, destX, destY, ctx) => {
       const inst = ctx.instances?.['wpm-chart']?.find(i => i.id === ctx.activeInstanceId);
-      const conf = inst?.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100 };
-      const { width, height, gridSize, targetSpeed } = conf;
+      const conf = inst?.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 };
+      const rawWidth = ctx.blockWidth ?? conf.width ?? 32;
+      const rawHeight = ctx.blockHeight ?? conf.height ?? 24;
+      const width = Math.min(rawWidth, grid.width - destX);
+      const height = Math.min(rawHeight, grid.height - destY);
+      const gridSize = conf.gridSize ?? 4;
+      const targetSpeed = conf.targetSpeed ?? 100;
+      const timeWindow = conf.timeWindow ?? 30;
 
       // Outer border and grid
       if (gridSize > 0) {
@@ -817,24 +915,66 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
         }
       }
 
-      // Draw continuous line chart (mock trajectory since real historical data isn't in context)
-      // WPM trajectory scaled against targetSpeed
       const chartX = destX + (gridSize > 0 ? 1 : 0);
       const chartY = destY + (gridSize > 0 ? 1 : 0);
       const chartW = width - (gridSize > 0 ? 2 : 0);
       const chartH = height - (gridSize > 0 ? 2 : 0);
 
-      const wpmVal = Math.min(targetSpeed, Math.max(0, ctx.wpm ?? 65));
+      if (chartW <= 1 || chartH <= 1) return;
 
+      // Baseline if no grid
+      if (gridSize === 0) {
+        for (let x = 0; x < chartW; x++) {
+          const targetX = chartX + x;
+          const targetY = chartY + chartH - 1;
+          if (targetX >= 0 && targetX < grid.width && targetY >= 0 && targetY < grid.height) {
+            grid.set(targetX, targetY, 1);
+          }
+        }
+      }
+
+      const currentWpm = Math.min(targetSpeed, Math.max(0, ctx.wpm ?? 65));
+
+      // Build points array of length chartW
+      // Rightmost column (chartW - 1) is current speed (NOW)
+      // Top row (chartY) is targetSpeed, Bottom row (chartY + chartH - 1) is 0 WPM.
+      const points: number[] = new Array(chartW);
+
+      if (ctx.wpmHistory && ctx.wpmHistory.length > 0) {
+        const hist = ctx.wpmHistory;
+        for (let x = 0; x < chartW; x++) {
+          if (x === chartW - 1) {
+            points[x] = currentWpm;
+          } else {
+            const ageInSeconds = ((chartW - 1 - x) * timeWindow) / Math.max(1, chartW - 1);
+            const sampleOffset = Math.round(ageInSeconds);
+            const histIdx = hist.length - 1 - sampleOffset;
+            points[x] = (histIdx >= 0 && histIdx < hist.length) ? hist[histIdx] : 0;
+          }
+        }
+      } else {
+        // Synthesize realistic typing pulse history ending exactly at currentWpm
+        for (let x = 0; x < chartW; x++) {
+          if (x === chartW - 1) {
+            points[x] = currentWpm;
+          } else {
+            const t = x / Math.max(1, chartW - 1);
+            // Realistic typing cadence: warm-up, burst rhythm, settling into currentWpm
+            const burst1 = Math.sin(t * 5.5);
+            const burst2 = Math.cos(t * 11.0) * 0.3;
+            const cadence = Math.max(0, 0.45 + 0.4 * burst1 + burst2);
+            const ramp = 0.3 + 0.7 * t;
+            const val = Math.round(currentWpm * cadence * ramp);
+            points[x] = Math.min(targetSpeed, Math.max(0, val));
+          }
+        }
+      }
+
+      // Draw continuous connected heartbeat / oscilloscope line
       let prevY = -1;
       for (let x = 0; x < chartW; x++) {
-        // Continuous typing wave trajectory that peaks, dips, and settles at right edge
-        const t = x / Math.max(1, chartW - 1);
-        const wave = 0.5 + 0.3 * Math.sin(t * 7.2) + 0.2 * Math.sin(t * 13.8);
-        const blended = 0.55 * wave + 0.45 * (0.35 + 0.65 * t);
-        const val = Math.min(1, Math.max(0.05, (wpmVal / targetSpeed) * blended));
-        const h = Math.min(chartH - 1, Math.max(0, Math.round(val * (chartH - 1))));
-        const yPlot = chartY + chartH - 1 - h;
+        const val = Math.min(targetSpeed, Math.max(0, points[x]));
+        const yPlot = chartY + chartH - 1 - Math.round((val * (chartH - 1)) / targetSpeed);
 
         if (prevY !== -1) {
           const minY = Math.min(prevY, yPlot);
@@ -991,7 +1131,9 @@ export function getAllWidgets(): DisplayWidgetDefinition[] {
 export function getWidgetNaturalSize(
   widget: DisplayWidgetDefinition,
   symbolSlices: SpriteSlice[],
-  activeInstance?: import('../types/widget').WidgetInstance
+  activeInstance?: import('../types/widget').WidgetInstance,
+  fontGlyphs?: FontGlyph[],
+  fontMappings?: FontCharMapping[]
 ): { width: number; height: number } {
   const { associatedSliceIds, defaultWidth, defaultHeight } = widget;
 
@@ -1039,23 +1181,60 @@ export function getWidgetNaturalSize(
       ? activeInstance.config.textEntries[0]
       : 'ZMK';
     const text = (rawText || 'ZMK').toUpperCase();
-    let textWidth = 0;
-    for (let i = 0; i < text.length; i++) {
-      const char = text[i];
-      if (char === ' ') {
-        textWidth += 4;
-      } else {
-        textWidth += (i === text.length - 1 ? 4 : 5);
-      }
-    }
+    const textWidth = measureTextWidth(text, fontGlyphs, fontMappings, 'small');
     return {
       width: Math.min(32, Math.max(textWidth, 4)),
       height: 5,
     };
   }
 
+  if (widget.id === 'wpm') {
+    const mode = activeInstance?.config?.mode || 'symbol';
+    if (mode === 'symbol') {
+      const targetGroupId = activeInstance?.config?.groupId;
+      if (targetGroupId) {
+        const slice = symbolSlices.find(s => s.groupId === targetGroupId && s.groupOrder === 1)
+          || symbolSlices.find(s => s.groupId === targetGroupId)
+          || symbolSlices.find(s => s.id === targetGroupId);
+        if (slice) return { width: slice.width, height: slice.height };
+      }
+      for (const sliceId of associatedSliceIds) {
+        const slice = symbolSlices.find(s => s.id === sliceId);
+        if (slice) return { width: slice.width, height: slice.height };
+      }
+      return { width: 27, height: 5 };
+    } else {
+      // Font / Text mode
+      const entries = activeInstance?.config?.textEntries || [];
+      if (entries.length >= 2) {
+        let maxLen = 0;
+        let longestStr = '';
+        for (const e of entries) {
+          if (e && e.length > maxLen) {
+            maxLen = e.length;
+            longestStr = e;
+          }
+        }
+        const textW = Math.max(12, measureTextWidth(longestStr.toUpperCase(), fontGlyphs, fontMappings, 'small'));
+        return { width: Math.min(32, textW), height: 6 };
+      }
+      // Digits mode (e.g. up to 3 digits '100' at 8px advance each = 24px width, 10px height)
+      return { width: 24, height: 10 };
+    }
+  }
+
+  if (widget.id === 'battery') {
+    const mode = activeInstance?.config?.mode || 'symbol';
+    if (mode === 'symbol' && activeInstance?.config?.groupId) {
+      const slice = symbolSlices.find(s => s.groupId === activeInstance.config?.groupId && s.groupOrder === 1)
+        || symbolSlices.find(s => s.groupId === activeInstance.config?.groupId)
+        || symbolSlices.find(s => s.id === activeInstance.config?.groupId);
+      if (slice) return { width: slice.width, height: slice.height };
+    }
+  }
+
   // Composite widgets intentionally span multiple symbols; honour their hardcoded layout size.
-  const COMPOSITE_WIDGET_IDS = new Set(['status-bar', 'wpm']);
+  const COMPOSITE_WIDGET_IDS = new Set(['status-bar']);
   if (COMPOSITE_WIDGET_IDS.has(widget.id)) {
     return { width: defaultWidth, height: defaultHeight };
   }
@@ -1147,7 +1326,12 @@ export function renderBlocksToGrid(
     const destX = block.x ?? def?.defaultPlacement.defaultX ?? 0;
     const resolvedInstanceId = block.instanceId ??
       context.instances?.[normType]?.[0]?.id;
-    const activeContext = { ...context, activeInstanceId: resolvedInstanceId };
+    const activeContext = {
+      ...context,
+      activeInstanceId: resolvedInstanceId,
+      blockWidth: block.width,
+      blockHeight: block.height,
+    };
     renderWidgetById(normType, grid, destX, block.y, activeContext);
   }
 }

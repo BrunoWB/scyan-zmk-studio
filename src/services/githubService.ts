@@ -58,8 +58,8 @@ const STORAGE_KEY_BRANCH = 'zmk_builder_gh_branch';
 
 export function getStoredGitHubConfig(): GitHubRepoConfig {
   return {
-    owner: localStorage.getItem(STORAGE_KEY_OWNER) || 'BrunoWB',
-    repo: localStorage.getItem(STORAGE_KEY_REPO) || 'zmk-config',
+    owner: localStorage.getItem(STORAGE_KEY_OWNER) || '',
+    repo: localStorage.getItem(STORAGE_KEY_REPO) || '',
     branch: localStorage.getItem(STORAGE_KEY_BRANCH) || 'main',
     token: localStorage.getItem(STORAGE_KEY_TOKEN) || '',
   };
@@ -87,8 +87,8 @@ function getOctokit(token?: string): Octokit {
  */
 export async function verifyGitHubConnection(config: GitHubRepoConfig): Promise<GitHubConnectionState> {
   const token = config.token?.trim();
-  let owner = config.owner?.trim() || 'BrunoWB';
-  let repo = config.repo?.trim() || 'zmk-config';
+  let owner = config.owner?.trim() || '';
+  let repo = config.repo?.trim() || '';
 
   if (!token) {
     return {
@@ -119,7 +119,7 @@ export async function verifyGitHubConnection(config: GitHubRepoConfig): Promise<
         name: userRes.data.name ?? userRes.data.login,
         avatarUrl: userRes.data.avatar_url,
       };
-      if (!config.owner) {
+      if (!owner) {
         owner = user.login;
       }
     } catch {
@@ -127,25 +127,43 @@ export async function verifyGitHubConnection(config: GitHubRepoConfig): Promise<
       // This is expected and normal for modern GitHub fine-grained tokens.
     }
 
-    // 2. Auto-discover owner/repo ONLY when both are completely blank.
-    //    Never silently override a configured repo — doing so causes the
-    //    connection check to pass against a different repo than the one the
-    //    commit will target, resulting in a 403 on save.
-    if (!config.owner && !config.repo) {
+    // 2. Auto-discover owner/repo if either owner or repo is not yet determined
+    if (!owner || !repo) {
       try {
-        const listRes = await octokit.repos.listForAuthenticatedUser({ per_page: 20 });
+        const listRes = await octokit.repos.listForAuthenticatedUser({
+          sort: 'updated',
+          per_page: 50,
+          affiliation: 'owner,collaborator',
+        });
         if (listRes.data.length > 0) {
-          const found = listRes.data[0];
-          owner = found.owner.login;
-          repo = found.name;
+          const zmkRepo = listRes.data.find(r =>
+            r.name.toLowerCase().includes('zmk') ||
+            Boolean(r.description && r.description.toLowerCase().includes('zmk'))
+          ) || listRes.data[0];
+
+          if (!owner) owner = zmkRepo.owner.login;
+          if (!repo) repo = zmkRepo.name;
           if (!user.avatarUrl) {
-            user.login = found.owner.login;
-            user.avatarUrl = found.owner.avatar_url;
+            user.login = zmkRepo.owner.login;
+            user.name = zmkRepo.owner.login;
+            user.avatarUrl = zmkRepo.owner.avatar_url;
           }
         }
-      } catch {
-        // Direct repo fetch will be the fallback probe
+      } catch (listErr) {
+        console.warn('Auto-discovery of user repositories failed:', listErr);
       }
+    }
+
+    if (!owner || !repo) {
+      return {
+        status: 'error',
+        user,
+        repo: null,
+        errorMessage: 'Could not automatically identify a repository. Please enter the repository name in Settings.',
+        lastCheckedAt: Date.now(),
+        resolvedOwner: null,
+        resolvedRepo: null,
+      };
     }
 
     // 3. Verify repository existence
@@ -239,7 +257,7 @@ export async function verifyGitHubConnection(config: GitHubRepoConfig): Promise<
  */
 export async function fetchFileFromRepo(
   config: GitHubRepoConfig,
-  path = 'include/custom_display_assets.h'
+  path = 'config/scyan_assets.h'
 ): Promise<{ content: string; sha: string; resolvedPath?: string }> {
   const octokit = getOctokit(config.token);
 
@@ -248,12 +266,10 @@ export async function fetchFileFromRepo(
   const uniqueBranches = Array.from(new Set(branches));
 
   // Determine candidate paths to probe in target repository
-  const isDefaultAssetPath = path === 'include/custom_display_assets.h';
+  const isDefaultAssetPath = path === 'config/scyan_assets.h' || path === 'include/custom_display_assets.h';
   const candidatePaths = isDefaultAssetPath
-    ? (config.repo === 'zmk-display-core'
-        ? ['include/custom_display_assets.h', 'config/custom_display_assets.h']
-        : ['config/custom_display_assets.h', 'config/include/custom_display_assets.h', 'include/custom_display_assets.h'])
-    : [path, 'config/custom_display_assets.h', 'include/custom_display_assets.h'];
+    ? ['config/scyan_assets.h', 'include/scyan_assets.h', 'scyan_assets.h']
+    : [path, 'config/scyan_assets.h', 'include/scyan_assets.h', 'scyan_assets.h'];
   const uniqueCandidatePaths = Array.from(new Set(candidatePaths));
 
   let lastErr: any = null;
@@ -280,28 +296,6 @@ export async function fetchFileFromRepo(
         lastErr = err;
       }
     }
-  }
-
-  try {
-    // If not found in config repo (e.g. zmk-config), check zmk-display-core
-    if (lastErr?.status === 404 && config.repo !== 'zmk-display-core') {
-      const fallbackRes = await octokit.repos.getContent({
-        owner: 'BrunoWB',
-        repo: 'zmk-display-core',
-        path: 'include/custom_display_assets.h',
-        ref: 'main',
-      });
-      if ('content' in fallbackRes.data && typeof fallbackRes.data.content === 'string') {
-        const decoded = atob(fallbackRes.data.content.replace(/\s/g, ''));
-        return {
-          content: decoded,
-          sha: '', // New file for the destination repo
-          resolvedPath: 'config/custom_display_assets.h',
-        };
-      }
-    }
-  } catch {
-    // Fallback probe failed
   }
 
   throw lastErr || new Error('File content is not text or is a directory');
@@ -503,6 +497,301 @@ export async function fetchRepoBranches(token: string, owner: string, repo: stri
     console.error('Failed to list repository branches:', err);
     return ['master', 'main'];
   }
+}
+
+export interface RepoPrerequisites {
+  isInstalled: boolean;
+  hasWestModule: boolean;
+  hasKconfig: boolean;
+  hasAssetsHeader: boolean;
+  confPath?: string;
+  westPath?: string;
+  existingConfContent?: string;
+  existingWestContent?: string;
+}
+
+/**
+ * Checks whether the connected repository is configured with scyan-zmk-module,
+ * required display Kconfig flags, and scyan_assets.h.
+ */
+export async function checkRepoPrerequisites(
+  config: GitHubRepoConfig
+): Promise<RepoPrerequisites> {
+  if (!config.token || !config.owner || !config.repo) {
+    return {
+      isInstalled: false,
+      hasWestModule: false,
+      hasKconfig: false,
+      hasAssetsHeader: false,
+    };
+  }
+
+  const octokit = getOctokit(config.token);
+  const branch = config.branch || 'main';
+
+  let hasWestModule = false;
+  let hasKconfig = false;
+  let hasAssetsHeader = false;
+  let confPath = 'config/corne.conf';
+  let westPath = 'config/west.yml';
+  let existingConfContent = '';
+  let existingWestContent = '';
+
+  // 1. Check west.yml
+  const westCandidates = ['config/west.yml', 'west.yml'];
+  for (const p of westCandidates) {
+    try {
+      const res = await octokit.repos.getContent({
+        owner: config.owner,
+        repo: config.repo,
+        path: p,
+        ref: branch,
+      });
+      if ('content' in res.data && typeof res.data.content === 'string') {
+        const decoded = atob(res.data.content.replace(/\s/g, ''));
+        westPath = p;
+        existingWestContent = decoded;
+        if (decoded.includes('scyan-zmk-module')) {
+          hasWestModule = true;
+        }
+        break;
+      }
+    } catch {
+      // not found
+    }
+  }
+
+  // 2. Check scyan_assets.h
+  const headerCandidates = ['config/scyan_assets.h', 'include/scyan_assets.h', 'scyan_assets.h'];
+  for (const p of headerCandidates) {
+    try {
+      const res = await octokit.repos.getContent({
+        owner: config.owner,
+        repo: config.repo,
+        path: p,
+        ref: branch,
+      });
+      if ('content' in res.data && typeof res.data.content === 'string') {
+        hasAssetsHeader = true;
+        break;
+      }
+    } catch {
+      // not found
+    }
+  }
+
+  // 3. Check .conf file
+  let candidateConfFiles = ['config/corne.conf'];
+  try {
+    const dirRes = await octokit.repos.getContent({
+      owner: config.owner,
+      repo: config.repo,
+      path: 'config',
+      ref: branch,
+    });
+    if (Array.isArray(dirRes.data)) {
+      const foundConfs = dirRes.data
+        .filter(item => item.type === 'file' && item.name.endsWith('.conf') && !item.name.includes('_left') && !item.name.includes('_right'))
+        .map(item => item.path);
+      if (foundConfs.length > 0) {
+        candidateConfFiles = foundConfs;
+      }
+    }
+  } catch {
+    // default candidate
+  }
+
+  for (const cp of candidateConfFiles) {
+    try {
+      const res = await octokit.repos.getContent({
+        owner: config.owner,
+        repo: config.repo,
+        path: cp,
+        ref: branch,
+      });
+      if ('content' in res.data && typeof res.data.content === 'string') {
+        const decoded = atob(res.data.content.replace(/\s/g, ''));
+        confPath = cp;
+        existingConfContent = decoded;
+        if (decoded.includes('CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM=y')) {
+          hasKconfig = true;
+        }
+        break;
+      }
+    } catch {
+      // not found
+    }
+  }
+
+  const isInstalled = hasWestModule && hasKconfig && hasAssetsHeader;
+
+  return {
+    isInstalled,
+    hasWestModule,
+    hasKconfig,
+    hasAssetsHeader,
+    confPath,
+    westPath,
+    existingConfContent,
+    existingWestContent,
+  };
+}
+
+/**
+ * Atomically configures the repository via GitHub Git Trees API:
+ * 1. Updates/creates west.yml with scyan-zmk-module dependency
+ * 2. Updates/creates corne.conf with custom status screen flags
+ * 3. Commits initial starter scyan_assets.h
+ */
+export async function installScyanStudioToRepo(
+  config: GitHubRepoConfig,
+  defaultHeaderContent: string
+): Promise<{ commitSha: string; commitUrl: string }> {
+  if (!config.token || !config.owner || !config.repo) {
+    throw new Error('Repository is not configured.');
+  }
+
+  const octokit = getOctokit(config.token);
+  const branch = config.branch || 'main';
+
+  // 1. Check prerequisites to obtain existing file contents
+  const prereqs = await checkRepoPrerequisites(config);
+
+  // 2. Prepare west.yml
+  let newWestContent = prereqs.existingWestContent || '';
+  if (!prereqs.hasWestModule) {
+    if (newWestContent && newWestContent.includes('projects:')) {
+      if (!newWestContent.includes('scyan-zmk-module')) {
+        let remoteSnippet = '';
+        if (!newWestContent.includes('name: brunowb')) {
+          remoteSnippet = '    - name: brunowb\n      url-base: https://github.com/BrunoWB\n';
+        }
+        if (remoteSnippet && newWestContent.includes('remotes:')) {
+          newWestContent = newWestContent.replace('remotes:\n', `remotes:\n${remoteSnippet}`);
+        }
+        const moduleSnippet = '    - name: scyan-zmk-module\n      remote: brunowb\n      revision: main\n';
+        newWestContent = newWestContent.replace('projects:\n', `projects:\n${moduleSnippet}`);
+      }
+    } else {
+      newWestContent = [
+        'manifest:',
+        '  defaults:',
+        '    revision: v0.3',
+        '  remotes:',
+        '    - name: zmkfirmware',
+        '      url-base: https://github.com/zmkfirmware',
+        '    - name: brunowb',
+        '      url-base: https://github.com/BrunoWB',
+        '  projects:',
+        '    - name: zmk',
+        '      remote: zmkfirmware',
+        '      import: app/west.yml',
+        '    - name: scyan-zmk-module',
+        '      remote: brunowb',
+        '      revision: main',
+        '  self:',
+        '    path: config',
+        '',
+      ].join('\n');
+    }
+  }
+
+  // 3. Prepare .conf content
+  let newConfContent = prereqs.existingConfContent || '';
+  if (!prereqs.hasKconfig) {
+    const kconfigSnippet = [
+      '',
+      '# Enable the Corne OLED Display (SSD1306)',
+      'CONFIG_ZMK_DISPLAY=y',
+      'CONFIG_SSD1306=y',
+      'CONFIG_ZMK_DISPLAY_WORK_QUEUE_DEDICATED=y',
+      'CONFIG_ZMK_DISPLAY_DEDICATED_THREAD_PRIORITY=10',
+      'CONFIG_ZMK_DISPLAY_BLANK_ON_IDLE=y',
+      '',
+      '# Custom status screen (Scyan ZMK Display Module)',
+      'CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM=y',
+      'CONFIG_ZMK_DISPLAY_STATUS_SCREEN_BUILT_IN=n',
+      'CONFIG_LV_USE_CANVAS=y',
+      'CONFIG_LV_USE_IMG=y',
+      'CONFIG_SCYAN_ROTATION_90=y',
+      'CONFIG_SCYAN_ROTATION_270=n',
+      'CONFIG_SCYAN_INVERT=y',
+      'CONFIG_SCYAN_IDLE_TIMEOUT_MS=10000',
+      'CONFIG_SCYAN_USER_NAME="SCYAN"',
+      '',
+    ].join('\n');
+
+    newConfContent = (newConfContent ? newConfContent.trimEnd() + '\n' : '') + kconfigSnippet;
+  }
+
+  // 4. Collect file updates
+  const filesToCommit: { path: string; content: string }[] = [];
+
+  filesToCommit.push({
+    path: 'config/scyan_assets.h',
+    content: defaultHeaderContent,
+  });
+
+  if (!prereqs.hasWestModule) {
+    filesToCommit.push({
+      path: prereqs.westPath || 'config/west.yml',
+      content: newWestContent,
+    });
+  }
+
+  if (!prereqs.hasKconfig) {
+    filesToCommit.push({
+      path: prereqs.confPath || 'config/corne.conf',
+      content: newConfContent,
+    });
+  }
+
+  // 5. Git Trees API atomic commit
+  const refRes = await octokit.git.getRef({
+    owner: config.owner,
+    repo: config.repo,
+    ref: `heads/${branch}`,
+  });
+  const currentCommitSha = refRes.data.object.sha;
+
+  const commitObjRes = await octokit.git.getCommit({
+    owner: config.owner,
+    repo: config.repo,
+    commit_sha: currentCommitSha,
+  });
+  const baseTreeSha = commitObjRes.data.tree.sha;
+
+  const treeRes = await octokit.git.createTree({
+    owner: config.owner,
+    repo: config.repo,
+    base_tree: baseTreeSha,
+    tree: filesToCommit.map(f => ({
+      path: f.path,
+      mode: '100644' as const,
+      type: 'blob' as const,
+      content: f.content,
+    })),
+  });
+
+  const newCommitRes = await octokit.git.createCommit({
+    owner: config.owner,
+    repo: config.repo,
+    message: 'feat(display): install Scyan ZMK Studio module, config & assets',
+    tree: treeRes.data.sha,
+    parents: [currentCommitSha],
+  });
+
+  await octokit.git.updateRef({
+    owner: config.owner,
+    repo: config.repo,
+    ref: `heads/${branch}`,
+    sha: newCommitRes.data.sha,
+  });
+
+  return {
+    commitSha: newCommitRes.data.sha,
+    commitUrl: newCommitRes.data.html_url,
+  };
 }
 
 

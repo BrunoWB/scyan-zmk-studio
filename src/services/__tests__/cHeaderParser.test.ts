@@ -147,6 +147,7 @@ struct display_layout_block {
     uint8_t mode;
     int16_t param1;
     int16_t param2;
+    int16_t param3;
     const char *custom_text;
     uint16_t symbol_id;
 };
@@ -219,9 +220,9 @@ static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
     expect(parsed.metadata?.leftBlocks?.[0].widgetType).toBe('battery');
   });
 
-  it('correctly parses user custom_display_assets.h and generates clean blocks without legacy fallbacks', async () => {
+  it('correctly parses user scyan_assets.h and generates clean blocks without legacy fallbacks', async () => {
     const fs = await import('fs');
-    const userHeader = fs.readFileSync('/home/Scyan/Projects/Firmware/zmk-config/include/custom_display_assets.h', 'utf8');
+    const userHeader = fs.readFileSync('/home/Scyan/Projects/Firmware/zmk-config/config/scyan_assets.h', 'utf8');
     const parsed = parseCHeader(userHeader);
     expect(parsed.metadata).toBeDefined();
     expect(parsed.symbolSlices.length).toBeGreaterThan(15);

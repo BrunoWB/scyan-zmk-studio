@@ -2,7 +2,8 @@ import { BwpxGrid } from '../bwpx/core/BwpxGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../types/zmk';
 import type { WidgetInstanceMap } from '../types/widget';
 import { DEFAULT_SYMBOL_SLICES, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS } from '../types/zmk';
-import { createDefaultSymbolsGrid, createDefaultFontGrid } from './defaultAssets';
+import defaultInstallHeader from '../assets/scyan_assets.install.h?raw';
+import { measureTextWidth } from './widgetRegistry';
 
 export interface HeaderMetadata {
   version: 1;
@@ -23,16 +24,57 @@ export interface ParsedAssets {
   metadata?: HeaderMetadata;
 }
 
+let isParsingDefault = false;
+let cachedDefaultAssets: ParsedAssets | null = null;
+
+export function getDefaultInstallHeader(): string {
+  return defaultInstallHeader;
+}
+
+export function getDefaultAssets(): ParsedAssets {
+  if (!cachedDefaultAssets) {
+    isParsingDefault = true;
+    try {
+      cachedDefaultAssets = parseCHeader(defaultInstallHeader);
+    } finally {
+      isParsingDefault = false;
+    }
+  }
+  return {
+    symbolsGrid: cachedDefaultAssets.symbolsGrid.clone(),
+    symbolSlices: JSON.parse(JSON.stringify(cachedDefaultAssets.symbolSlices)),
+    fontGrid: cachedDefaultAssets.fontGrid.clone(),
+    fontGlyphs: JSON.parse(JSON.stringify(cachedDefaultAssets.fontGlyphs)),
+    fontMappings: JSON.parse(JSON.stringify(cachedDefaultAssets.fontMappings)),
+    metadata: cachedDefaultAssets.metadata ? JSON.parse(JSON.stringify(cachedDefaultAssets.metadata)) : undefined,
+  };
+}
+
 /**
- * Parses C source code of custom_display_assets.h into BwpxGrids and slice/glyph tables.
+ * Parses C source code of scyan_assets.h into BwpxGrids and slice/glyph tables.
  */
 export function parseCHeader(cCode: string): ParsedAssets {
-  let symbolsGrid = createDefaultSymbolsGrid();
-  let symbolSlices = [...DEFAULT_SYMBOL_SLICES];
-  let fontGrid = createDefaultFontGrid();
-  let fontGlyphs = [...DEFAULT_FONT_GLYPHS];
-  let fontMappings = [...DEFAULT_FONT_MAPPINGS];
+  let symbolsGrid: BwpxGrid;
+  let symbolSlices: SpriteSlice[];
+  let fontGrid: BwpxGrid;
+  let fontGlyphs: FontGlyph[];
+  let fontMappings: FontCharMapping[];
   let metadata: HeaderMetadata | undefined;
+
+  if (isParsingDefault || !cachedDefaultAssets) {
+    symbolsGrid = new BwpxGrid(128, 34);
+    symbolSlices = [...DEFAULT_SYMBOL_SLICES];
+    fontGrid = new BwpxGrid(128, 22);
+    fontGlyphs = [...DEFAULT_FONT_GLYPHS];
+    fontMappings = [...DEFAULT_FONT_MAPPINGS];
+  } else {
+    symbolsGrid = cachedDefaultAssets.symbolsGrid.clone();
+    symbolSlices = JSON.parse(JSON.stringify(cachedDefaultAssets.symbolSlices));
+    fontGrid = cachedDefaultAssets.fontGrid.clone();
+    fontGlyphs = JSON.parse(JSON.stringify(cachedDefaultAssets.fontGlyphs));
+    fontMappings = JSON.parse(JSON.stringify(cachedDefaultAssets.fontMappings));
+    metadata = cachedDefaultAssets.metadata ? JSON.parse(JSON.stringify(cachedDefaultAssets.metadata)) : undefined;
+  }
 
   try {
     // 1. Parse SYMBOLS_ATLAS hex bytes with dynamic dimensions
@@ -355,8 +397,15 @@ export function parseCHeader(cCode: string): ParsedAssets {
                   }
                 }
 
+                const p1Match = body.match(/\.param1\s*=\s*(-?\d+)/);
+                const p2Match = body.match(/\.param2\s*=\s*(-?\d+)/);
+                const p3Match = body.match(/\.param3\s*=\s*(-?\d+)/);
+                const param1 = p1Match ? parseInt(p1Match[1], 10) : 0;
+                const param2 = p2Match ? parseInt(p2Match[1], 10) : 0;
+                const param3 = p3Match ? parseInt(p3Match[1], 10) : 0;
+
                 const blockId = `${side}-${widgetType}-${idx++}`;
-                blocks.push({
+                const parsedBlock: LayoutBlock = {
                   id: blockId,
                   widgetType,
                   instanceId: `inst_${blockId}`,
@@ -367,7 +416,38 @@ export function parseCHeader(cCode: string): ParsedAssets {
                   height: hMatch ? parseInt(hMatch[1], 10) : 16,
                   enabled: enabledMatch ? (enabledMatch[1] === 'true' || enabledMatch[1] === '1') : true,
                   side,
-                });
+                };
+                blocks.push(parsedBlock);
+
+                if (widgetType === 'wpm-chart') {
+                  if (!metadata) metadata = { version: 1 };
+                  if (!metadata.widgetInstances) metadata.widgetInstances = {};
+                  if (!metadata.widgetInstances['wpm-chart'] || metadata.widgetInstances['wpm-chart'].length === 0) {
+                    metadata.widgetInstances['wpm-chart'] = [{
+                      id: parsedBlock.instanceId!,
+                      widgetTypeId: 'wpm-chart',
+                      label: 'WPM Chart',
+                      config: {
+                        mode: 'symbol',
+                        wpmChart: {
+                          width: parsedBlock.width ?? 32,
+                          height: parsedBlock.height ?? 24,
+                          gridSize: param1 || 4,
+                          targetSpeed: param2 || 100,
+                          timeWindow: param3 || 30,
+                        },
+                      },
+                      slots: {},
+                    }];
+                  } else {
+                    const inst = metadata.widgetInstances['wpm-chart'][0];
+                    if (inst && inst.config && inst.config.wpmChart) {
+                      if (!inst.config.wpmChart.timeWindow) {
+                        inst.config.wpmChart.timeWindow = param3 || 30;
+                      }
+                    }
+                  }
+                }
               }
               start = -1;
             }
@@ -763,6 +843,7 @@ static const struct display_font font_default = {
     c += `    uint8_t mode;\n`;
     c += `    int16_t param1;\n`;
     c += `    int16_t param2;\n`;
+    c += `    int16_t param3;\n`;
     c += `    uint8_t symbol_count;\n`;
     c += `    uint16_t symbol_ids[MAX_BLOCK_SYMBOLS];\n`;
     c += `    uint8_t text_count;\n`;
@@ -804,13 +885,15 @@ static const struct display_font font_default = {
       const mode = (instance?.config?.mode === 'font') ? 1 : 0;
       let param1 = 0;
       let param2 = 0;
+      let param3 = 0;
       if (enumType === 'WIDGET_TYPE_WPM_CHART') {
         param1 = instance?.config?.wpmChart?.gridSize ?? 4;
         param2 = instance?.config?.wpmChart?.targetSpeed ?? 100;
+        param3 = instance?.config?.wpmChart?.timeWindow ?? 30;
       } else if (enumType === 'WIDGET_TYPE_WPM') {
         param2 = instance?.config?.targetValue ?? 100;
       } else if (enumType === 'WIDGET_TYPE_BATTERY') {
-        param1 = instance?.config?.fontDivisionCount ?? 2;
+        param1 = (mode === 1) ? (instance?.config?.fontDivisionCount ?? 2) : 0;
       }
 
       const symbolIds: string[] = [];
@@ -896,10 +979,41 @@ static const struct display_font font_default = {
       const enabled = block.enabled ? 'true' : 'false';
       const bx = block.x ?? 0;
       const by = block.y;
-      const bw = block.width ?? 0;
-      const bh = block.height;
+      let bw = block.width ?? 0;
+      let bh = block.height;
 
-      return `    { .type = ${enumType}, .x = ${bx}, .y = ${by}, .width = ${bw}, .height = ${bh}, .enabled = ${enabled}, .mode = ${mode}, .param1 = ${param1}, .param2 = ${param2}, .symbol_count = ${symbolCount}, .symbol_ids = ${symbolIdsStr}, .text_count = ${textCount}, .text_entries = ${textEntriesStr}, .custom_text = ${customText}, .symbol_id = ${symbolId} }`;
+      if (enumType === 'WIDGET_TYPE_BRANDING') {
+        const textToMeasure = (instance?.config?.textEntries?.[0] !== undefined
+          ? instance.config.textEntries[0]
+          : (customText !== 'NULL' ? JSON.parse(customText) : 'ZMK')) || 'ZMK';
+        const mappings = (fontInput.length > 0 && 'chars' in fontInput[0]) ? (fontInput as FontCharMapping[]) : undefined;
+        bw = Math.min(32, Math.max(measureTextWidth(textToMeasure.toUpperCase(), smallGlyphs, mappings, 'small'), 4));
+        bh = 5;
+      }
+
+      if (enumType === 'WIDGET_TYPE_WPM') {
+        if (mode === 0) {
+          if (symbolIds.length > 0) {
+            const match = symbolSlices.find(s => s.id === symbolIds[0]);
+            if (match) {
+              bw = match.width;
+              bh = match.height;
+            } else {
+              bw = 27;
+              bh = 5;
+            }
+          } else {
+            bw = 27;
+            bh = 5;
+          }
+        } else {
+          // Font mode: 6px height for text entries, 10px for digits
+          bh = (textCount >= 2) ? 6 : 10;
+          bw = 24;
+        }
+      }
+
+      return `    { .type = ${enumType}, .x = ${bx}, .y = ${by}, .width = ${bw}, .height = ${bh}, .enabled = ${enabled}, .mode = ${mode}, .param1 = ${param1}, .param2 = ${param2}, .param3 = ${param3}, .symbol_count = ${symbolCount}, .symbol_ids = ${symbolIdsStr}, .text_count = ${textCount}, .text_entries = ${textEntriesStr}, .custom_text = ${customText}, .symbol_id = ${symbolId} }`;
     };
 
     const emitBlockArray = (name: string, countName: string, blocks?: LayoutBlock[]) => {

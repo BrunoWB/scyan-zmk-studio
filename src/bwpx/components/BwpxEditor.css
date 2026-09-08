@@ -276,6 +276,23 @@
   box-shadow: 0 0 12px rgba(192, 132, 252, 0.45);
 }
 
+.bwpx-tool-btn-hint {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.bwpx-tool-btn-hint:hover {
+  background: #181c24;
+  color: #cbd5e1;
+}
+
+.bwpx-tool-btn-hint.active {
+  background: #9333ea;
+  color: #ffffff;
+  border-color: #c084fc;
+  box-shadow: 0 0 12px rgba(192, 132, 252, 0.45);
+}
+
 /* Tooltip */
 .has-tooltip {
   position: relative;

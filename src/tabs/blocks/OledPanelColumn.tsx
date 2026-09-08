@@ -260,7 +260,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
         const def = getWidgetDefinition(normType);
         
         const activeInstance = instances?.[normType]?.find(i => i.id === currentBlock.instanceId) || instances?.[normType]?.[0];
-        const naturalSize = def ? getWidgetNaturalSize(def, symbolSlices, activeInstance) : null;
+        const naturalSize = def ? getWidgetNaturalSize(def, symbolSlices, activeInstance, fontGlyphs, fontMappings) : null;
         
         const blockW = naturalSize ? naturalSize.width : (currentBlock.width ?? def?.defaultWidth ?? V_WIDTH);
         const blockH = naturalSize ? naturalSize.height : currentBlock.height;
@@ -417,7 +417,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
                 if (!block.enabled) return null;
 
                 const activeInstance = instances?.[normType]?.find(i => i.id === block.instanceId) || instances?.[normType]?.[0];
-                const naturalSize = def ? getWidgetNaturalSize(def, symbolSlices, activeInstance) : null;
+                const naturalSize = def ? getWidgetNaturalSize(def, symbolSlices, activeInstance, fontGlyphs, fontMappings) : null;
                 
                 const blockX = block.x ?? def?.defaultPlacement.defaultX ?? 0;
                 const blockW = naturalSize ? naturalSize.width : (block.width ?? def?.defaultWidth ?? V_WIDTH);
@@ -452,7 +452,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
 
             {/* Ghost Snapping Drop Guide during active drag */}
             {isDropTarget && dropTargetY !== null && draggedWidget && (() => {
-              const guideSize = getWidgetNaturalSize(draggedWidget, symbolSlices);
+              const guideSize = getWidgetNaturalSize(draggedWidget, symbolSlices, undefined, fontGlyphs, fontMappings);
               return (
                 <div
                   className="oled-drop-guide"
@@ -484,11 +484,17 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
                 </span>
                 {(() => {
                   const def = getWidgetDefinition(selectedBlock.widgetType || selectedBlock.id);
-                  return def ? (
-                    <span className={`tier-badge-pill tier-${def.tier}`}>
-                      T{def.tier}
-                    </span>
-                  ) : null;
+                  if (!def) return null;
+                  return (
+                    <div className="flex items-center gap-1">
+                      <span className={`tier-badge-pill tier-${def.tier}`}>
+                        T{def.tier}
+                      </span>
+                      {def.requiresMaster && (
+                        <span className="badge-master" title="Requires Central (Master) half in ZMK split">MASTER</span>
+                      )}
+                    </div>
+                  );
                 })()}
               </div>
               <div className="oled-toolbar-actions">

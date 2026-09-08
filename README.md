@@ -29,7 +29,7 @@ Access the studio directly in your browser:
   * Dedicated layout blocks for Battery, Output Status (USB/BLE), Layer indicators, WPM counters & graphs, Branding, Screensavers, and custom text.
   * Independent **Active** and **Idle** screen configurations.
 * **🔄 Round-Trip State Preservation**:
-  * Generates zero-flash-overhead C headers (`custom_display_assets.h`) for ZMK.
+  * Generates zero-flash-overhead C headers (`scyan_assets.h`) for ZMK.
   * Embeds metadata into safe C comment blocks (`ZMK_DISPLAY_STUDIO_METADATA`) allowing you to re-import existing headers without losing studio state.
 * **🐙 GitHub Direct Sync**:
   * Connect your GitHub Personal Access Token (PAT) to directly pull from and commit updates to your `zmk-config` or `zmk-display-core` repository.

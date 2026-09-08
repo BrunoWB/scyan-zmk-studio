@@ -103,7 +103,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
     const newInstanceId = `${activeWidget.id}-${Date.now()}`;
     let initialConfig: import('../types/widget').WidgetInstanceConfig = { mode: 'symbol' };
     if (activeWidget.id === 'wpm-chart') {
-      initialConfig = { mode: 'symbol', wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100 } };
+      initialConfig = { mode: 'symbol', wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 } };
     } else if (activeWidget.id === 'connection') {
       initialConfig = {
         mode: 'symbol',
@@ -244,8 +244,11 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                             instances={instances}
                           />
                         </div>
-                        <div className="widget-nav-meta flex-1 min-w-0">
+                        <div className="widget-nav-meta flex-1 min-w-0 flex items-center justify-between gap-1">
                           <span className="widget-nav-name truncate">{widget.name}</span>
+                          {widget.requiresMaster && (
+                            <span className="badge-master" title="Requires Central (Master) half in ZMK split">MASTER</span>
+                          )}
                         </div>
                       </button>
                     );
@@ -268,6 +271,9 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                 <span className={`px-2 py-0.5 rounded text-[10px] font-mono tier-pill tier-pill-${activeWidget.tier}`}>
                   Tier {activeWidget.tier} · {activeWidget.category}
                 </span>
+                {activeWidget.requiresMaster && (
+                  <span className="badge-master" title="Requires Central (Master) half in ZMK split">MASTER</span>
+                )}
               </div>
               <p className="text-sm text-muted mt-2">{activeWidget.description}</p>
             </div>
@@ -449,7 +455,10 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                       <input type="range" min={0} max={12} value={inst.config?.wpmChart?.gridSize ?? 4} onChange={e => handleUpdateInstanceConfig(inst.id, { wpmChart: { ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100 }), gridSize: parseInt(e.target.value) } })} className="w-full mb-2" />
                       
                       <label className="text-xs text-muted mb-1 block">Target Speed</label>
-                      <input type="number" min={40} max={250} value={inst.config?.wpmChart?.targetSpeed ?? 100} onChange={e => handleUpdateInstanceConfig(inst.id, { wpmChart: { ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100 }), targetSpeed: parseInt(e.target.value) || 100 } })} className="input-text-dark text-xs w-full mb-2" />
+                      <input type="number" min={40} max={250} value={inst.config?.wpmChart?.targetSpeed ?? 100} onChange={e => handleUpdateInstanceConfig(inst.id, { wpmChart: { ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }), targetSpeed: parseInt(e.target.value) || 100 } })} className="input-text-dark text-xs w-full mb-2" />
+                      
+                      <label className="text-xs text-muted mb-1 block">Time Window ({inst.config?.wpmChart?.timeWindow ?? 30}s history)</label>
+                      <input type="range" min={10} max={120} step={5} value={inst.config?.wpmChart?.timeWindow ?? 30} onChange={e => handleUpdateInstanceConfig(inst.id, { wpmChart: { ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }), timeWindow: parseInt(e.target.value) || 30 } })} className="w-full mb-2" />
                     </div>
                   )}
                   

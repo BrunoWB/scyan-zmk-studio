@@ -19,6 +19,7 @@ import {
   Eraser,
   PaintBucket,
   MousePointer2,
+  Move,
   Minus,
   Square,
   Circle,
@@ -70,7 +71,8 @@ export interface BwpxEditorProps {
   selectedSliceIds?: string[];
   pendingSelection?: { x: number; y: number; width: number; height: number } | null;
   onSelectSlice?: (id: string, isMulti?: boolean) => void;
-  onNewSelection?: (rect: { x: number; y: number; width: number; height: number }) => void;
+  onSelectSlices?: (ids: string[]) => void;
+  onNewSelection?: (rect: { x: number; y: number; width: number; height: number } | null) => void;
   onSliceMove?: (sliceId: string, newX: number, newY: number) => void;
   onSlicesMove?: (updates: { id: string; dx: number; dy: number }[]) => void;
   externalTool?: ToolType;
@@ -88,6 +90,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   selectedSliceIds = [],
   pendingSelection = null,
   onSelectSlice,
+  onSelectSlices,
   onNewSelection,
   onSliceMove,
   onSlicesMove,
@@ -100,6 +103,11 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     initialGrid?.clone() ?? new BwpxGrid(initialWidth, initialHeight),
   ]);
   const [historyIndex, setHistoryIndex] = useState<number>(0);
+
+  const historyRef = useRef<BwpxGrid[]>([
+    initialGrid?.clone() ?? new BwpxGrid(initialWidth, initialHeight),
+  ]);
+  const historyIndexRef = useRef<number>(0);
 
   const [activeTool, setActiveTool] = useState<ToolType>(externalTool || 'pencil');
 
@@ -119,6 +127,16 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   const [isSpaceHeld, setIsSpaceHeld] = useState<boolean>(false);
   const [dragCurrentPos, setDragCurrentPos] = useState<{ x: number; y: number } | null>(null);
 
+  // Dynamic tool activation via modifier keys
+  const [isControlHeld, setIsControlHeld] = useState<boolean>(false);
+  const isControlHeldRef = useRef<boolean>(false);
+  const [isShiftHeld, setIsShiftHeld] = useState<boolean>(false);
+  const isShiftHeldRef = useRef<boolean>(false);
+  const [quickMoveMode, setQuickMoveMode] = useState<'drag' | 'zone-select' | null>(null);
+
+  const lastDrawPosRef = useRef<{ x: number; y: number } | null>(null);
+  const strokeModifiedRef = useRef<boolean>(false);
+
   // Selection state
   const [selection, setSelection] = useState<{
     x: number;
@@ -134,17 +152,21 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     pixels: [number, number][]; // relative coords [relX, relY]
     offset: { dx: number; dy: number };
     active: boolean;
+    sliceRects?: { x: number; y: number; w: number; h: number }[];
   } | null>(null);
   const [isInsideSelectionOnDown, setIsInsideSelectionOnDown] = useState<boolean>(false);
 
   const [isPanning, setIsPanning] = useState<boolean>(false);
   
-  // Internal clipboard for skipping image import
-  const [, setInternalClipboard] = useState<{
+  // Internal clipboard for canvas pixel copy
+  const internalClipboardRef = useRef<{
     width: number;
     height: number;
     pixels: [number, number][];
+    copiedAt: number;
   } | null>(null);
+  const lastBlurTimeRef = useRef<number>(0);
+
   const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const [modalContent, setModalContent] = useState<{ title: string; text: string } | null>(null);
@@ -173,8 +195,11 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   const lastCommittedRef = useRef<BwpxGrid | null>(null);
   useEffect(() => {
     if (initialGrid && initialGrid !== lastCommittedRef.current) {
-      setGrid(initialGrid.clone());
-      setHistory([initialGrid.clone()]);
+      const cloned = initialGrid.clone();
+      historyRef.current = [cloned.clone()];
+      historyIndexRef.current = 0;
+      setGrid(cloned);
+      setHistory([cloned.clone()]);
       setHistoryIndex(0);
     }
   }, [initialGrid]);
@@ -232,37 +257,44 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   const commitGridState = useCallback(
     (newGrid: BwpxGrid) => {
       lastCommittedRef.current = newGrid;
-      const nextHistory = history.slice(0, historyIndex + 1);
+      const currentIdx = historyIndexRef.current;
+      const nextHistory = historyRef.current.slice(0, currentIdx + 1);
       nextHistory.push(newGrid.clone());
+      historyRef.current = nextHistory;
+      historyIndexRef.current = nextHistory.length - 1;
       setHistory(nextHistory);
       setHistoryIndex(nextHistory.length - 1);
       setGrid(newGrid);
       onGridChange?.(newGrid);
     },
-    [history, historyIndex, onGridChange]
+    [onGridChange]
   );
 
   const handleUndo = useCallback(() => {
-    if (historyIndex > 0) {
-      const nextIdx = historyIndex - 1;
-      setHistoryIndex(nextIdx);
-      const nextGrid = history[nextIdx].clone();
+    const currentIdx = historyIndexRef.current;
+    if (currentIdx > 0) {
+      const nextIdx = currentIdx - 1;
+      historyIndexRef.current = nextIdx;
+      const nextGrid = historyRef.current[nextIdx].clone();
       lastCommittedRef.current = nextGrid;
+      setHistoryIndex(nextIdx);
       setGrid(nextGrid);
       onGridChange?.(nextGrid);
     }
-  }, [historyIndex, history, onGridChange]);
+  }, [onGridChange]);
 
   const handleRedo = useCallback(() => {
-    if (historyIndex < history.length - 1) {
-      const nextIdx = historyIndex + 1;
-      setHistoryIndex(nextIdx);
-      const nextGrid = history[nextIdx].clone();
+    const currentIdx = historyIndexRef.current;
+    if (currentIdx < historyRef.current.length - 1) {
+      const nextIdx = currentIdx + 1;
+      historyIndexRef.current = nextIdx;
+      const nextGrid = historyRef.current[nextIdx].clone();
       lastCommittedRef.current = nextGrid;
+      setHistoryIndex(nextIdx);
       setGrid(nextGrid);
       onGridChange?.(nextGrid);
     }
-  }, [historyIndex, history, onGridChange]);
+  }, [onGridChange]);
 
   const gridRef = useRef<BwpxGrid>(grid);
   gridRef.current = grid;
@@ -284,6 +316,21 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   commitGridStateRef.current = commitGridState;
   const onNewSelectionRef = useRef(onNewSelection);
   onNewSelectionRef.current = onNewSelection;
+  const onSelectSliceRef = useRef(onSelectSlice);
+  onSelectSliceRef.current = onSelectSlice;
+  const onSelectSlicesRef = useRef(onSelectSlices);
+  onSelectSlicesRef.current = onSelectSlices;
+
+  // Clear free marquee selections when selection tool is deactivated
+  const clearFreeSelections = useCallback(() => {
+    const activeSliceIds = selectedSliceIdsRef.current?.length
+      ? selectedSliceIdsRef.current
+      : (selectedSliceIdRef.current ? [selectedSliceIdRef.current] : []);
+    if (activeSliceIds.length === 0) {
+      setSelection(null);
+    }
+    onNewSelectionRef.current?.(null);
+  }, []);
 
   // Center view on (0, 0) origin with reasonable zoom (manual or once on mount)
   const fitToView = useCallback(() => {
@@ -334,9 +381,68 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     };
   }, [pan, zoom]);
 
-  // Spacebar tracking and Escape cancellation
+  const pastePixelsAsGhost = useCallback((width: number, height: number, pixels: [number, number][]) => {
+    const canvas = canvasRef.current;
+    const pan = panRef.current;
+    const zoom = zoomRef.current;
+    let initialX = 0;
+    let initialY = 0;
+    if (canvas) {
+      initialX = Math.round((-pan.x + canvas.width / 2) / zoom - width / 2);
+      initialY = Math.round((-pan.y + canvas.height / 2) / zoom - height / 2);
+    }
+    const tempGrid = new BwpxGrid(width, height);
+    pixels.forEach(([rx, ry]) => {
+      tempGrid.set(rx, ry, 1);
+    });
+    setGhostPlacement({
+      grid: tempGrid,
+      width,
+      height,
+      pixels,
+      x: initialX,
+      y: initialY,
+    });
+  }, []);
+
+  // Spacebar tracking, modifier keys, Undo/Redo, Copy, and Enter/Escape
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        return;
+      }
+
+      if (e.key === 'Control' || e.key === 'Meta') {
+        if (!isControlHeldRef.current) {
+          isControlHeldRef.current = true;
+          setIsControlHeld(true);
+        }
+      }
+      if (e.key === 'Shift') {
+        if (!isShiftHeldRef.current) {
+          isShiftHeldRef.current = true;
+          setIsShiftHeld(true);
+        }
+      }
+
+      // Undo: Ctrl+Z / Cmd+Z (without Shift)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      // Redo: Ctrl+Y / Cmd+Y or Ctrl+Shift+Z / Cmd+Shift+Z
+      if (
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && e.shiftKey) ||
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y')
+      ) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
       const selection = selectionRef.current;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
         if (selection && selection.active) {
@@ -367,45 +473,27 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
             });
           }
 
-          setInternalClipboard({
+          const clipPayload = {
+            type: 'bwpx-pixels',
             width: selection.w,
             height: selection.h,
             pixels,
-          });
+            copiedAt: Date.now(),
+          };
+          internalClipboardRef.current = clipPayload;
+
+          try {
+            navigator.clipboard.writeText(JSON.stringify(clipPayload));
+          } catch (err) {
+            console.warn('Could not write to system clipboard', err);
+          }
+
           setCopiedNotification(true);
           setTimeout(() => setCopiedNotification(false), 2000);
           return;
         }
       }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
-        setInternalClipboard(clip => {
-          if (clip) {
-            const canvas = canvasRef.current;
-            const pan = panRef.current;
-            const zoom = zoomRef.current;
-            let initialX = 0;
-            let initialY = 0;
-            if (canvas) {
-              initialX = Math.round((-pan.x + canvas.width / 2) / zoom - clip.width / 2);
-              initialY = Math.round((-pan.y + canvas.height / 2) / zoom - clip.height / 2);
-            }
-            const tempGrid = new BwpxGrid(clip.width, clip.height);
-            clip.pixels.forEach(([rx, ry]) => {
-              tempGrid.set(rx, ry, 1);
-            });
-            setGhostPlacement({
-              grid: tempGrid,
-              width: clip.width,
-              height: clip.height,
-              pixels: clip.pixels,
-              x: initialX,
-              y: initialY,
-            });
-          }
-          return clip;
-        });
-        return;
-      }
+
       if (e.code === 'Space' && !e.repeat) {
         setIsSpaceHeld(true);
       }
@@ -419,6 +507,8 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           const targetX = ghost.x;
           const targetY = ghost.y;
           const next = gridRef.current.clone();
+          // Override beneath by clearing rect first
+          next.clearRect({ x: targetX, y: targetY, w: ghost.width, h: ghost.height });
           ghost.pixels.forEach(([rx, ry]) => {
             next.set(targetX + rx, targetY + ry, 1);
           });
@@ -440,20 +530,51 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
         }
       }
     };
+
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
         setIsSpaceHeld(false);
       }
+      if (e.key === 'Control' || e.key === 'Meta') {
+        if (isControlHeldRef.current) {
+          isControlHeldRef.current = false;
+          setIsControlHeld(false);
+          clearFreeSelections();
+        }
+      }
+      if (e.key === 'Shift') {
+        if (isShiftHeldRef.current) {
+          isShiftHeldRef.current = false;
+          setIsShiftHeld(false);
+        }
+      }
     };
+
+    const onBlur = () => {
+      lastBlurTimeRef.current = Date.now();
+      if (isControlHeldRef.current) {
+        isControlHeldRef.current = false;
+        setIsControlHeld(false);
+        clearFreeSelections();
+      }
+      if (isShiftHeldRef.current) {
+        isShiftHeldRef.current = false;
+        setIsShiftHeld(false);
+      }
+      setIsSpaceHeld(false);
+    };
+
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
     };
-  }, []);
+  }, [handleUndo, handleRedo, clearFreeSelections]);
 
-  // Global clipboard paste listener for images (Ctrl+V / Cmd+V)
+  // Global clipboard paste listener with canvas vs external image precedence
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       const target = e.target as HTMLElement;
@@ -461,26 +582,63 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
         return;
       }
 
-      const items = e.clipboardData?.items;
-      if (!items) return;
-
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (item.type.startsWith('image/')) {
-          const file = item.getAsFile();
-          if (file) {
+      // 1. Check if clipboard text contains true canvas pixel copy (bwpx-pixels)
+      const textData = e.clipboardData?.getData('text/plain');
+      if (textData) {
+        try {
+          const parsed = JSON.parse(textData);
+          if (parsed && parsed.type === 'bwpx-pixels' && Array.isArray(parsed.pixels)) {
             e.preventDefault();
-            setPendingImageSource(file);
-            setImportModalOpen(true);
+            pastePixelsAsGhost(parsed.width, parsed.height, parsed.pixels);
             return;
           }
+        } catch {
+          // Not JSON, continue checking
         }
+      }
+
+      // 2. Check if internal canvas copy is newer than last external copy/blur
+      if (internalClipboardRef.current && internalClipboardRef.current.copiedAt > lastBlurTimeRef.current) {
+        e.preventDefault();
+        pastePixelsAsGhost(
+          internalClipboardRef.current.width,
+          internalClipboardRef.current.height,
+          internalClipboardRef.current.pixels
+        );
+        return;
+      }
+
+      // 3. Check for external image file in clipboard items
+      const items = e.clipboardData?.items;
+      if (items) {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          if (item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (file) {
+              e.preventDefault();
+              setPendingImageSource(file);
+              setImportModalOpen(true);
+              return;
+            }
+          }
+        }
+      }
+
+      // 4. Fallback to in-memory canvas pixels if available
+      if (internalClipboardRef.current) {
+        e.preventDefault();
+        pastePixelsAsGhost(
+          internalClipboardRef.current.width,
+          internalClipboardRef.current.height,
+          internalClipboardRef.current.pixels
+        );
       }
     };
 
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, []);
+  }, [pastePixelsAsGhost]);
 
   // Render canvas loop
   const renderCanvas = useCallback(() => {
@@ -548,6 +706,14 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
             y: movingPixels.originalRect.y + movingPixels.offset.dy,
             w: movingPixels.originalRect.w,
             h: movingPixels.originalRect.h,
+            rects: movingPixels.sliceRects
+              ? movingPixels.sliceRects.map(r => ({
+                  x: r.x + movingPixels.offset.dx,
+                  y: r.y + movingPixels.offset.dy,
+                  w: r.w,
+                  h: r.h,
+                }))
+              : undefined,
           }
         : ghostPlacement
         ? {
@@ -574,7 +740,8 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     });
 
     // Hover brush indicator (when not panning, not placing ghost, and using drawing tool)
-    if (hoverPos && !ghostPlacement && !isPanning && activeTool !== 'select') {
+    const isInteractingTool = isControlHeld || isShiftHeld || activeTool === 'select';
+    if (hoverPos && !ghostPlacement && !isPanning && !isInteractingTool) {
       ctx.save();
       ctx.translate(pan.x, pan.y);
       const half = Math.floor(brushSize / 2);
@@ -605,6 +772,8 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     selectedSliceId,
     hoverPos,
     isPanning,
+    isControlHeld,
+    isShiftHeld,
   ]);
 
   useEffect(() => {
@@ -648,10 +817,11 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     // Ghost Placement mode for imported image
     if (ghostPlacement) {
       if (e.button === 0) {
-        // Left click: stamp pixels onto grid
+        // Left click: stamp pixels onto grid, overriding what's beneath
         const targetX = ghostPlacement.x;
         const targetY = ghostPlacement.y;
         const next = grid.clone();
+        next.clearRect({ x: targetX, y: targetY, w: ghostPlacement.width, h: ghostPlacement.height });
         ghostPlacement.pixels.forEach(([rx, ry]) => {
           next.set(targetX + rx, targetY + ry, 1);
         });
@@ -663,7 +833,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           h: ghostPlacement.height,
           active: true,
         });
-        onNewSelection?.({
+        onNewSelectionRef.current?.({
           x: targetX,
           y: targetY,
           width: ghostPlacement.width,
@@ -677,11 +847,6 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       return;
     }
 
-    // Right-click is reserved for context menu; don't start drawing or erase instantly
-    if (e.button === 2) {
-      return;
-    }
-
     // Middle click or spacebar -> Pan
     if (e.button === 1 || isSpaceHeld) {
       setIsPanning(true);
@@ -692,9 +857,104 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     const coords = getGridCoords(e.clientX, e.clientY);
     if (!coords) return;
 
-    // Shift key enables rapid selection
-    if (e.shiftKey) {
-      setActiveTool('select');
+    // Right-clicking is ALWAYS an eraser regardless of active tool!
+    const isErasing = e.button === 2;
+
+    // Quick move tool: activated by Shift key or shift click
+    const isQuickMove = !isErasing && (isShiftHeldRef.current || e.shiftKey);
+    // Selection tool: activated by Control key or external tool
+    const isSelect = !isErasing && !isQuickMove && (isControlHeldRef.current || e.ctrlKey || e.metaKey || activeTool === 'select');
+
+    if (isQuickMove) {
+      // QUICK MOVE TOOL SPECIFICATIONS:
+      // "when clicking with tool if a selection exists underneath add immedialy to active selections and starts drag of current active selections.
+      // If clicking and dragging starts on empty starts outside a selection, on mouse up activate all selections in the zone"
+      const clickedSlice = slicesRef.current?.find(
+        s =>
+          coords.x >= s.x &&
+          coords.x < s.x + s.width &&
+          coords.y >= s.y &&
+          coords.y < s.y + s.height
+      );
+      const isInsideSel = Boolean(
+        selection &&
+        selection.active &&
+        coords.x >= selection.x &&
+        coords.x < selection.x + selection.w &&
+        coords.y >= selection.y &&
+        coords.y < selection.y + selection.h
+      );
+
+      if (clickedSlice || isInsideSel) {
+        // A selection exists underneath!
+        let currentIds = new Set<string>(selectedSliceIdsRef.current || []);
+        if (clickedSlice) {
+          currentIds.add(clickedSlice.id);
+          const allIds = Array.from(currentIds);
+          if (onSelectSlicesRef.current) {
+            onSelectSlicesRef.current(allIds);
+          } else {
+            onSelectSliceRef.current?.(clickedSlice.id, true);
+          }
+        }
+
+        // Calculate combined bounding box
+        const activeSlices = (slicesRef.current || []).filter(s => currentIds.has(s.id));
+        let selRect = selection;
+        let sliceRects: { x: number; y: number; w: number; h: number }[] = [];
+
+        if (activeSlices.length > 0) {
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          activeSlices.forEach(s => {
+            minX = Math.min(minX, s.x);
+            minY = Math.min(minY, s.y);
+            maxX = Math.max(maxX, s.x + s.width);
+            maxY = Math.max(maxY, s.y + s.height);
+            sliceRects.push({ x: s.x, y: s.y, w: s.width, h: s.height });
+          });
+          selRect = { x: minX, y: minY, w: maxX - minX, h: maxY - minY, active: true };
+          setSelection(selRect);
+        } else if (selRect) {
+          sliceRects.push({ x: selRect.x, y: selRect.y, w: selRect.w, h: selRect.h });
+        }
+
+        if (selRect) {
+          // Immediately start drag of current active selections
+          let extracted: [number, number][] = [];
+          const temp = grid.clone();
+
+          if (sliceRects.length > 0) {
+            sliceRects.forEach(sr => {
+              const spx = grid.extractRect(sr);
+              spx.forEach(([rx, ry]) => {
+                extracted.push([sr.x + rx - selRect!.x, sr.y + ry - selRect!.y]);
+              });
+              temp.clearRect(sr);
+            });
+          } else {
+            extracted = grid.extractRect(selRect);
+            temp.clearRect(selRect);
+          }
+
+          setGrid(temp);
+          setMovingPixels({
+            originalRect: { ...selRect },
+            pixels: extracted,
+            offset: { dx: 0, dy: 0 },
+            active: true,
+            sliceRects,
+          });
+          setIsInsideSelectionOnDown(true);
+          setIsDrawing(true);
+          setStartPos(coords);
+          setDragCurrentPos(coords);
+          setQuickMoveMode('drag');
+          return;
+        }
+      }
+
+      // Started outside any selection: zone selection mode
+      setQuickMoveMode('zone-select');
       setIsDrawing(true);
       setStartPos(coords);
       setDragCurrentPos(coords);
@@ -702,7 +962,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       return;
     }
 
-    if (activeTool === 'select') {
+    if (isSelect) {
       const isInside = Boolean(
         selection &&
         selection.active &&
@@ -719,20 +979,23 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       return;
     }
 
-    // Normal drawing tools
+    // Normal drawing or right-click erasing
     setIsDrawing(true);
-    setDrawButton(e.button); // 0 = left draw, 2 = right erase
+    setDrawButton(isErasing ? 2 : 0);
     setStartPos(coords);
     setDragCurrentPos(coords);
+    lastDrawPosRef.current = coords;
+    strokeModifiedRef.current = false;
 
-    if (activeTool === 'pencil' || activeTool === 'eraser') {
+    const val = isErasing || activeTool === 'eraser' ? 0 : 1;
+
+    if (isErasing || activeTool === 'pencil' || activeTool === 'eraser') {
       const temp = grid.clone();
-      const val = e.button === 2 || activeTool === 'eraser' ? 0 : 1;
       drawBrushDot(temp, coords.x, coords.y, val, brushSize);
-      commitGridState(temp);
+      strokeModifiedRef.current = true;
+      setGrid(temp);
     } else if (activeTool === 'bucket') {
       const temp = grid.clone();
-      const val = e.button === 2 ? 0 : 1;
       floodFill(temp, coords.x, coords.y, val);
       commitGridState(temp);
     }
@@ -763,7 +1026,39 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       return;
     }
 
-    if (activeTool === 'select') {
+    // Quick move zone-select marquee drag
+    if (isDrawing && quickMoveMode === 'zone-select' && startPos) {
+      setDragCurrentPos(coords);
+      const minX = Math.min(startPos.x, coords.x);
+      const minY = Math.min(startPos.y, coords.y);
+      const w = Math.abs(coords.x - startPos.x) + 1;
+      const h = Math.abs(coords.y - startPos.y) + 1;
+      setSelection({ x: minX, y: minY, w, h, active: true });
+      return;
+    }
+
+    // Quick move drag or selection drag with active movingPixels
+    if (movingPixels && isDrawing && startPos) {
+      setDragCurrentPos(coords);
+      const dx = coords.x - startPos.x;
+      const dy = coords.y - startPos.y;
+      setMovingPixels(prev => (prev ? { ...prev, offset: { dx, dy } } : null));
+      setSelection(prev =>
+        prev
+          ? {
+              ...prev,
+              x: movingPixels.originalRect.x + dx,
+              y: movingPixels.originalRect.y + dy,
+            }
+          : null
+      );
+      return;
+    }
+
+    const isErasing = drawButton === 2;
+    const isSelect = !isErasing && (isControlHeldRef.current || e.ctrlKey || e.metaKey || activeTool === 'select');
+
+    if (isSelect) {
       if (isDrawing && startPos) {
         setDragCurrentPos(coords);
         const dx = coords.x - startPos.x;
@@ -771,17 +1066,18 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
         const hasMoved = Math.abs(dx) > 0 || Math.abs(dy) > 0;
 
         if (isInsideSelectionOnDown && selection) {
-          // User started drag INSIDE an active selection marquee -> Move pixels!
+          // Started drag inside active selection -> lift & move pixels
           if (!movingPixels && hasMoved) {
-            // Lift pixels now that drag has actually started
             let extracted: [number, number][] = [];
             const temp = grid.clone();
             const activeIds = selectedSliceIds?.length ? selectedSliceIds : (selectedSliceId ? [selectedSliceId] : []);
-            
+            let sliceRects: { x: number; y: number; w: number; h: number }[] = [];
+
             if (activeIds.length > 0 && slices) {
               activeIds.forEach(id => {
                 const s = slices.find(item => item.id === id);
                 if (s) {
+                  sliceRects.push({ x: s.x, y: s.y, w: s.width, h: s.height });
                   const slicePixels = grid.extractRect({
                     x: s.x,
                     y: s.y,
@@ -800,6 +1096,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
                 }
               });
             } else {
+              sliceRects.push({ x: selection.x, y: selection.y, w: selection.w, h: selection.h });
               extracted = grid.extractRect({
                 x: selection.x,
                 y: selection.y,
@@ -820,6 +1117,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
               pixels: extracted,
               offset: { dx, dy },
               active: true,
+              sliceRects,
             });
           } else if (movingPixels) {
             setMovingPixels(prev => (prev ? { ...prev, offset: { dx, dy } } : null));
@@ -837,7 +1135,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           return;
         }
 
-        // Free select marquee (even if started inside an existing sprite!)
+        // Free select marquee
         if (hasMoved) {
           const minX = Math.min(startPos.x, coords.x);
           const minY = Math.min(startPos.y, coords.y);
@@ -854,18 +1152,15 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
     setDragCurrentPos(coords);
 
-    if (activeTool === 'pencil' || activeTool === 'eraser') {
-      const val = drawButton === 2 || activeTool === 'eraser' ? 0 : 1;
-      if (grid.get(coords.x, coords.y) !== val) {
-        const temp = grid.clone();
-        if (startPos) {
-          drawLine(temp, startPos.x, startPos.y, coords.x, coords.y, val, brushSize);
-        } else {
-          drawBrushDot(temp, coords.x, coords.y, val, brushSize);
-        }
-        setStartPos(coords);
-        commitGridState(temp);
-      }
+    // Continuous pencil / eraser drawing without gaps:
+    if (isErasing || activeTool === 'pencil' || activeTool === 'eraser') {
+      const val = isErasing || activeTool === 'eraser' ? 0 : 1;
+      const last = lastDrawPosRef.current || startPos || coords;
+      const temp = grid.clone();
+      drawLine(temp, last.x, last.y, coords.x, coords.y, val, brushSize);
+      lastDrawPosRef.current = coords;
+      strokeModifiedRef.current = true;
+      setGrid(temp);
     }
   };
 
@@ -879,15 +1174,90 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       return;
     }
 
-    // Finished moving selected pixels
+    // Quick move zone-select completion
+    if (quickMoveMode === 'zone-select') {
+      setQuickMoveMode(null);
+      setIsDrawing(false);
+      const endCoords = dragCurrentPos || startPos;
+      if (startPos && endCoords) {
+        const minX = Math.min(startPos.x, endCoords.x);
+        const minY = Math.min(startPos.y, endCoords.y);
+        const w = Math.abs(endCoords.x - startPos.x) + 1;
+        const h = Math.abs(endCoords.y - startPos.y) + 1;
+
+        // Find all slices that intersect this zone
+        const zoneSlices = (slices || []).filter(s =>
+          s.x < minX + w && s.x + s.width > minX &&
+          s.y < minY + h && s.y + s.height > minY
+        );
+
+        if (zoneSlices.length > 0) {
+          const zoneIds = zoneSlices.map(s => s.id);
+          if (onSelectSlicesRef.current) {
+            onSelectSlicesRef.current(zoneIds);
+          } else {
+            zoneIds.forEach(id => onSelectSliceRef.current?.(id, true));
+          }
+          let zMinX = Infinity, zMinY = Infinity, zMaxX = -Infinity, zMaxY = -Infinity;
+          zoneSlices.forEach(s => {
+            zMinX = Math.min(zMinX, s.x);
+            zMinY = Math.min(zMinY, s.y);
+            zMaxX = Math.max(zMaxX, s.x + s.width);
+            zMaxY = Math.max(zMaxY, s.y + s.height);
+          });
+          setSelection({
+            x: zMinX,
+            y: zMinY,
+            w: zMaxX - zMinX,
+            h: zMaxY - zMinY,
+            active: true,
+          });
+        } else {
+          // No slices in zone; clear selection
+          setSelection(null);
+          onSelectSliceRef.current?.('', false);
+        }
+      }
+      setStartPos(null);
+      setDragCurrentPos(null);
+      return;
+    }
+
+    if (quickMoveMode === 'drag') {
+      setQuickMoveMode(null);
+    }
+
+    // Finished moving selected pixels: OVERRIDE WHAT'S BENEATH (black is not transparent)
     if (movingPixels && movingPixels.active) {
       const targetX = movingPixels.originalRect.x + movingPixels.offset.dx;
       const targetY = movingPixels.originalRect.y + movingPixels.offset.dy;
       const next = grid.clone();
+
+      // Clear destination rectangles first so black overrides beneath
+      if (movingPixels.sliceRects && movingPixels.sliceRects.length > 0) {
+        movingPixels.sliceRects.forEach(sr => {
+          next.clearRect({
+            x: sr.x + movingPixels.offset.dx,
+            y: sr.y + movingPixels.offset.dy,
+            w: sr.w,
+            h: sr.h,
+          });
+        });
+      } else {
+        next.clearRect({
+          x: targetX,
+          y: targetY,
+          w: movingPixels.originalRect.w,
+          h: movingPixels.originalRect.h,
+        });
+      }
+
+      // Stamp active pixels
       movingPixels.pixels.forEach(([relX, relY]) => {
         next.set(targetX + relX, targetY + relY, 1);
       });
       commitGridState(next);
+
       setSelection({
         x: targetX,
         y: targetY,
@@ -913,11 +1283,11 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           onSliceMove(matchingSlice.id, targetX, targetY);
         }
       } else if (pendingSelection) {
-        onNewSelection?.({
+        onNewSelectionRef.current?.({
           x: targetX,
           y: targetY,
           width: movingPixels.originalRect.w,
-          height: movingPixels.originalRect.h
+          height: movingPixels.originalRect.h,
         });
       }
 
@@ -929,7 +1299,10 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       return;
     }
 
-    if (isDrawing && activeTool === 'select') {
+    const isErasing = drawButton === 2;
+    const isSelect = !isErasing && (isControlHeldRef.current || e?.ctrlKey || e?.metaKey || activeTool === 'select');
+
+    if (isDrawing && isSelect) {
       const endCoords = dragCurrentPos || startPos;
       const hasDragged =
         startPos && endCoords &&
@@ -949,7 +1322,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
               startPos.y < s.y + s.height
           );
           if (clickedSlice) {
-            onSelectSlice?.(clickedSlice.id, e?.ctrlKey || e?.metaKey);
+            onSelectSliceRef.current?.(clickedSlice.id, e?.ctrlKey || e?.metaKey);
             setSelection({
               x: clickedSlice.x,
               y: clickedSlice.y,
@@ -963,7 +1336,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           }
         }
         // Clicked outside any slice
-        onSelectSlice?.('', e?.ctrlKey || e?.metaKey);
+        onSelectSliceRef.current?.('', e?.ctrlKey || e?.metaKey);
         setSelection(null);
         setStartPos(null);
         setDragCurrentPos(null);
@@ -978,16 +1351,22 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
         const h = Math.abs(endCoords.y - startPos.y) + 1;
 
         setSelection({ x: minX, y: minY, w, h, active: true });
-        onNewSelection?.({ x: minX, y: minY, width: w, height: h });
+        onNewSelectionRef.current?.({ x: minX, y: minY, width: w, height: h });
         setStartPos(null);
         setDragCurrentPos(null);
         return;
       }
     }
 
+    // Commit single stroke to history on mouseUp if modified
+    if (strokeModifiedRef.current) {
+      commitGridState(grid);
+      strokeModifiedRef.current = false;
+    }
+
     // Finished dragging a geometric shape
-    if (isDrawing && startPos && dragCurrentPos) {
-      const val = drawButton === 2 ? 0 : 1;
+    if (isDrawing && startPos && dragCurrentPos && !isErasing) {
+      const val = 1;
       const temp = grid.clone();
 
       if (activeTool !== 'pencil' && activeTool !== 'eraser' && activeTool !== 'bucket' && activeTool !== 'select') {
@@ -1033,6 +1412,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     setIsDrawing(false);
     setStartPos(null);
     setDragCurrentPos(null);
+    lastDrawPosRef.current = null;
   };
 
   // Zoom with mouse wheel centered at cursor (non-passive to allow preventDefault safely)
@@ -1073,7 +1453,12 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     if (ghostPlacement) return 'copy';
     if (isPanning) return 'grabbing';
     if (isSpaceHeld) return 'grab';
-    if (activeTool === 'select') {
+    const effectiveTool = isControlHeld ? 'select' : (isShiftHeld ? 'move' : activeTool);
+    if (effectiveTool === 'move') {
+      if (movingPixels && movingPixels.active) return 'grabbing';
+      return 'grab';
+    }
+    if (effectiveTool === 'select') {
       if (movingPixels && movingPixels.active) return 'grabbing';
       if (
         hoverPos &&
@@ -1217,9 +1602,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     e.preventDefault();
     if (ghostPlacement) {
       setGhostPlacement(null);
-      return;
     }
-    setContextMenu({ x: e.clientX, y: e.clientY });
   };
 
   const handleContextMenuPaste = async () => {
@@ -1401,39 +1784,45 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
           <button
             onClick={() => setActiveTool('pencil')}
-            className={`bwpx-tool-btn ${activeTool === 'pencil' ? 'active' : ''}`}
+            className={`bwpx-tool-btn ${activeTool === 'pencil' && !isControlHeld && !isShiftHeld ? 'active' : ''}`}
             title="Pencil (Left click draws)"
           >
             <Pencil size={15} />
           </button>
 
           <div className="has-tooltip">
-            <button
-              onClick={() => setActiveTool('eraser')}
-              className={`bwpx-tool-btn ${activeTool === 'eraser' ? 'active' : ''}`}
-            >
+            <div className="bwpx-tool-btn bwpx-tool-btn-hint" title="Right click">
               <Eraser size={15} />
-            </button>
-            <div className="tooltip">Right-click to erase</div>
+            </div>
+            <div className="tooltip">Right click</div>
           </div>
 
           <button
             onClick={() => setActiveTool('bucket')}
-            className={`bwpx-tool-btn ${activeTool === 'bucket' ? 'active' : ''}`}
+            className={`bwpx-tool-btn ${activeTool === 'bucket' && !isControlHeld && !isShiftHeld ? 'active' : ''}`}
             title="Flood Fill Bucket"
           >
             <PaintBucket size={15} />
           </button>
 
           <div className="has-tooltip">
-            <button
-              onClick={() => setActiveTool('select')}
-              className={`bwpx-tool-btn tool-select ${activeTool === 'select' ? 'active' : ''}`}
-              title="Selection Tool (Click to select slice, drag to free-select or move)"
+            <div
+              className={`bwpx-tool-btn bwpx-tool-btn-hint tool-select ${isControlHeld ? 'active' : ''}`}
+              title="Control click"
             >
               <MousePointer2 size={15} />
-            </button>
-            <div className="tooltip">Click slice / Drag select</div>
+            </div>
+            <div className="tooltip">Control click</div>
+          </div>
+
+          <div className="has-tooltip">
+            <div
+              className={`bwpx-tool-btn bwpx-tool-btn-hint ${isShiftHeld ? 'active' : ''}`}
+              title="Shift click"
+            >
+              <Move size={15} />
+            </div>
+            <div className="tooltip">Shift click</div>
           </div>
 
           <div className="bwpx-h-divider" />
@@ -1556,7 +1945,9 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
               Ghost Drag: Click to stamp, Esc or Right-click to cancel
             </span>
           ) : (
-            <span className="bwpx-status-tool">{activeTool}</span>
+            <span className="bwpx-status-tool">
+              {isControlHeld ? 'select (ctrl)' : (isShiftHeld ? 'quick-move (shift)' : (drawButton === 2 ? 'eraser' : activeTool))}
+            </span>
           )}
           <span>
             Pos:{' '}

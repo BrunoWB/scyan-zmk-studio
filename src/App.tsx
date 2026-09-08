@@ -9,14 +9,16 @@ import type {
 import type { WidgetInstanceMap, WidgetInstance } from './types/widget';
 import { WIDGET_REGISTRY } from './services/widgetRegistry';
 import {
-  DEFAULT_SYMBOL_SLICES,
-  DEFAULT_FONT_GLYPHS,
-  DEFAULT_FONT_MAPPINGS,
   DEFAULT_LEFT_LAYOUT_BLOCKS,
   DEFAULT_RIGHT_LAYOUT_BLOCKS,
 } from './types/zmk';
-import { createDefaultSymbolsGrid, createDefaultFontGrid } from './services/defaultAssets';
-import { parseCHeader, generateCHeader, type HeaderMetadata, type ParsedAssets } from './services/cHeaderParser';
+import {
+  parseCHeader,
+  generateCHeader,
+  getDefaultAssets,
+  type HeaderMetadata,
+  type ParsedAssets,
+} from './services/cHeaderParser';
 import type {
   GitHubRepoConfig,
   GitHubConnectionState,
@@ -28,6 +30,9 @@ import {
   commitFileToRepo,
   verifyGitHubConnection,
   clearStoredGitHubToken,
+  checkRepoPrerequisites,
+  installScyanStudioToRepo,
+  type RepoPrerequisites,
 } from './services/githubService';
 import { HeaderBar } from './components/HeaderBar';
 import { OledPreviewTab } from './tabs/OledPreviewTab';
@@ -46,6 +51,7 @@ import {
   AlertCircle,
   RefreshCw,
   Settings,
+  Unplug,
 } from 'lucide-react';
 import './App.css';
 
@@ -67,32 +73,35 @@ export function App() {
   // Loading overlay state: keep true until repository data (or defaults fallback) is loaded
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
 
-  // Core Bitmaps & Descriptors (starts empty with no preloaded content until repo or defaults resolve)
-  const [symbolsGrid, setSymbolsGrid] = useState<BwpxGrid>(() => new BwpxGrid(128, 34));
-  const [symbolSlices, setSymbolSlices] = useState<SpriteSlice[]>([]);
-  const [fontGrid, setFontGrid] = useState<BwpxGrid>(() => new BwpxGrid(128, 22));
-  const [fontGlyphs, setFontGlyphs] = useState<FontGlyph[]>([]);
-  const [fontMappings, setFontMappings] = useState<FontCharMapping[]>([]);
+  // Core Bitmaps & Descriptors (initialized directly from canonical scyan_assets.install.h)
+  const [symbolsGrid, setSymbolsGrid] = useState<BwpxGrid>(() => getDefaultAssets().symbolsGrid);
+  const [symbolSlices, setSymbolSlices] = useState<SpriteSlice[]>(() => getDefaultAssets().symbolSlices);
+  const [fontGrid, setFontGrid] = useState<BwpxGrid>(() => getDefaultAssets().fontGrid);
+  const [fontGlyphs, setFontGlyphs] = useState<FontGlyph[]>(() => getDefaultAssets().fontGlyphs);
+  const [fontMappings, setFontMappings] = useState<FontCharMapping[]>(() => getDefaultAssets().fontMappings);
   const [leftBlocks, setLeftBlocks] = useState<LayoutBlock[]>(() => {
     try {
       const saved = localStorage.getItem('zmk-left-blocks');
       if (saved) return JSON.parse(saved);
     } catch {}
-    return [...DEFAULT_LEFT_LAYOUT_BLOCKS];
+    const def = getDefaultAssets();
+    return def.metadata?.leftBlocks?.length ? def.metadata.leftBlocks : [...DEFAULT_LEFT_LAYOUT_BLOCKS];
   });
   const [rightBlocks, setRightBlocks] = useState<LayoutBlock[]>(() => {
     try {
       const saved = localStorage.getItem('zmk-right-blocks');
       if (saved) return JSON.parse(saved);
     } catch {}
-    return [...DEFAULT_RIGHT_LAYOUT_BLOCKS];
+    const def = getDefaultAssets();
+    return def.metadata?.rightBlocks?.length ? def.metadata.rightBlocks : [...DEFAULT_RIGHT_LAYOUT_BLOCKS];
   });
   const [idleLeftBlocks, setIdleLeftBlocks] = useState<LayoutBlock[]>(() => {
     try {
       const saved = localStorage.getItem('zmk-idle-left-blocks');
       if (saved) return JSON.parse(saved);
     } catch {}
-    return [
+    const def = getDefaultAssets();
+    return def.metadata?.idleLeftBlocks?.length ? def.metadata.idleLeftBlocks : [
       { id: 'idle-left-art', widgetType: 'screensaver', name: 'Mascot Image', x: 3, y: 35, width: 26, height: 26, enabled: true, side: 'left' }
     ];
   });
@@ -101,7 +110,8 @@ export function App() {
       const saved = localStorage.getItem('zmk-idle-right-blocks');
       if (saved) return JSON.parse(saved);
     } catch {}
-    return [
+    const def = getDefaultAssets();
+    return def.metadata?.idleRightBlocks?.length ? def.metadata.idleRightBlocks : [
       { id: 'idle-right-art', widgetType: 'screensaver', name: 'Mascot Image', x: 3, y: 35, width: 26, height: 26, enabled: true, side: 'right' }
     ];
   });
@@ -110,7 +120,8 @@ export function App() {
       const saved = localStorage.getItem('zmk-screen-dimensions');
       if (saved) return JSON.parse(saved);
     } catch {}
-    return { width: 32, height: 128 };
+    const def = getDefaultAssets();
+    return def.metadata?.screenDimensions || { width: 32, height: 128 };
   });
 
   useEffect(() => {
@@ -240,14 +251,6 @@ export function App() {
     }
   }, []);
 
-  const applyDefaults = useCallback(() => {
-    setSymbolsGrid(createDefaultSymbolsGrid());
-    setSymbolSlices([...DEFAULT_SYMBOL_SLICES]);
-    setFontGrid(createDefaultFontGrid());
-    setFontGlyphs([...DEFAULT_FONT_GLYPHS]);
-    setFontMappings([...DEFAULT_FONT_MAPPINGS]);
-  }, []);
-
   const applyParsedAssets = useCallback((parsed: ParsedAssets) => {
     setSymbolsGrid(parsed.symbolsGrid);
     setSymbolSlices(parsed.symbolSlices);
@@ -278,6 +281,10 @@ export function App() {
     }
   }, []);
 
+  const applyDefaults = useCallback(() => {
+    applyParsedAssets(getDefaultAssets());
+  }, [applyParsedAssets]);
+
   // GitHub integration & Connection State
   const [config, setConfig] = useState<GitHubRepoConfig>(getStoredGitHubConfig());
   const [connection, setConnection] = useState<GitHubConnectionState>({
@@ -295,7 +302,9 @@ export function App() {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(() => localStorage.getItem('zmk_builder_last_saved_at'));
   const [currentSha, setCurrentSha] = useState<string | undefined>(undefined);
-  const [currentHeaderPath, setCurrentHeaderPath] = useState<string>('config/custom_display_assets.h');
+  const [currentHeaderPath, setCurrentHeaderPath] = useState<string>('config/scyan_assets.h');
+  const [repoPrereqs, setRepoPrereqs] = useState<RepoPrerequisites | null>(null);
+  const [isInstallingStudio, setIsInstallingStudio] = useState<boolean>(false);
   const [syncTrigger, setSyncTrigger] = useState<number>(0);
   const autoSyncedRepoRef = useRef<string | null>(null);
 
@@ -345,7 +354,7 @@ export function App() {
     return result;
   }, []);
 
-  // Initial startup: verify connection, fetch repo custom_display_assets.h, or load factory defaults
+  // Initial startup: verify connection, fetch repo scyan_assets.h, or load factory defaults
   useEffect(() => {
     let isCancelled = false;
 
@@ -364,6 +373,7 @@ export function App() {
           resolvedOwner: null,
           resolvedRepo: null,
         });
+        setRepoPrereqs(null);
         if (!isCancelled) {
           setIsInitialLoading(false);
         }
@@ -381,28 +391,35 @@ export function App() {
             const activeBranch = connResult.repo?.defaultBranch || config.branch || 'main';
             const fetchConfig = { ...config, owner: activeOwner, repo: activeRepo, branch: activeBranch };
 
-            const fileData = await fetchFileFromRepo(fetchConfig, 'include/custom_display_assets.h');
+            // Check if repo has module and config installed
+            const prereqs = await checkRepoPrerequisites(fetchConfig);
             if (isCancelled) return;
+            setRepoPrereqs(prereqs);
 
-            if (fileData.content) {
-              const parsed = parseCHeader(fileData.content);
-              applyParsedAssets(parsed);
-              setCurrentSha(fileData.sha);
-              if (fileData.resolvedPath) {
-                setCurrentHeaderPath(fileData.resolvedPath);
+            if (prereqs.hasAssetsHeader) {
+              const fileData = await fetchFileFromRepo(fetchConfig, 'config/scyan_assets.h');
+              if (isCancelled) return;
+
+              if (fileData.content) {
+                const parsed = parseCHeader(fileData.content);
+                applyParsedAssets(parsed);
+                setCurrentSha(fileData.sha);
+                if (fileData.resolvedPath) {
+                  setCurrentHeaderPath(fileData.resolvedPath);
+                }
+                localStorage.setItem('zmk_builder_cached_header', fileData.content);
+                showToast('success', `Loaded display assets from ${activeOwner}/${activeRepo}!`);
+              } else {
+                applyDefaults();
               }
-              localStorage.setItem('zmk_builder_cached_header', fileData.content);
-              showToast('success', `Loaded display assets from ${activeOwner}/${activeRepo}!`);
             } else {
               applyDefaults();
             }
           } catch {
-            // First time setting up Scyan ZMK: no custom_display_assets.h in repo yet
-            console.info('No custom_display_assets.h in repo (first time setup). Loading defaults.');
+            console.info('No scyan_assets.h in repo (first time setup). Loading defaults.');
             applyDefaults();
           }
         } else {
-          // Connection failed, load defaults
           applyDefaults();
         }
       } catch (err) {
@@ -439,23 +456,31 @@ export function App() {
     const syncRepoAssets = async () => {
       try {
         setIsSyncing(true);
-        const fileData = await fetchFileFromRepo(config, 'include/custom_display_assets.h');
+        const prereqs = await checkRepoPrerequisites(config);
         if (!isMounted) return;
+        setRepoPrereqs(prereqs);
 
-        if (fileData.content) {
-          const parsed = parseCHeader(fileData.content);
-          applyParsedAssets(parsed);
-          setCurrentSha(fileData.sha);
-          if (fileData.resolvedPath) {
-            setCurrentHeaderPath(fileData.resolvedPath);
+        if (prereqs.hasAssetsHeader) {
+          const fileData = await fetchFileFromRepo(config, 'config/scyan_assets.h');
+          if (!isMounted) return;
+
+          if (fileData.content) {
+            const parsed = parseCHeader(fileData.content);
+            applyParsedAssets(parsed);
+            setCurrentSha(fileData.sha);
+            if (fileData.resolvedPath) {
+              setCurrentHeaderPath(fileData.resolvedPath);
+            }
+            localStorage.setItem('zmk_builder_cached_header', fileData.content);
+            showToast('success', `Loaded display assets from ${config.owner}/${config.repo}!`);
+          } else {
+            applyDefaults();
           }
-          localStorage.setItem('zmk_builder_cached_header', fileData.content);
-          showToast('success', `Loaded display assets from ${config.owner}/${config.repo}!`);
         } else {
           applyDefaults();
         }
       } catch (err: any) {
-        console.info('Repository does not contain custom_display_assets.h yet. Keeping defaults.', err);
+        console.info('Repository does not contain scyan_assets.h yet. Keeping defaults.', err);
       } finally {
         if (isMounted) {
           setIsSyncing(false);
@@ -526,8 +551,10 @@ export function App() {
   };
 
   const isConnected = connection.status === 'connected';
+  const isStudioInstalled = isConnected && Boolean(repoPrereqs?.isInstalled);
+  const isPlaygroundMode = !isConnected || !isStudioInstalled;
 
-  // Handle Tab navigation with URL hash update
+  // Handle Tab navigation (open to all as interactive playground)
   const handleTabClick = (tabKey: TabType) => {
     setActiveTab(tabKey);
     window.location.hash = tabKey;
@@ -546,25 +573,69 @@ export function App() {
       setSyncTrigger(prev => prev + 1);
 
       try {
-        const fileData = await fetchFileFromRepo(config, 'include/custom_display_assets.h');
-        const parsed = parseCHeader(fileData.content);
-        applyParsedAssets(parsed);
-        setCurrentSha(fileData.sha);
-        if (fileData.resolvedPath) {
-          setCurrentHeaderPath(fileData.resolvedPath);
+        const prereqs = await checkRepoPrerequisites(config);
+        setRepoPrereqs(prereqs);
+
+        if (prereqs.hasAssetsHeader) {
+          const fileData = await fetchFileFromRepo(config, 'config/scyan_assets.h');
+          const parsed = parseCHeader(fileData.content);
+          applyParsedAssets(parsed);
+          setCurrentSha(fileData.sha);
+          if (fileData.resolvedPath) {
+            setCurrentHeaderPath(fileData.resolvedPath);
+          }
+          localStorage.setItem('zmk_builder_cached_header', fileData.content);
+          showToast('success', `Synced display assets from ${config.owner}/${config.repo}!`);
+        } else {
+          showToast('success', `Synced repository from ${config.owner}/${config.repo}! (Display assets not installed yet)`);
         }
-        localStorage.setItem('zmk_builder_cached_header', fileData.content);
-        showToast('success', `Synced display assets from ${config.owner}/${config.repo}!`);
       } catch (assetErr: any) {
-        // If include/custom_display_assets.h does not exist yet in the repo, that is normal for fresh ZMK repos!
-        console.warn('No custom_display_assets.h found in repo yet:', assetErr);
-        showToast('success', `Synced repository from ${config.owner}/${config.repo}! (Display assets header not present yet)`);
+        console.warn('Sync failed:', assetErr);
+        showToast('error', `Sync failed: ${assetErr.message || 'Could not fetch file'}`);
       }
     } catch (err: any) {
       console.error('Sync failed:', err);
       showToast('error', `Sync failed: ${err.message || 'Could not fetch file'}`);
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  // One-click installation of Scyan Studio into connected repository
+  const handleInstallStudio = async () => {
+    if (!isConnected || !config.token || !config.owner || !config.repo) {
+      setIsSettingsOpen(true);
+      showToast('error', 'Connect your GitHub repository before installing.');
+      return;
+    }
+
+    try {
+      setIsInstallingStudio(true);
+      const metadata: HeaderMetadata = {
+        version: 1,
+        leftBlocks,
+        rightBlocks,
+        idleLeftBlocks,
+        idleRightBlocks,
+        screenDimensions,
+        widgetInstances,
+      };
+      const defaultC = generateCHeader(symbolsGrid, symbolSlices, fontGrid, fontMappings, metadata);
+      const res = await installScyanStudioToRepo(config, defaultC);
+
+      // Re-verify prerequisites
+      const updatedPrereqs = await checkRepoPrerequisites(config);
+      setRepoPrereqs(updatedPrereqs);
+      setCurrentSha(res.commitSha);
+      setCurrentHeaderPath('config/scyan_assets.h');
+      localStorage.setItem('zmk_builder_cached_header', defaultC);
+
+      showToast('success', `Scyan Studio successfully installed in ${config.owner}/${config.repo}! Firmware build started in GitHub Actions.`);
+    } catch (err: any) {
+      console.error('Failed to install Scyan Studio:', err);
+      showToast('error', `Installation failed: ${err.message || 'Check repository permissions'}`);
+    } finally {
+      setIsInstallingStudio(false);
     }
   };
 
@@ -602,14 +673,12 @@ export function App() {
         widgetInstances,
       };
       const generatedC = generateCHeader(symbolsGrid, symbolSlices, fontGrid, fontMappings, metadata);
-      const targetPath = config.repo === 'zmk-display-core'
-        ? 'include/custom_display_assets.h'
-        : (currentHeaderPath || 'config/custom_display_assets.h');
+      const targetPath = currentHeaderPath || 'config/scyan_assets.h';
       const commitRes = await commitFileToRepo(
         config,
         targetPath,
         generatedC,
-        'feat(display): update 2-Atlas display spritesheets & glyph tables via ZMK Display Studio',
+        'feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio',
         currentSha
       );
       setCurrentSha(commitRes.sha);
@@ -651,19 +720,23 @@ export function App() {
         isSettingsOpen={isSettingsOpen}
         setIsSettingsOpen={setIsSettingsOpen}
         showToast={showToast}
+        repoPrereqs={repoPrereqs}
+        isInstallingStudio={isInstallingStudio}
+        onInstallStudio={handleInstallStudio}
       />
 
       {/* Main Tab Navigation Bar with Locked State indicator */}
       <div className="tabs-nav-bar">
         <div className="tabs-group">
-          {/* Tab 1: Always accessible */}
+          {/* Tab 1: Preview */}
           <button
             className={`tab-btn ${activeTab === 'preview' ? 'active' : ''}`}
             onClick={() => handleTabClick('preview')}
-            title="OLED Preview & Corne Simulator (Always Available)"
+            title="OLED Preview & Corne Simulator"
           >
             <Monitor size={15} />
             <span>Preview</span>
+            {isPlaygroundMode && <Unplug size={12} className="tab-disconnect-icon" />}
           </button>
 
           {/* Tab 2: Symbols Atlas */}
@@ -674,6 +747,7 @@ export function App() {
           >
             <Shapes size={15} />
             <span>Symbols Atlas</span>
+            {isPlaygroundMode && <Unplug size={12} className="tab-disconnect-icon" />}
           </button>
 
           {/* Tab 3: Font Atlas */}
@@ -684,6 +758,7 @@ export function App() {
           >
             <Type size={15} />
             <span>Font Atlas</span>
+            {isPlaygroundMode && <Unplug size={12} className="tab-disconnect-icon" />}
           </button>
 
           {/* Tab 4: Widgets */}
@@ -694,6 +769,7 @@ export function App() {
           >
             <Sliders size={15} />
             <span>Widgets</span>
+            {isPlaygroundMode && <Unplug size={12} className="tab-disconnect-icon" />}
           </button>
 
           {/* Tab 5: Blocks */}
@@ -705,6 +781,7 @@ export function App() {
             >
               <LayoutGrid size={15} />
               <span>Blocks</span>
+              {isPlaygroundMode && <Unplug size={12} className="tab-disconnect-icon" />}
             </button>
             <button
               className={`tab-blocks-gear-btn ${isScreenSettingsOpen ? 'active' : ''}`}

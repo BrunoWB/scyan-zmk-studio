@@ -15,6 +15,7 @@ import {
   interpolateTemplate,
   PUNCTUATION_3X5,
   getWidgetNaturalSize,
+  measureTextWidth,
 } from '../widgetRegistry';
 import {
   DEFAULT_LEFT_LAYOUT_BLOCKS,
@@ -25,7 +26,7 @@ import {
   DEFAULT_FONT_MAPPINGS,
   type SpriteSlice,
 } from '../../types/zmk';
-import { createDefaultSymbolsGrid, createDefaultFontGrid } from '../defaultAssets';
+import { getDefaultAssets } from '../cHeaderParser';
 import type { WidgetRenderContext } from '../../types/widget';
 
 describe('Widget Registry - Single Source of Truth', () => {
@@ -34,8 +35,9 @@ describe('Widget Registry - Single Source of Truth', () => {
   let renderContext: WidgetRenderContext;
 
   beforeEach(() => {
-    symbolsGrid = createDefaultSymbolsGrid();
-    fontGrid = createDefaultFontGrid();
+    const defaults = getDefaultAssets();
+    symbolsGrid = defaults.symbolsGrid;
+    fontGrid = defaults.fontGrid;
     renderContext = {
       symbolsGrid,
       symbolSlices: DEFAULT_SYMBOL_SLICES,
@@ -179,6 +181,112 @@ describe('Widget Registry - Single Source of Truth', () => {
     });
     // With gridSize: 0, there is no outer border, so (0,0) is likely 0, but there's a chart drawn.
     expect(gridNoBorder.get(0, 0)).toBe(0);
+    // Baseline is drawn at bottom row y = 23
+    expect(gridNoBorder.get(0, 23)).toBe(1);
+    expect(gridNoBorder.get(31, 23)).toBe(1);
+  });
+
+  it('renders wpm-chart heartbeat where rightmost column matches current wpm and respects wpmHistory', () => {
+    const gridMax = new BwpxGrid(32, 24);
+    renderWidgetById('wpm-chart', gridMax, 0, {
+      ...renderContext,
+      wpm: 100,
+      activeInstanceId: 'inst_wpm_chart_pulse',
+      instances: {
+        'wpm-chart': [{
+          id: 'inst_wpm_chart_pulse',
+          widgetTypeId: 'wpm-chart',
+          label: 'WPM Pulse',
+          config: { mode: 'symbol', wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 } },
+          slots: {}
+        }]
+      }
+    });
+    // With targetSpeed: 100, border: 1, inner_w = 30 (x=1..30).
+    // Rightmost column is x = 30.
+    // At wpm = 100, yPlot = chartY + 0 = 1 (top inner row).
+    expect(gridMax.get(30, 1)).toBe(1);
+
+    const gridMin = new BwpxGrid(32, 24);
+    renderWidgetById('wpm-chart', gridMin, 0, {
+      ...renderContext,
+      wpm: 0,
+      activeInstanceId: 'inst_wpm_chart_pulse',
+      instances: {
+        'wpm-chart': [{
+          id: 'inst_wpm_chart_pulse',
+          widgetTypeId: 'wpm-chart',
+          label: 'WPM Pulse',
+          config: { mode: 'symbol', wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 } },
+          slots: {}
+        }]
+      }
+    });
+    // At wpm = 0, yPlot = chartY + innerH - 1 = 1 + 21 = 22 (bottom inner row).
+    expect(gridMin.get(30, 22)).toBe(1);
+
+    // Test with explicit wpmHistory
+    const gridHist = new BwpxGrid(32, 24);
+    const customHistory = new Array(30).fill(0);
+    customHistory[customHistory.length - 1] = 80; // age 1 was 80
+    renderWidgetById('wpm-chart', gridHist, 0, {
+      ...renderContext,
+      wpm: 20,
+      wpmHistory: customHistory,
+      activeInstanceId: 'inst_wpm_chart_pulse',
+      instances: {
+        'wpm-chart': [{
+          id: 'inst_wpm_chart_pulse',
+          widgetTypeId: 'wpm-chart',
+          label: 'WPM Pulse',
+          config: { mode: 'symbol', wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 } },
+          slots: {}
+        }]
+      }
+    });
+    // Rightmost column (x=30) should be at wpm=20
+    const expectedYNow = 1 + 21 - Math.round((20 * 21) / 100);
+    expect(gridHist.get(30, expectedYNow)).toBe(1);
+  });
+
+  it('wpm-chart respects blockWidth and blockHeight when smaller than config', () => {
+    const gridBlock = new BwpxGrid(32, 32);
+    renderWidgetById('wpm-chart', gridBlock, 0, {
+      ...renderContext,
+      wpm: 50,
+      blockWidth: 24,
+      blockHeight: 18,
+      activeInstanceId: 'inst_wpm_chart_36',
+      instances: {
+        'wpm-chart': [{
+          id: 'inst_wpm_chart_36',
+          widgetTypeId: 'wpm-chart',
+          label: 'WPM Chart',
+          config: { mode: 'symbol', wpmChart: { width: 36, height: 30, gridSize: 4, targetSpeed: 100, timeWindow: 30 } },
+          slots: {}
+        }]
+      }
+    });
+    // With blockWidth 24, right border should be at x = 23 (not x = 35)
+    expect(gridBlock.get(23, 0)).toBe(1);
+    expect(gridBlock.get(23, 17)).toBe(1);
+    // x = 24 should NOT have border pixels
+    expect(gridBlock.get(24, 0)).toBe(0);
+  });
+
+  it('marks requiresMaster correctly on central-dependent widgets', () => {
+    expect(getWidgetDefinition('connection')?.requiresMaster).toBe(true);
+    expect(getWidgetDefinition('caps-lock')?.requiresMaster).toBe(true);
+    expect(getWidgetDefinition('layer-banner')?.requiresMaster).toBe(true);
+    expect(getWidgetDefinition('wpm')?.requiresMaster).toBe(true);
+    expect(getWidgetDefinition('wpm-chart')?.requiresMaster).toBe(true);
+
+    // Peripheral-capable widgets should not require master
+    expect(getWidgetDefinition('battery')?.requiresMaster).toBeFalsy();
+    expect(getWidgetDefinition('split')?.requiresMaster).toBeFalsy();
+    expect(getWidgetDefinition('branding')?.requiresMaster).toBeFalsy();
+    expect(getWidgetDefinition('screensaver')?.requiresMaster).toBeFalsy();
+    expect(getWidgetDefinition('bongo')?.requiresMaster).toBeFalsy();
   });
 
   it('renders full screen layout blocks in Y order', () => {
@@ -732,11 +840,11 @@ describe('Widget Registry - Single Source of Truth', () => {
           textEntries: ['SCYAN'],
         },
       };
-      const size = getWidgetNaturalSize(def, DEFAULT_SYMBOL_SLICES, textInst);
-      // 'SCYAN' (5 chars) takes ~23px wide and 5px high
+      const size = getWidgetNaturalSize(def, DEFAULT_SYMBOL_SLICES, textInst, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS);
+      // 'SCYAN': S(5) + C(5) + Y(6) + A(5) + N(4) = 25px wide ink extent, 5px high
       expect(size.height).toBe(5);
-      expect(size.width).toBeLessThanOrEqual(32);
-      expect(size.width).toBeGreaterThan(15);
+      expect(size.width).toBe(25);
+      expect(measureTextWidth('SCYAN', DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS, 'small')).toBe(25);
     });
 
     it('renders Bongo Cat widget reacting to bongoState (idle, left tap, right tap)', () => {
@@ -801,6 +909,32 @@ describe('Widget Registry - Single Source of Truth', () => {
       // 3. Natural size
       const naturalSize = getWidgetNaturalSize(bongoDef, bongoSlices, bongoInst);
       expect(naturalSize).toEqual({ width: 20, height: 16 });
+    });
+
+    it('computes content-tight natural size for WPM widget in symbol and font modes', () => {
+      const wpmDef = getWidgetDefinition('wpm')!;
+      const speedoSlices: SpriteSlice[] = [
+        { id: 'SPEEDO_0', groupId: 'SPEEDO', groupOrder: 1, x: 0, y: 0, width: 27, height: 5 },
+        { id: 'SPEEDO_1', groupId: 'SPEEDO', groupOrder: 2, x: 0, y: 5, width: 27, height: 5 },
+      ];
+
+      // Symbol mode with speedometer
+      const symbolInst = {
+        id: 'inst-wpm-sym',
+        widgetTypeId: 'wpm',
+        label: 'WPM Gauge',
+        config: { mode: 'symbol' as const, groupId: 'SPEEDO' },
+      };
+      expect(getWidgetNaturalSize(wpmDef, speedoSlices, symbolInst)).toEqual({ width: 27, height: 5 });
+
+      // Font mode with digits
+      const fontInst = {
+        id: 'inst-wpm-font',
+        widgetTypeId: 'wpm',
+        label: 'WPM Digits',
+        config: { mode: 'font' as const },
+      };
+      expect(getWidgetNaturalSize(wpmDef, speedoSlices, fontInst)).toEqual({ width: 24, height: 10 });
     });
   });
 });

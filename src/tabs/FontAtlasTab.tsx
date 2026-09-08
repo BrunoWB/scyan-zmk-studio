@@ -95,7 +95,8 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
     onFontMappingsChange(next);
   };
 
-  const handleNewSelection = (rect: { x: number; y: number; width: number; height: number }) => {
+  const handleNewSelection = (rect: { x: number; y: number; width: number; height: number } | null) => {
+    if (!rect) return;
     if (assigningSlot) {
       const next = fontMappings.map(m => {
         if (m.id !== assigningSlot.mappingId) return m;
