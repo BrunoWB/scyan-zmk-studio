@@ -22,7 +22,8 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
   slices,
   onSlicesChange,
 }) => {
-  const [selectedSliceId, setSelectedSliceId] = useState<string>(slices[0]?.id || '');
+  const [selectedSliceIds, setSelectedSliceIds] = useState<Set<string>>(new Set(slices[0] ? [slices[0].id] : []));
+  const selectedSliceId = Array.from(selectedSliceIds)[0] || '';
   const [newSliceName, setNewSliceName] = useState<string>('');
   const [pendingNewSlice, setPendingNewSlice] = useState<{
     x: number;
@@ -31,44 +32,205 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
     height: number;
   } | null>(null);
 
+  const [splitGroup, setSplitGroup] = useState<boolean>(false);
+  const [splitCount, setSplitCount] = useState<number | ''>(2);
+  const [splitDirection, setSplitDirection] = useState<'Horizontal' | 'Vertical'>('Horizontal');
+
   const selectedSlice = slices.find(s => s.id === selectedSliceId);
 
-  const handleUpdateSelectedSlice = (updated: Partial<SpriteSlice>) => {
-    if (!selectedSlice) return;
-    const next = slices.map(s => (s.id === selectedSlice.id ? { ...s, ...updated } : s));
-    onSlicesChange(next);
-  };
+  React.useEffect(() => {
+    let changed = false;
+    const groupColors: Record<string, string> = {};
+    slices.forEach(s => {
+      if (s.groupOrder === 1) {
+        groupColors[s.groupId || s.id] = s.color || '#38bdf8';
+      }
+    });
+
+    const migrated = slices.map(s => {
+      let mod = false;
+      let next = { ...s };
+      if (!s.groupId || !s.groupOrder) {
+         mod = true;
+         next.groupId = s.groupId || s.id;
+         next.groupOrder = s.groupOrder || 1;
+      }
+      const headColor = groupColors[next.groupId];
+      if (headColor && next.color !== headColor) {
+         mod = true;
+         next.color = headColor;
+      }
+      if (mod) {
+         changed = true;
+         return next;
+      }
+      return s;
+    });
+    if (changed) {
+      onSlicesChange(migrated);
+    }
+  }, [slices, onSlicesChange]);
 
   const handleAddSlice = () => {
     const coords = pendingNewSlice || { x: 0, y: 0, width: 16, height: 16 };
     const name = newSliceName.trim() || `Slice ${slices.length + 1}`;
     const cleanId = `SYMBOL_${name.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_${Date.now().toString().slice(-4)}`;
-    const newSlice: SpriteSlice = {
-      id: cleanId,
-      name,
-      x: coords.x,
-      y: coords.y,
-      width: coords.width,
-      height: coords.height,
-      color: '#00d2ff',
-    };
-    onSlicesChange([...slices, newSlice]);
-    setSelectedSliceId(cleanId);
+    
+    if (splitGroup) {
+      const parsedCount = Number(splitCount) || 2;
+      const count = Math.min(splitDirection === 'Horizontal' ? coords.width : coords.height, Math.max(2, Math.floor(parsedCount)));
+      const newSlices: SpriteSlice[] = [];
+      const totalWidth = coords.width;
+      const totalHeight = coords.height;
+
+      const sw = Math.floor(totalWidth / count);
+      const sh = Math.floor(totalHeight / count);
+
+      for (let i = 0; i < count; i++) {
+        let sliceW = totalWidth;
+        let sliceH = totalHeight;
+        let sx = coords.x;
+        let sy = coords.y;
+
+        if (splitDirection === 'Horizontal') {
+          sliceW = (i === count - 1) ? totalWidth - (i * sw) : sw;
+          sx = coords.x + i * sw;
+        } else {
+          sliceH = (i === count - 1) ? totalHeight - (i * sh) : sh;
+          sy = coords.y + i * sh;
+        }
+
+        newSlices.push({
+          id: i === 0 ? cleanId : `${cleanId}_SUB_${i}`,
+          name: i === 0 ? name : undefined,
+          groupId: cleanId,
+          groupOrder: i + 1,
+          x: sx,
+          y: sy,
+          width: sliceW,
+          height: sliceH,
+          color: '#00d2ff',
+        });
+      }
+      onSlicesChange([...slices, ...newSlices]);
+      setSelectedSliceIds(new Set([cleanId]));
+    } else {
+      const newSlice: SpriteSlice = {
+        id: cleanId,
+        name,
+        groupId: cleanId,
+        groupOrder: 1,
+        x: coords.x,
+        y: coords.y,
+        width: coords.width,
+        height: coords.height,
+        color: '#00d2ff',
+      };
+      onSlicesChange([...slices, newSlice]);
+      setSelectedSliceIds(new Set([cleanId]));
+    }
+    
     setNewSliceName('');
     setPendingNewSlice(null);
   };
 
+  const reindexGroup = (slicesList: SpriteSlice[], groupId: string): SpriteSlice[] => {
+    const groupMembers = slicesList.filter(s => s.groupId === groupId);
+    if (groupMembers.length === 0) return slicesList;
+    
+    groupMembers.sort((a, b) => (a.groupOrder || 1) - (b.groupOrder || 1));
+    const headName = groupMembers.find(s => s.name)?.name || 'Symbol';
+    const headColor = groupMembers[0].color || '#38bdf8';
+    
+    return slicesList.map(s => {
+      if (s.groupId === groupId) {
+        const idx = groupMembers.findIndex(m => m.id === s.id);
+        if (idx === 0) {
+          return { ...s, groupOrder: 1, name: headName, color: headColor };
+        } else {
+          return { ...s, groupOrder: idx + 1, name: undefined, color: headColor };
+        }
+      }
+      return s;
+    });
+  };
+
   const handleDeleteSlice = (id: string) => {
     if (slices.length <= 1) return;
-    const next = slices.filter(s => s.id !== id);
+    const toDelete = slices.find(s => s.id === id);
+    if (!toDelete) return;
+
+    let next = slices.filter(s => s.id !== id);
+    next = reindexGroup(next, toDelete.groupId || toDelete.id);
+    
     onSlicesChange(next);
-    if (selectedSliceId === id) {
-      setSelectedSliceId(next[0]?.id || '');
+    if (selectedSliceIds.has(id)) {
+      const nextSet = new Set(selectedSliceIds);
+      nextSet.delete(id);
+      if (nextSet.size === 0 && next[0]) nextSet.add(next[0].id);
+      setSelectedSliceIds(nextSet);
     }
   };
 
   const handleSliceMove = (sliceId: string, newX: number, newY: number) => {
     const next = slices.map(s => (s.id === sliceId ? { ...s, x: newX, y: newY } : s));
+    onSlicesChange(next);
+  };
+
+  const handleGroupMembershipChange = (groupId: string) => {
+    if (!selectedSlice) return;
+    const oldGroupId = selectedSlice.groupId || selectedSlice.id;
+    
+    let next = [...slices];
+    if (groupId === selectedSlice.id) {
+      next = next.map(s => s.id === selectedSlice.id ? { ...s, groupId: s.id, groupOrder: 1, name: s.name || 'Symbol' } : s);
+    } else {
+      const currentGroupElements = next.filter(s => s.groupId === groupId && s.id !== selectedSlice.id);
+      const newOrder = currentGroupElements.length + 1;
+      next = next.map(s => s.id === selectedSlice.id ? { ...s, groupId, groupOrder: newOrder, name: undefined } : s);
+    }
+
+    next = reindexGroup(next, oldGroupId);
+    if (groupId !== selectedSlice.id) {
+      next = reindexGroup(next, groupId);
+    }
+    
+    onSlicesChange(next);
+  };
+
+  const handleGroupOrderChange = (groupOrder: number) => {
+    if (!selectedSlice) return;
+    
+    const groupId = selectedSlice.groupId || selectedSlice.id;
+    let groupMembers = slices.filter(s => s.groupId === groupId);
+    groupMembers = groupMembers.filter(s => s.id !== selectedSlice.id);
+    groupMembers.sort((a, b) => (a.groupOrder || 1) - (b.groupOrder || 1));
+    
+    const insertIdx = Math.max(0, Math.min(groupMembers.length, groupOrder - 1));
+    groupMembers.splice(insertIdx, 0, selectedSlice);
+    
+    const headName = groupMembers.find(s => s.name)?.name || 'Symbol';
+    const headColor = groupMembers[0].color || '#38bdf8';
+    
+    const updatedMembers = groupMembers.map((s, idx) => {
+      if (idx === 0) {
+        return { ...s, groupOrder: 1, name: s.id === selectedSlice.id ? (s.name || headName) : headName, color: headColor };
+      } else {
+        return { ...s, groupOrder: idx + 1, name: undefined, color: headColor };
+      }
+    });
+
+    const next = slices.map(s => {
+      const updated = updatedMembers.find(u => u.id === s.id);
+      return updated ? updated : s;
+    });
+    
+    onSlicesChange(next);
+  };
+
+  const handleUpdateSelectedSlice = (partial: Partial<SpriteSlice>) => {
+    if (!selectedSlice) return;
+    const next = slices.map(s => s.id === selectedSlice.id ? { ...s, ...partial } : s);
     onSlicesChange(next);
   };
 
@@ -124,15 +286,36 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
           showPresets={false}
           slices={slices}
           selectedSliceId={selectedSliceId}
-          onSelectSlice={id => {
-            setSelectedSliceId(id);
+          selectedSliceIds={Array.from(selectedSliceIds)}
+          pendingSelection={pendingNewSlice}
+          onSelectSlice={(id, isMulti) => {
+            if (!id) {
+              setSelectedSliceIds(new Set());
+            } else if (isMulti) {
+              const next = new Set(selectedSliceIds);
+              if (next.has(id)) next.delete(id);
+              else next.add(id);
+              setSelectedSliceIds(next);
+            } else {
+              setSelectedSliceIds(new Set([id]));
+            }
             setPendingNewSlice(null);
           }}
           onNewSelection={rect => {
-            setSelectedSliceId('');
+            setSelectedSliceIds(new Set());
             setPendingNewSlice(rect);
           }}
           onSliceMove={handleSliceMove}
+          onSlicesMove={(updates) => {
+            const next = [...slices];
+            updates.forEach(u => {
+              const idx = next.findIndex(s => s.id === u.id);
+              if (idx !== -1) {
+                next[idx] = { ...next[idx], x: next[idx].x + u.dx, y: next[idx].y + u.dy };
+              }
+            });
+            onSlicesChange(next);
+          }}
         />
       </div>
 
@@ -146,7 +329,7 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
         </div>
 
         {/* New Slice Prompt from Selection */}
-        {pendingNewSlice && !selectedSliceId && (
+        {pendingNewSlice && selectedSliceIds.size === 0 && (
           <div className="selected-slice-card" style={{ borderColor: '#c084fc', boxShadow: '0 0 14px rgba(192, 132, 252, 0.25)' }}>
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
@@ -172,7 +355,47 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
                 onKeyDown={e => e.key === 'Enter' && handleAddSlice()}
                 autoFocus
               />
-              <div className="flex gap-2">
+
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="checkbox"
+                  id="splitGroup"
+                  checked={splitGroup}
+                  onChange={e => setSplitGroup(e.target.checked)}
+                />
+                <label htmlFor="splitGroup" className="text-xs text-slate-300 cursor-pointer">Split evenly into group</label>
+              </div>
+
+              {splitGroup && (
+                <div className="flex flex-col gap-2 p-2 bg-slate-800/50 rounded border border-slate-700/50">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400">Slices</span>
+                    <input
+                      type="number"
+                      min={2}
+                      value={splitCount}
+                      onChange={e => setSplitCount(e.target.value === '' ? '' : (parseInt(e.target.value, 10) || 2))}
+                      className="input-text-dark text-xs w-16"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400">Direction</span>
+                    <select
+                      value={splitDirection}
+                      onChange={e => setSplitDirection(e.target.value as 'Horizontal' | 'Vertical')}
+                      className="input-text-dark text-xs w-24"
+                    >
+                      <option value="Horizontal">Horizontal</option>
+                      <option value="Vertical">Vertical</option>
+                    </select>
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-mono mt-1">
+                    Preview: {Math.min(splitDirection === 'Horizontal' ? pendingNewSlice.width : pendingNewSlice.height, Math.max(2, Number(splitCount) || 2))} slices of {splitDirection === 'Horizontal' ? `${Math.floor(pendingNewSlice.width / Math.min(pendingNewSlice.width, Math.max(2, Number(splitCount) || 2)))}×${pendingNewSlice.height}` : `${pendingNewSlice.width}×${Math.floor(pendingNewSlice.height / Math.min(pendingNewSlice.height, Math.max(2, Number(splitCount) || 2)))}`}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2 mt-1">
                 <button
                   className="btn-add-slice"
                   style={{
@@ -186,7 +409,7 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
                   onClick={handleAddSlice}
                 >
                   <Plus size={14} />
-                  <span>Create Slice</span>
+                  <span>{splitGroup ? 'Create Group' : 'Create Slice'}</span>
                 </button>
                 <button
                   className="btn-toggle-subtle text-xs px-3"
@@ -208,30 +431,51 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
                   className="slice-color-pip"
                   style={{ backgroundColor: selectedSlice.color || '#38bdf8' }}
                 />
-                <span className="font-semibold text-sm">{selectedSlice.name}</span>
+                <span className="font-semibold text-sm">
+                  {selectedSlice.name || (() => {
+                    const head = slices.find(s => s.groupId === selectedSlice.groupId && s.groupOrder === 1);
+                    return head?.name ? `${head.name} (Order ${selectedSlice.groupOrder})` : `Symbol (Order ${selectedSlice.groupOrder})`;
+                  })()}
+                </span>
               </div>
               {renderSliceThumb(selectedSlice)}
             </div>
 
             <div className="slice-inputs-grid">
               <div className="slice-field">
-                <label>Enum ID</label>
-                <input
-                  type="text"
-                  value={selectedSlice.id}
-                  onChange={e => handleUpdateSelectedSlice({ id: e.target.value })}
-                  className="font-mono text-xs"
-                />
+                <label>Symbol Group</label>
+                <select
+                  value={selectedSlice.groupId === selectedSlice.id && selectedSlice.groupOrder === 1 ? selectedSlice.id : selectedSlice.groupId}
+                  onChange={e => handleGroupMembershipChange(e.target.value)}
+                  className="input-text-dark text-xs"
+                >
+                  <option value={selectedSlice.id}>[ Standalone / New Group ]</option>
+                  {slices.filter(s => s.groupOrder === 1 && s.id !== selectedSlice.id).map(s => (
+                    <option key={s.id} value={s.groupId}>{s.name || s.id}</option>
+                  ))}
+                </select>
               </div>
 
-              <div className="slice-field">
-                <label>Display Name</label>
-                <input
-                  type="text"
-                  value={selectedSlice.name}
-                  onChange={e => handleUpdateSelectedSlice({ name: e.target.value })}
-                />
-              </div>
+              {selectedSlice.groupOrder === 1 ? (
+                <div className="slice-field">
+                  <label>Display Name</label>
+                  <input
+                    type="text"
+                    value={selectedSlice.name || ''}
+                    onChange={e => handleUpdateSelectedSlice({ name: e.target.value })}
+                  />
+                </div>
+              ) : (
+                <div className="slice-field">
+                  <label>Group Order</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={selectedSlice.groupOrder || 2}
+                    onChange={e => handleGroupOrderChange(parseInt(e.target.value, 10) || 2)}
+                  />
+                </div>
+              )}
 
               <div className="slice-coords-row">
                 <div className="slice-coord">
@@ -290,47 +534,92 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
         </div>
 
         {/* Slices List */}
-        <div className="slices-list-scroll">
-          {slices.map(slice => {
-            const isSelected = slice.id === selectedSlice?.id;
-            return (
-              <div
-                key={slice.id}
-                className={`slice-list-item ${isSelected ? 'active' : ''}`}
-                onClick={() => {
-                  setSelectedSliceId(slice.id);
-                  setPendingNewSlice(null);
-                }}
-              >
-                <div className="slice-item-left">
-                  <span
-                    className="slice-color-pip"
-                    style={{ backgroundColor: slice.color || '#38bdf8' }}
-                  />
-                  <div className="slice-item-info">
-                    <span className="slice-item-name">{slice.name}</span>
-                    <span className="slice-item-bounds font-mono">
-                      {slice.x},{slice.y} · {slice.width}×{slice.height}
-                    </span>
-                  </div>
-                </div>
+        <div className="slices-list-scroll" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px' }}>
+          {(() => {
+            const groups: Record<string, SpriteSlice[]> = {};
+            slices.forEach(s => {
+              const gid = s.groupId || s.id;
+              if (!groups[gid]) groups[gid] = [];
+              groups[gid].push(s);
+            });
+            Object.values(groups).forEach(g => g.sort((a, b) => (a.groupOrder || 1) - (b.groupOrder || 1)));
 
-                <div className="slice-item-right">
-                  {renderSliceThumb(slice)}
-                  <button
-                    className="btn-slice-delete"
-                    onClick={e => {
-                      e.stopPropagation();
-                      handleDeleteSlice(slice.id);
-                    }}
-                    title="Delete Slice"
-                  >
-                    <Trash2 size={13} />
-                  </button>
+            return Object.entries(groups).map(([groupId, groupSlices]) => {
+              const head = groupSlices[0];
+              const groupColor = head?.color || '#38bdf8';
+              const hasMultiple = groupSlices.length > 1;
+
+              return (
+                <div 
+                  key={groupId} 
+                  className={`group-container ${hasMultiple ? 'has-multiple' : ''}`}
+                  style={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    gap: '4px',
+                    ...(hasMultiple ? {
+                      border: `1px solid ${groupColor}40`,
+                      borderRadius: '6px',
+                      padding: '4px',
+                      backgroundColor: `${groupColor}08`,
+                    } : {})
+                  }}
+                >
+                  {groupSlices.map(slice => {
+                    const isSelected = selectedSliceIds.has(slice.id);
+                    return (
+                      <div
+                        key={slice.id}
+                        className={`slice-list-item ${isSelected ? 'active' : ''}`}
+                        onClick={(e) => {
+                          if (e.ctrlKey || e.metaKey) {
+                            const next = new Set(selectedSliceIds);
+                            if (next.has(slice.id)) next.delete(slice.id);
+                            else next.add(slice.id);
+                            setSelectedSliceIds(next);
+                          } else {
+                            setSelectedSliceIds(new Set([slice.id]));
+                          }
+                          setPendingNewSlice(null);
+                        }}
+                      >
+                        <div className="slice-item-left">
+                          <span
+                            className="slice-color-pip"
+                            style={{ backgroundColor: groupColor }}
+                          />
+                          <div className="slice-item-info">
+                            <span className="slice-item-name">
+                              {slice.name || (() => {
+                                return head?.name ? `${head.name} #${slice.groupOrder}` : `Symbol #${slice.groupOrder}`;
+                              })()}
+                            </span>
+                            <span className="slice-item-bounds font-mono">
+                              {slice.x},{slice.y} · {slice.width}×{slice.height}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="slice-item-right">
+                          {renderSliceThumb(slice)}
+                          <button
+                            className="btn-slice-delete"
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleDeleteSlice(slice.id);
+                            }}
+                            title="Delete Slice"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-            );
-          })}
+              );
+            });
+          })()}
         </div>
       </div>
     </div>

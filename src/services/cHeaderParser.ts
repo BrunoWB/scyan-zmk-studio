@@ -1,7 +1,18 @@
 import { BwpxGrid } from '../bwpx/core/BwpxGrid';
-import type { SpriteSlice, FontGlyph, FontCharMapping } from '../types/zmk';
+import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../types/zmk';
+import type { WidgetInstanceMap } from '../types/widget';
 import { DEFAULT_SYMBOL_SLICES, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS } from '../types/zmk';
 import { createDefaultSymbolsGrid, createDefaultFontGrid } from './defaultAssets';
+
+export interface HeaderMetadata {
+  version: 1;
+  leftBlocks?: LayoutBlock[];
+  rightBlocks?: LayoutBlock[];
+  idleLeftBlocks?: LayoutBlock[];
+  idleRightBlocks?: LayoutBlock[];
+  screenDimensions?: { width: number; height: number };
+  widgetInstances?: WidgetInstanceMap;
+}
 
 export interface ParsedAssets {
   symbolsGrid: BwpxGrid;
@@ -9,6 +20,7 @@ export interface ParsedAssets {
   fontGrid: BwpxGrid;
   fontGlyphs: FontGlyph[];
   fontMappings: FontCharMapping[];
+  metadata?: HeaderMetadata;
 }
 
 /**
@@ -20,32 +32,47 @@ export function parseCHeader(cCode: string): ParsedAssets {
   let fontGrid = createDefaultFontGrid();
   let fontGlyphs = [...DEFAULT_FONT_GLYPHS];
   let fontMappings = [...DEFAULT_FONT_MAPPINGS];
+  let metadata: HeaderMetadata | undefined;
 
   try {
-    // 1. Parse SYMBOLS_ATLAS hex bytes
-    const symbolsMatch = cCode.match(/SYMBOLS_ATLAS\[\s*\d+\s*\*\s*\d+\s*\]\s*=\s*\{([^}]+)\}/s);
+    // 1. Parse SYMBOLS_ATLAS hex bytes with dynamic dimensions
+    const symWidthMatch = cCode.match(/#define\s+SYMBOLS_ATLAS_WIDTH\s+(\d+)/);
+    const symHeightMatch = cCode.match(/#define\s+SYMBOLS_ATLAS_HEIGHT\s+(\d+)/);
+    const symStrideMatch = cCode.match(/#define\s+SYMBOLS_ATLAS_STRIDE\s+(\d+)/);
+    const symbolsMatch = cCode.match(/SYMBOLS_ATLAS\[[\s\S]*?\]\s*=\s*\{([\s\S]*?)\};/);
+
     if (symbolsMatch && symbolsMatch[1]) {
       const hexTokens = symbolsMatch[1].match(/0x[0-9a-fA-F]{1,2}/g);
-      if (hexTokens && hexTokens.length === 34 * 16) {
+      if (hexTokens && hexTokens.length > 0) {
+        const stride = symStrideMatch ? parseInt(symStrideMatch[1], 10) : 16;
+        const height = symHeightMatch ? parseInt(symHeightMatch[1], 10) : Math.floor(hexTokens.length / stride);
+        const width = symWidthMatch ? parseInt(symWidthMatch[1], 10) : Math.max(128, stride * 8);
         const bytes = new Uint8Array(hexTokens.map(h => parseInt(h, 16)));
-        symbolsGrid = BwpxGrid.from1bppBytes(bytes, 128, 34, 16);
+        symbolsGrid = BwpxGrid.from1bppBytes(bytes, width, height, stride);
       }
     }
 
-    // 2. Parse FONT_ATLAS hex bytes
-    const fontMatch = cCode.match(/FONT_ATLAS\[\s*\d+\s*\*\s*\d+\s*\]\s*=\s*\{([^}]+)\}/s);
+    // 2. Parse FONT_ATLAS hex bytes with dynamic dimensions
+    const fontWidthMatch = cCode.match(/#define\s+FONT_ATLAS_WIDTH\s+(\d+)/);
+    const fontHeightMatch = cCode.match(/#define\s+FONT_ATLAS_HEIGHT\s+(\d+)/);
+    const fontStrideMatch = cCode.match(/#define\s+FONT_ATLAS_STRIDE\s+(\d+)/);
+    const fontMatch = cCode.match(/FONT_ATLAS\[[\s\S]*?\]\s*=\s*\{([\s\S]*?)\};/);
+
     if (fontMatch && fontMatch[1]) {
       const hexTokens = fontMatch[1].match(/0x[0-9a-fA-F]{1,2}/g);
-      if (hexTokens && hexTokens.length === 22 * 16) {
+      if (hexTokens && hexTokens.length > 0) {
+        const stride = fontStrideMatch ? parseInt(fontStrideMatch[1], 10) : 16;
+        const height = fontHeightMatch ? parseInt(fontHeightMatch[1], 10) : Math.floor(hexTokens.length / stride);
+        const width = fontWidthMatch ? parseInt(fontWidthMatch[1], 10) : Math.max(128, stride * 8);
         const bytes = new Uint8Array(hexTokens.map(h => parseInt(h, 16)));
-        fontGrid = BwpxGrid.from1bppBytes(bytes, 128, 22, 16);
+        fontGrid = BwpxGrid.from1bppBytes(bytes, width, height, stride);
       }
     }
 
     // 3. Parse SYMBOL_SLICES
-    const slicesMatch = cCode.match(/SYMBOL_SLICES\[[^\]]*\]\s*=\s*\{([^}]+(?:\{[^}]+\}[^}]+)*)\};/s);
+    const slicesMatch = cCode.match(/SYMBOL_SLICES\[[^\]]*\]\s*=\s*\{([\s\S]*?)\};/);
     if (slicesMatch && slicesMatch[1]) {
-      const slicePattern = /\[\s*([A-Za-z0-9_]+)\s*\]\s*=\s*\{\s*\.x\s*=\s*(\d+)\s*,\s*\.y\s*=\s*(\d+)\s*,\s*\.width\s*=\s*(\d+)\s*,\s*\.height\s*=\s*(\d+)\s*\}/g;
+      const slicePattern = /\[\s*([A-Za-z0-9_]+)\s*\]\s*=\s*\{\s*\.x\s*=\s*(-?\d+)\s*,\s*\.y\s*=\s*(-?\d+)\s*,\s*\.width\s*=\s*(\d+)\s*,\s*\.height\s*=\s*(\d+)\s*\}(?:[\s,]*\/\/\s*(.*))?/g;
       const parsedSlices: SpriteSlice[] = [];
       let match: RegExpExecArray | null;
       while ((match = slicePattern.exec(slicesMatch[1])) !== null) {
@@ -54,15 +81,41 @@ export function parseCHeader(cCode: string): ParsedAssets {
         const y = parseInt(match[3], 10);
         const width = parseInt(match[4], 10);
         const height = parseInt(match[5], 10);
+        const comment = match[6] || '';
+        
+        let groupId = id;
+        let groupOrder = 1;
+        let name = id.replace(/^SYMBOL_/, '').replace(/_/g, ' ');
+
+        const groupMatch = comment.match(/groupId=([^\s]+)/);
+        if (groupMatch) groupId = groupMatch[1];
+        
+        const orderMatch = comment.match(/groupOrder=(\d+)/);
+        if (orderMatch) groupOrder = parseInt(orderMatch[1], 10);
+        
+        const colorMatch = comment.match(/color=([^\s]+)/);
+
+        const nameMatch = comment.match(/name=(.*)/);
+        if (nameMatch) name = nameMatch[1].trim();
+
         const existing = DEFAULT_SYMBOL_SLICES.find(s => s.id === id);
+        
+        if (!groupMatch && existing) {
+            groupId = existing.groupId;
+            groupOrder = existing.groupOrder;
+            name = existing.name || name;
+        }
+
         parsedSlices.push({
           id,
-          name: existing ? existing.name : id.replace(/^SYMBOL_/, '').replace(/_/g, ' '),
+          name,
+          groupId,
+          groupOrder,
           x,
           y,
           width,
           height,
-          color: existing?.color || '#38bdf8',
+          color: colorMatch ? colorMatch[1] : (existing?.color || '#38bdf8'),
         });
       }
       if (parsedSlices.length > 0) {
@@ -71,9 +124,9 @@ export function parseCHeader(cCode: string): ParsedAssets {
     }
 
     // 4. Parse FONT_GLYPHS_ALL or individual glyphs
-    const glyphsMatch = cCode.match(/FONT_GLYPHS_ALL\[[^\]]*\]\s*=\s*\{([^}]+(?:\{[^}]+\}[^}]+)*)\};/s);
+    const glyphsMatch = cCode.match(/FONT_GLYPHS_ALL\[[^\]]*\]\s*=\s*\{([\s\S]*?)\};/);
     if (glyphsMatch && glyphsMatch[1]) {
-      const glyphPattern = /\{\s*\.codepoint\s*=\s*([^,]+)\s*,\s*\.x\s*=\s*(\d+)\s*,\s*\.y\s*=\s*(\d+)\s*,\s*\.width\s*=\s*(\d+)\s*,\s*\.height\s*=\s*(\d+)\s*,\s*\.advance_x\s*=\s*(\d+)\s*\}/g;
+      const glyphPattern = /\{\s*\.codepoint\s*=\s*([^,]+)\s*,\s*\.x\s*=\s*(-?\d+)\s*,\s*\.y\s*=\s*(-?\d+)\s*,\s*\.width\s*=\s*(\d+)\s*,\s*\.height\s*=\s*(\d+)\s*,\s*\.advance_x\s*=\s*(\d+)\s*\}/g;
       const parsedGlyphs: FontGlyph[] = [];
       let match: RegExpExecArray | null;
       while ((match = glyphPattern.exec(glyphsMatch[1])) !== null) {
@@ -81,8 +134,17 @@ export function parseCHeader(cCode: string): ParsedAssets {
         let codepoint = 0;
         let char = '?';
         if (rawCp.startsWith("'") && rawCp.endsWith("'")) {
-          codepoint = rawCp.charCodeAt(1);
-          char = String.fromCharCode(codepoint);
+          const inside = rawCp.slice(1, -1);
+          if (inside === "\\'") {
+            char = "'";
+            codepoint = 39;
+          } else if (inside === "\\\\") {
+            char = "\\";
+            codepoint = 92;
+          } else if (inside.length > 0) {
+            char = inside;
+            codepoint = inside.codePointAt(0) || 0;
+          }
         } else if (rawCp.includes("'0' +")) {
           const offset = parseInt(rawCp.replace(/[^0-9]/g, ''), 10);
           codepoint = '0'.charCodeAt(0) + offset;
@@ -109,9 +171,9 @@ export function parseCHeader(cCode: string): ParsedAssets {
 
     // 5. Parse FONT_GLYPHS_SMALL and FONT_GLYPHS_BIG if present
     const parseGlyphsFromTable = (tableName: string): FontGlyph[] => {
-      const match = cCode.match(new RegExp(`${tableName}\\[[^\\]]*\\]\\s*=\\s*\\{([^}]+(?:\\{[^}]+\\}[^}]+)*)\\};`, 's'));
+      const match = cCode.match(new RegExp(`${tableName}\\[[^\\]]*\\]\\s*=\\s*\\{([\\s\\S]*?)\\};`));
       if (!match || !match[1]) return [];
-      const pattern = /\{\s*\.codepoint\s*=\s*([^,]+)\s*,\s*\.x\s*=\s*(\d+)\s*,\s*\.y\s*=\s*(\d+)\s*,\s*\.width\s*=\s*(\d+)\s*,\s*\.height\s*=\s*(\d+)\s*,\s*\.advance_x\s*=\s*(\d+)\s*\}/g;
+      const pattern = /\{\s*\.codepoint\s*=\s*([^,]+)\s*,\s*\.x\s*=\s*(-?\d+)\s*,\s*\.y\s*=\s*(-?\d+)\s*,\s*\.width\s*=\s*(\d+)\s*,\s*\.height\s*=\s*(\d+)\s*,\s*\.advance_x\s*=\s*(\d+)\s*\}/g;
       const results: FontGlyph[] = [];
       let m: RegExpExecArray | null;
       while ((m = pattern.exec(match[1])) !== null) {
@@ -119,8 +181,17 @@ export function parseCHeader(cCode: string): ParsedAssets {
         let codepoint = 0;
         let char = '?';
         if (rawCp.startsWith("'") && rawCp.endsWith("'")) {
-          codepoint = rawCp.charCodeAt(1);
-          char = String.fromCharCode(codepoint);
+          const inside = rawCp.slice(1, -1);
+          if (inside === "\\'") {
+            char = "'";
+            codepoint = 39;
+          } else if (inside === "\\\\") {
+            char = "\\";
+            codepoint = 92;
+          } else if (inside.length > 0) {
+            char = inside;
+            codepoint = inside.codePointAt(0) || 0;
+          }
         } else if (rawCp.includes("'0' +")) {
           const offset = parseInt(rawCp.replace(/[^0-9]/g, ''), 10);
           codepoint = '0'.charCodeAt(0) + offset;
@@ -154,9 +225,10 @@ export function parseCHeader(cCode: string): ParsedAssets {
           if (!existing.chars.includes(g.char)) existing.chars += g.char;
           existing.small = { x: g.x, y: g.y, width: g.width, height: g.height, advanceX: g.advanceX };
         } else {
+          const def = DEFAULT_FONT_MAPPINGS.find(dm => dm.chars.includes(g.char) || dm.chars.toUpperCase().includes(key));
           mappingMap.set(key, {
-            id: `FONT_CHAR_${g.codepoint}`,
-            chars: g.char,
+            id: def ? def.id : `FONT_CHAR_${g.codepoint}`,
+            chars: def ? def.chars : g.char,
             small: { x: g.x, y: g.y, width: g.width, height: g.height, advanceX: g.advanceX },
             big: null,
           });
@@ -169,9 +241,10 @@ export function parseCHeader(cCode: string): ParsedAssets {
           if (!existing.chars.includes(g.char)) existing.chars += g.char;
           existing.big = { x: g.x, y: g.y, width: g.width, height: g.height, advanceX: g.advanceX };
         } else {
+          const def = DEFAULT_FONT_MAPPINGS.find(dm => dm.chars.includes(g.char) || dm.chars.toUpperCase().includes(key));
           mappingMap.set(key, {
-            id: `FONT_CHAR_${g.codepoint}`,
-            chars: g.char,
+            id: def ? def.id : `FONT_CHAR_${g.codepoint}`,
+            chars: def ? def.chars : g.char,
             small: null,
             big: { x: g.x, y: g.y, width: g.width, height: g.height, advanceX: g.advanceX },
           });
@@ -179,11 +252,154 @@ export function parseCHeader(cCode: string): ParsedAssets {
       });
       fontMappings = Array.from(mappingMap.values());
     }
+
+    // 5. Parse optional ZMK_DISPLAY_STUDIO_METADATA JSON block
+    const metaMatch = cCode.match(/\/\*\s*ZMK_DISPLAY_STUDIO_METADATA\s*([\s\S]*?)\*\//);
+    if (metaMatch && metaMatch[1]) {
+      try {
+        const parsedMeta = JSON.parse(metaMatch[1].trim());
+        if (parsedMeta && typeof parsedMeta === 'object') {
+          metadata = parsedMeta;
+        }
+      } catch (e) {
+        console.warn('Failed to parse ZMK_DISPLAY_STUDIO_METADATA comment:', e);
+      }
+    }
+
+    // 6. Parse screen dimensions if defined
+    const virtWidthMatch = cCode.match(/#define\s+DISPLAY_VIRTUAL_WIDTH\s+(\d+)/);
+    const virtHeightMatch = cCode.match(/#define\s+DISPLAY_VIRTUAL_HEIGHT\s+(\d+)/);
+    const screenDims = (virtWidthMatch && virtHeightMatch)
+      ? { width: parseInt(virtWidthMatch[1], 10), height: parseInt(virtHeightMatch[1], 10) }
+      : undefined;
+
+    // 7. If metadata JSON was missing or incomplete, reconstruct from C layout block arrays
+    if (!metadata || (!metadata.leftBlocks && !metadata.rightBlocks)) {
+      const parseCBlocks = (arrayName: string, side: 'left' | 'right') => {
+        const arrMatch = cCode.match(new RegExp(`${arrayName}\\[[^\\]]*\\]\\s*=\\s*\\{([\\s\\S]*?)\\};`));
+        if (!arrMatch || !arrMatch[1]) return undefined;
+        const blocks: LayoutBlock[] = [];
+        const content = arrMatch[1];
+        let depth = 0;
+        let start = -1;
+        let idx = 0;
+        for (let i = 0; i < content.length; i++) {
+          if (content[i] === '{') {
+            if (depth === 0) start = i;
+            depth++;
+          } else if (content[i] === '}') {
+            depth--;
+            if (depth === 0 && start !== -1) {
+              const body = content.slice(start + 1, i);
+              const typeMatch = body.match(/\.type\s*=\s*([A-Za-z0-9_]+)/);
+              const rawType = typeMatch ? typeMatch[1] : '';
+              if (rawType && rawType !== 'WIDGET_TYPE_NONE') {
+                const xMatch = body.match(/\.x\s*=\s*(-?\d+)/);
+                const yMatch = body.match(/\.y\s*=\s*(-?\d+)/);
+                const wMatch = body.match(/\.width\s*=\s*(\d+)/);
+                const hMatch = body.match(/\.height\s*=\s*(\d+)/);
+                const enabledMatch = body.match(/\.enabled\s*=\s*(true|false|1|0)/);
+                const textMatch = body.match(/\.custom_text\s*=\s*("(?:[^"\\]|\\.)*"|NULL|0)/);
+
+                let widgetType = 'branding';
+                let defaultName = 'Block';
+                switch (rawType) {
+                  case 'WIDGET_TYPE_OUTPUT_STATUS':
+                    widgetType = 'connection';
+                    defaultName = 'Output Status';
+                    break;
+                  case 'WIDGET_TYPE_BATTERY':
+                    widgetType = 'battery';
+                    defaultName = 'Battery Meter';
+                    break;
+                  case 'WIDGET_TYPE_LAYER':
+                    widgetType = 'layer-banner';
+                    defaultName = 'Layer Banner';
+                    break;
+                  case 'WIDGET_TYPE_WPM':
+                    widgetType = 'wpm';
+                    defaultName = 'WPM Gauge';
+                    break;
+                  case 'WIDGET_TYPE_WPM_CHART':
+                    widgetType = 'wpm-chart';
+                    defaultName = 'WPM Chart';
+                    break;
+                  case 'WIDGET_TYPE_BRANDING':
+                    widgetType = 'branding';
+                    defaultName = 'Custom Text';
+                    break;
+                  case 'WIDGET_TYPE_SPLIT':
+                    widgetType = 'split';
+                    defaultName = 'Split Link';
+                    break;
+                  case 'WIDGET_TYPE_SCREENSAVER':
+                    widgetType = 'screensaver';
+                    defaultName = 'Mascot Image';
+                    break;
+                  case 'WIDGET_TYPE_CAPS_LOCK':
+                    widgetType = 'caps-lock';
+                    defaultName = 'Caps Lock';
+                    break;
+                  case 'WIDGET_TYPE_BONGO':
+                    widgetType = 'bongo';
+                    defaultName = 'Bongo Cat';
+                    break;
+                }
+
+                let customText: string | undefined;
+                if (textMatch && textMatch[1] && textMatch[1] !== 'NULL' && textMatch[1] !== '0') {
+                  try {
+                    customText = JSON.parse(textMatch[1]);
+                  } catch {
+                    customText = textMatch[1].replace(/^"|"$/g, '');
+                  }
+                }
+
+                const blockId = `${side}-${widgetType}-${idx++}`;
+                blocks.push({
+                  id: blockId,
+                  widgetType,
+                  instanceId: `inst_${blockId}`,
+                  name: customText || defaultName,
+                  x: xMatch ? parseInt(xMatch[1], 10) : 0,
+                  y: yMatch ? parseInt(yMatch[1], 10) : 0,
+                  width: wMatch ? parseInt(wMatch[1], 10) : 16,
+                  height: hMatch ? parseInt(hMatch[1], 10) : 16,
+                  enabled: enabledMatch ? (enabledMatch[1] === 'true' || enabledMatch[1] === '1') : true,
+                  side,
+                });
+              }
+              start = -1;
+            }
+          }
+        }
+        return blocks.length > 0 ? blocks : undefined;
+      };
+
+      const leftBlocks = parseCBlocks('LAYOUT_LEFT_ACTIVE_BLOCKS', 'left');
+      const rightBlocks = parseCBlocks('LAYOUT_RIGHT_ACTIVE_BLOCKS', 'right');
+      const idleLeftBlocks = parseCBlocks('LAYOUT_LEFT_IDLE_BLOCKS', 'left');
+      const idleRightBlocks = parseCBlocks('LAYOUT_RIGHT_IDLE_BLOCKS', 'right');
+
+      if (leftBlocks || rightBlocks || idleLeftBlocks || idleRightBlocks || screenDims) {
+        metadata = {
+          version: 1,
+          leftBlocks: leftBlocks || metadata?.leftBlocks,
+          rightBlocks: rightBlocks || metadata?.rightBlocks,
+          idleLeftBlocks: idleLeftBlocks || metadata?.idleLeftBlocks,
+          idleRightBlocks: idleRightBlocks || metadata?.idleRightBlocks,
+          screenDimensions: screenDims || metadata?.screenDimensions,
+          widgetInstances: metadata?.widgetInstances,
+        };
+      }
+    } else if (screenDims && !metadata.screenDimensions) {
+      metadata.screenDimensions = screenDims;
+    }
   } catch (err) {
     console.warn('Error parsing C header, falling back to defaults:', err);
   }
 
-  return { symbolsGrid, symbolSlices, fontGrid, fontGlyphs, fontMappings };
+  return { symbolsGrid, symbolSlices, fontGrid, fontGlyphs, fontMappings, metadata };
 }
 
 /**
@@ -193,7 +409,8 @@ export function generateCHeader(
   symbolsGrid: BwpxGrid,
   symbolSlices: SpriteSlice[],
   fontGrid: BwpxGrid,
-  fontInput: FontCharMapping[] | FontGlyph[]
+  fontInput: FontCharMapping[] | FontGlyph[],
+  metadata?: HeaderMetadata
 ): string {
   // Normalize symbols: if any slice or active pixel has negative coords, offset so all are >= 0
   let symMinX = 0;
@@ -301,6 +518,11 @@ export function generateCHeader(
   const digitsGlyphs = bigGlyphs.length > 0 ? bigGlyphs : allGlyphs.filter(g => g.codepoint >= 48 && g.codepoint <= 57);
   const textGlyphs = smallGlyphs.length > 0 ? smallGlyphs : allGlyphs.filter(g => g.codepoint < 48 || g.codepoint > 57);
 
+  const virtWidth = metadata?.screenDimensions?.width ?? 32;
+  const virtHeight = metadata?.screenDimensions?.height ?? 128;
+  const hwWidth = virtHeight;
+  const hwHeight = virtWidth;
+
   let c = `/* Auto-generated 2-Atlas spritesheet architecture for Corne vertical OLED display */
 /* Generated by ZMK Display Studio */
 #pragma once
@@ -309,10 +531,10 @@ export function generateCHeader(
 #include <stdbool.h>
 #include <stddef.h>
 
-#define DISPLAY_VIRTUAL_WIDTH  32
-#define DISPLAY_VIRTUAL_HEIGHT 128
-#define DISPLAY_HW_WIDTH       128
-#define DISPLAY_HW_HEIGHT      32
+#define DISPLAY_VIRTUAL_WIDTH  ${virtWidth}
+#define DISPLAY_VIRTUAL_HEIGHT ${virtHeight}
+#define DISPLAY_HW_WIDTH       ${hwWidth}
+#define DISPLAY_HW_HEIGHT      ${hwHeight}
 
 /* Sprite slice descriptor */
 struct sprite_slice {
@@ -330,8 +552,6 @@ enum symbol_id {
     c += `    ${s.id},\n`;
   });
   c += `    SYMBOL_COUNT,\n};\n\n`;
-  c += `#define SYMBOL_BRACKET_LAYER(idx) ((enum symbol_id)(SYMBOL_BRACKET_LAYER_0 + ((idx) & 3)))\n`;
-  c += `#define SYMBOL_SKULL_LAYER(idx)   ((enum symbol_id)(SYMBOL_SKULL_LAYER_0 + ((idx) & 3)))\n\n`;
 
   // Symbols Atlas
   c += `/* Spritesheet 1: Symbols & Icons Atlas (${symbolsAtlasWidth}x${symbolsAtlasHeight}, 1bpp, ${symbolsStride} bytes stride) */\n`;
@@ -355,7 +575,8 @@ enum symbol_id {
     const pad = s.id.padEnd(26, ' ');
     const normX = s.x + symOffsetX;
     const normY = s.y + symOffsetY;
-    c += `    [${pad}] = { .x = ${normX.toString().padStart(3, ' ')}, .y = ${normY.toString().padStart(2, ' ')}, .width = ${s.width.toString().padStart(2, ' ')}, .height = ${s.height.toString().padStart(2, ' ')} },\n`;
+    const meta = `groupId=${s.groupId || s.id} groupOrder=${s.groupOrder || 1} color=${s.color || '#38bdf8'} name=${s.name || ''}`;
+    c += `    [${pad}] = { .x = ${normX.toString().padStart(3, ' ')}, .y = ${normY.toString().padStart(2, ' ')}, .width = ${s.width.toString().padStart(2, ' ')}, .height = ${s.height.toString().padStart(2, ' ')} }, // ${meta}\n`;
   });
   c += `};\n\n`;
 
@@ -513,6 +734,198 @@ static const struct display_font font_default = {
     .space_advance = 3,
 };
 `;
+
+  if (metadata && (metadata.leftBlocks || metadata.rightBlocks || metadata.idleLeftBlocks || metadata.idleRightBlocks)) {
+    c += `\n/* Interactive Screen Layout & Widget Architecture */\n`;
+    c += `#define HAS_CUSTOM_LAYOUT_BLOCKS 1\n\n`;
+    c += `enum display_widget_type {\n`;
+    c += `    WIDGET_TYPE_NONE = 0,\n`;
+    c += `    WIDGET_TYPE_OUTPUT_STATUS,\n`;
+    c += `    WIDGET_TYPE_BATTERY,\n`;
+    c += `    WIDGET_TYPE_LAYER,\n`;
+    c += `    WIDGET_TYPE_WPM,\n`;
+    c += `    WIDGET_TYPE_WPM_CHART,\n`;
+    c += `    WIDGET_TYPE_BRANDING,\n`;
+    c += `    WIDGET_TYPE_SPLIT,\n`;
+    c += `    WIDGET_TYPE_SCREENSAVER,\n`;
+    c += `    WIDGET_TYPE_CAPS_LOCK,\n`;
+    c += `    WIDGET_TYPE_BONGO,\n`;
+    c += `};\n\n`;
+    c += `#define MAX_BLOCK_SYMBOLS 16\n`;
+    c += `#define MAX_BLOCK_TEXTS 16\n\n`;
+    c += `struct display_layout_block {\n`;
+    c += `    uint8_t type;\n`;
+    c += `    int16_t x;\n`;
+    c += `    int16_t y;\n`;
+    c += `    uint8_t width;\n`;
+    c += `    uint8_t height;\n`;
+    c += `    bool enabled;\n`;
+    c += `    uint8_t mode;\n`;
+    c += `    int16_t param1;\n`;
+    c += `    int16_t param2;\n`;
+    c += `    uint8_t symbol_count;\n`;
+    c += `    uint16_t symbol_ids[MAX_BLOCK_SYMBOLS];\n`;
+    c += `    uint8_t text_count;\n`;
+    c += `    const char *text_entries[MAX_BLOCK_TEXTS];\n`;
+    c += `    const char *custom_text;\n`;
+    c += `    uint16_t symbol_id;\n`;
+    c += `};\n\n`;
+
+    const formatBlockToC = (block: LayoutBlock): string => {
+      const normType = (block.widgetType || block.id).toLowerCase();
+      let enumType = 'WIDGET_TYPE_NONE';
+      if (normType.includes('battery')) enumType = 'WIDGET_TYPE_BATTERY';
+      else if (normType.includes('connection') || normType.includes('output') || normType.includes('profile')) enumType = 'WIDGET_TYPE_OUTPUT_STATUS';
+      else if (normType.includes('split')) enumType = 'WIDGET_TYPE_SPLIT';
+      else if (normType.includes('caps')) enumType = 'WIDGET_TYPE_CAPS_LOCK';
+      else if (normType.includes('layer')) enumType = 'WIDGET_TYPE_LAYER';
+      else if (normType === 'wpm-chart' || normType.includes('chart')) enumType = 'WIDGET_TYPE_WPM_CHART';
+      else if (normType.includes('wpm')) enumType = 'WIDGET_TYPE_WPM';
+      else if (normType.includes('branding') || normType.includes('text')) enumType = 'WIDGET_TYPE_BRANDING';
+      else if (normType.includes('screensaver') || normType.includes('art') || normType.includes('mascot')) enumType = 'WIDGET_TYPE_SCREENSAVER';
+      else if (normType.includes('bongo')) enumType = 'WIDGET_TYPE_BONGO';
+
+      const lookupKey = (normType.includes('connection') || normType.includes('output')) ? 'connection'
+        : normType.includes('battery') ? 'battery'
+        : normType.includes('layer') ? 'layer-banner'
+        : (normType === 'wpm-chart' || normType.includes('chart')) ? 'wpm-chart'
+        : normType.includes('wpm') ? 'wpm'
+        : normType.includes('branding') ? 'branding'
+        : normType.includes('split') ? 'split'
+        : normType.includes('screensaver') ? 'screensaver'
+        : normType.includes('caps') ? 'caps-lock'
+        : normType.includes('bongo') ? 'bongo'
+        : normType;
+
+      const instance = block.instanceId && metadata.widgetInstances?.[lookupKey]
+        ? metadata.widgetInstances[lookupKey].find(i => i.id === block.instanceId)
+        : metadata.widgetInstances?.[lookupKey]?.[0];
+
+      const mode = (instance?.config?.mode === 'font') ? 1 : 0;
+      let param1 = 0;
+      let param2 = 0;
+      if (enumType === 'WIDGET_TYPE_WPM_CHART') {
+        param1 = instance?.config?.wpmChart?.gridSize ?? 4;
+        param2 = instance?.config?.wpmChart?.targetSpeed ?? 100;
+      } else if (enumType === 'WIDGET_TYPE_WPM') {
+        param2 = instance?.config?.targetValue ?? 100;
+      } else if (enumType === 'WIDGET_TYPE_BATTERY') {
+        param1 = instance?.config?.fontDivisionCount ?? 2;
+      }
+
+      const symbolIds: string[] = [];
+      if (instance?.config?.groupIds && instance.config.groupIds.length > 0) {
+        for (const gid of instance.config.groupIds) {
+          const match = symbolSlices.find(s => (s.groupId === gid && s.groupOrder === 1) || s.groupId === gid || s.id === gid);
+          if (match && symbolIds.length < 16) {
+            symbolIds.push(match.id);
+          }
+        }
+      } else if (instance?.config?.groupId) {
+        const gid = instance.config.groupId;
+        const members = symbolSlices.filter(s => s.groupId === gid).sort((a, b) => a.groupOrder - b.groupOrder);
+        if (members.length > 0) {
+          for (const m of members) {
+            if (symbolIds.length < 16) symbolIds.push(m.id);
+          }
+        } else {
+          const match = symbolSlices.find(s => s.id === gid);
+          if (match) symbolIds.push(match.id);
+        }
+      }
+
+      if (symbolIds.length === 0) {
+        if (enumType === 'WIDGET_TYPE_BATTERY') {
+          const bsym = symbolSlices.filter(s => s.id.includes('BATTERY') || s.id.includes('CHARGE') || s.groupId.includes('CHARGE'));
+          if (bsym.length > 0) {
+            bsym.slice(0, 16).forEach(s => symbolIds.push(s.id));
+          }
+        } else if (enumType === 'WIDGET_TYPE_OUTPUT_STATUS') {
+          const usb = symbolSlices.find(s => s.id.includes('USB'));
+          if (usb) symbolIds.push(usb.id);
+          const bt = symbolSlices.find(s => s.id.includes('BLUETOOTH') || s.id.includes('BLE'));
+          if (bt && symbolIds.length < 16) symbolIds.push(bt.id);
+        } else if (enumType === 'WIDGET_TYPE_SPLIT') {
+          const splits = symbolSlices.filter(s => s.id.includes('SPLIT'));
+          if (splits.length > 0) {
+            splits.slice(0, 16).forEach(s => symbolIds.push(s.id));
+          }
+        } else if (enumType === 'WIDGET_TYPE_LAYER') {
+          const layers = symbolSlices.filter(s => s.id.includes('LAYER') || s.groupId.includes('LAYER'));
+          if (layers.length > 0) {
+            layers.slice(0, 16).forEach(s => symbolIds.push(s.id));
+          }
+        } else if (enumType === 'WIDGET_TYPE_WPM') {
+          const wpms = symbolSlices.filter(s => s.id.includes('SPEED') || s.id.includes('WPM') || s.id.includes('ARROW'));
+          if (wpms.length > 0) {
+            wpms.slice(0, 16).forEach(s => symbolIds.push(s.id));
+          }
+        } else if (enumType === 'WIDGET_TYPE_BONGO') {
+          const bongos = symbolSlices.filter(s => s.id.includes('BONGO') || s.groupId.includes('BONGO'));
+          if (bongos.length > 0) {
+            bongos.slice(0, 16).forEach(s => symbolIds.push(s.id));
+          }
+        }
+        if (symbolIds.length === 0 && symbolSlices.length > 0) {
+          symbolIds.push(symbolSlices[0].id);
+        }
+      }
+
+      const symbolId = symbolIds[0] || (symbolSlices[0]?.id || '0');
+      const symbolCount = symbolIds.length;
+      const symbolIdsStr = symbolIds.length > 0 ? `{ ${symbolIds.join(', ')} }` : `{ 0 }`;
+
+      const textEntries: string[] = [];
+      if (instance?.config?.textEntries && instance.config.textEntries.length > 0) {
+        for (const t of instance.config.textEntries) {
+          if (textEntries.length < 16) {
+            textEntries.push(JSON.stringify(t));
+          }
+        }
+      }
+      const textCount = textEntries.length;
+      const textEntriesStr = textEntries.length > 0 ? `{ ${textEntries.join(', ')} }` : `{ NULL }`;
+
+      let customText = 'NULL';
+      if (textEntries.length > 0) {
+        customText = textEntries[0];
+      } else if (enumType === 'WIDGET_TYPE_BRANDING' && block.name && !block.name.includes('Default') && !block.name.includes('Text') && !block.name.includes('Model')) {
+        customText = JSON.stringify(block.name);
+      }
+
+      const enabled = block.enabled ? 'true' : 'false';
+      const bx = block.x ?? 0;
+      const by = block.y;
+      const bw = block.width ?? 0;
+      const bh = block.height;
+
+      return `    { .type = ${enumType}, .x = ${bx}, .y = ${by}, .width = ${bw}, .height = ${bh}, .enabled = ${enabled}, .mode = ${mode}, .param1 = ${param1}, .param2 = ${param2}, .symbol_count = ${symbolCount}, .symbol_ids = ${symbolIdsStr}, .text_count = ${textCount}, .text_entries = ${textEntriesStr}, .custom_text = ${customText}, .symbol_id = ${symbolId} }`;
+    };
+
+    const emitBlockArray = (name: string, countName: string, blocks?: LayoutBlock[]) => {
+      const all = blocks || [];
+      const len = Math.max(1, all.length);
+      c += `static const struct display_layout_block ${name}[${len}] = {\n`;
+      if (all.length > 0) {
+        all.forEach(b => {
+          c += `${formatBlockToC(b)},\n`;
+        });
+      } else {
+        c += `    { .type = WIDGET_TYPE_NONE, .enabled = false },\n`;
+      }
+      c += `};\n`;
+      c += `#define ${countName} ${all.length}\n\n`;
+    };
+
+    emitBlockArray('LAYOUT_LEFT_ACTIVE_BLOCKS', 'LAYOUT_LEFT_ACTIVE_COUNT', metadata.leftBlocks);
+    emitBlockArray('LAYOUT_LEFT_IDLE_BLOCKS', 'LAYOUT_LEFT_IDLE_COUNT', metadata.idleLeftBlocks);
+    emitBlockArray('LAYOUT_RIGHT_ACTIVE_BLOCKS', 'LAYOUT_RIGHT_ACTIVE_COUNT', metadata.rightBlocks);
+    emitBlockArray('LAYOUT_RIGHT_IDLE_BLOCKS', 'LAYOUT_RIGHT_IDLE_COUNT', metadata.idleRightBlocks);
+  }
+
+  if (metadata) {
+    c += `\n/* ZMK_DISPLAY_STUDIO_METADATA\n${JSON.stringify(metadata, null, 2)}\n*/\n`;
+  }
 
   return c;
 }

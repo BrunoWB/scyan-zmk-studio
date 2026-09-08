@@ -9,7 +9,6 @@ import {
   XCircle,
   Clock,
   Download,
-  ExternalLink,
   AlertCircle,
   Check,
   LogOut,
@@ -47,6 +46,7 @@ export interface HeaderBarProps {
   lastSavedAt: string | null;
   isSettingsOpen: boolean;
   setIsSettingsOpen: (open: boolean) => void;
+  showToast?: (type: 'success' | 'error', message: string) => void;
 }
 
 const GithubIcon = ({ size = 16, className = '' }: { size?: number; className?: string }) => (
@@ -92,6 +92,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   lastSavedAt,
   isSettingsOpen,
   setIsSettingsOpen,
+  showToast,
 }) => {
   const [tempConfig, setTempConfig] = useState<GitHubRepoConfig>(config);
   const [workflowRun, setWorkflowRun] = useState<WorkflowRunInfo | null>(null);
@@ -103,7 +104,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   const [branches, setBranches] = useState<string[]>([]);
   const [isLoadingBranches, setIsLoadingBranches] = useState<boolean>(false);
   const [quickKeyInput, setQuickKeyInput] = useState<string>('');
-  const [showFineGrainedInput, setShowFineGrainedInput] = useState<boolean>(true); // Show by default for ease of access
   const [isAuthorizing, setIsAuthorizing] = useState<boolean>(false);
   const [authFeedback, setAuthFeedback] = useState<{ status: 'success' | 'failed'; message: string } | null>(null);
   const quickKeyInputRef = useRef<HTMLInputElement>(null);
@@ -239,25 +239,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     setAuthFeedback(null);
   };
 
-  // Modern OAuth / App Login trigger
-  const handleOAuthLogin = () => {
-    const clientId = localStorage.getItem('zmk_builder_gh_client_id');
-    const redirectUri = window.location.origin + window.location.pathname;
-
-    if (clientId) {
-      window.location.href = `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(
-        clientId
-      )}&scope=repo&redirect_uri=${encodeURIComponent(redirectUri)}`;
-    } else {
-      // Direct user to modern repository-scoped authorization
-      window.open(
-        'https://github.com/settings/personal-access-tokens/new',
-        '_blank'
-      );
-      setShowFineGrainedInput(true);
-    }
-  };
-
   // Handle validating and authorizing the fine-grained repository key
   const handleApplyFineGrainedKey = useCallback(async (overrideKey?: string) => {
     const key = (overrideKey !== undefined ? overrideKey : quickKeyInput).trim();
@@ -309,6 +290,40 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     }
   }, [quickKeyInput, tempConfig, onTestConnection, onConfigChange]);
 
+  const isValidTokenLength = (raw: string): boolean => {
+    const token = raw.trim();
+    if (token.startsWith('github_pat_')) {
+      return token.length >= 80 && token.length <= 110;
+    }
+    return token.length === 40;
+  };
+
+  const handleProcessToken = useCallback((rawToken: string) => {
+    const token = rawToken.trim();
+    if (!token) return;
+
+    if (isValidTokenLength(token)) {
+      setQuickKeyInput(token);
+      handleApplyFineGrainedKey(token);
+    } else {
+      setQuickKeyInput('');
+      if (showToast) {
+        showToast('error', 'Token has an invalid length.');
+      }
+      setAuthFeedback({
+        status: 'failed',
+        message: 'Token has an invalid length.',
+      });
+    }
+  }, [handleApplyFineGrainedKey, showToast]);
+
+  const handleTokenPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pasted = e.clipboardData.getData('text').trim();
+    if (!pasted) return;
+    e.preventDefault();
+    handleProcessToken(pasted);
+  };
+
   // Steal keyboard hits when modal is open: auto-focus input and auto-authorize on Ctrl/Cmd + V
   useEffect(() => {
     if (!isSettingsOpen || connection.status === 'connected') return;
@@ -332,10 +347,9 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           try {
             const clipText = await navigator.clipboard.readText();
             const cleanToken = clipText.trim();
-            if (cleanToken && cleanToken.length > 10) {
+            if (cleanToken) {
               e.preventDefault();
-              setQuickKeyInput(cleanToken);
-              handleApplyFineGrainedKey(cleanToken);
+              handleProcessToken(cleanToken);
               return;
             }
           } catch {
@@ -365,7 +379,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
       clearTimeout(timer);
       window.removeEventListener('keydown', handleGlobalModalKeyDown, true);
     };
-  }, [isSettingsOpen, connection.status, handleApplyFineGrainedKey, setIsSettingsOpen]);
+  }, [isSettingsOpen, connection.status, handleProcessToken, setIsSettingsOpen]);
 
   // Filter repositories based on search input
   const filteredRepos = useMemo(() => {
@@ -750,122 +764,69 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                     <div className="flex items-start gap-2.5">
                       <Info size={17} className="text-[var(--color-info)] mt-0.5 shrink-0" />
                       <div>
-                        <strong className="text-[var(--color-info)] text-sm font-semibold">GitHub Connection Required</strong>
+                        <strong className="text-[var(--color-info)] text-sm font-semibold">GitHub Connection</strong>
                         <p className="text-xs text-[var(--color-info-muted)] mt-1 leading-relaxed">
-                          In accordance with GitHub modern security standards, authorization grants access <strong>only to your selected ZMK repository</strong> without accessing your personal account or other repositories.
+                          Make sure to select only the zmk-config repository you want to use for your keymap and firmware builds.
                         </p>
                       </div>
                     </div>
                   </div>
 
-                  {/* Modern Log in with GitHub Action */}
+                  {/* Get GitHub Token Action & Direct Paste Authorization */}
                   <div className="modern-login-box">
-                    <button
-                      type="button"
+                    <a
+                      href="https://github.com/settings/personal-access-tokens/new?name=ZMK+Keymap+Manager&description=Read+and+write+keymap+files,+download+firmware+build+artifacts&repository_selection=selected&contents=write&actions=read"
+                      target="_blank"
+                      rel="noreferrer"
                       className="btn-modern-github-auth"
-                      onClick={handleOAuthLogin}
+                      title="Opens GitHub with Contents (write), Actions (read), and Only select repositories pre-selected"
                     >
                       <GithubIcon size={18} />
-                      <span>Connect with GitHub</span>
-                    </button>
-                    <p className="auth-scope-notice">
-                      Grants repository-scoped read & commit access for <code>include/custom_display_assets.h</code>.
-                    </p>
-                  </div>
+                      <span>Get Github Token</span>
+                    </a>
 
-                  {/* Fine-Grained Repository-Scoped Connect Drawer */}
-                  {showFineGrainedInput && (
-                    <div className="fine-grained-connect-box">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-semibold text-slate-200">
-                          Paste Repository-Scoped Access Key
-                        </span>
-                        <a
-                          href="https://github.com/settings/personal-access-tokens/new"
-                          target="_blank"
-                          rel="noreferrer"
-                          className="themed-link text-[11px]"
-                        >
-                          <span>Open Fine-Grained Page</span>
-                          <ExternalLink size={10} />
-                        </a>
-                      </div>
-                      <div className="bg-purple-950/20 border border-purple-500/30 rounded p-2 mb-3 text-[11px] text-slate-300">
-                        <div className="font-semibold text-purple-300 mb-1 flex items-center gap-1.5">
-                          <span>Required Permissions:</span>
-                        </div>
-                        <ul className="list-disc list-inside space-y-0.5 text-slate-300">
-                          <li>Repository access: <strong className="text-white">Only select repositories</strong> &rarr; <strong className="text-white">{tempConfig.repo || 'zmk-config'}</strong></li>
-                          <li>Permissions &rarr; Repository permissions &rarr; <strong className="text-cyan-300">Contents</strong>: select <strong className="text-emerald-400">Read and write</strong></li>
-                        </ul>
-                      </div>
-
-                      {/* Text field on its own full line */}
-                      <div className="mb-2">
-                        <input
-                          ref={quickKeyInputRef}
-                          type="password"
-                          value={quickKeyInput}
-                          onChange={e => {
-                            setQuickKeyInput(e.target.value);
-                            if (authFeedback) setAuthFeedback(null);
-                          }}
-                          onPaste={e => {
-                            const pasted = e.clipboardData.getData('text').trim();
-                            if (pasted) {
-                              e.preventDefault();
-                              setQuickKeyInput(pasted);
-                              handleApplyFineGrainedKey(pasted);
-                            }
-                          }}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleApplyFineGrainedKey();
-                            }
-                          }}
-                          placeholder="github_pat_xxxxxxxxxxxxxxxxxxxx"
-                          className="auth-token-input"
-                          disabled={isAuthorizing}
-                          autoFocus
-                        />
-                      </div>
-
-                      {/* Authorize button and shortcut hint below */}
-                      <div className="flex items-center justify-between gap-2 mt-1">
-                        <span className="text-[11px] text-[var(--color-info-muted)] flex items-center gap-1.5">
-                          <kbd className="auth-kbd">Ctrl</kbd>+<kbd className="auth-kbd">V</kbd> auto-pastes &amp; authorizes
-                        </span>
-                        <button
-                          type="button"
-                          className="btn-save px-4 py-2 text-xs shrink-0 flex items-center gap-1.5 font-semibold"
-                          onClick={() => handleApplyFineGrainedKey()}
-                          disabled={!quickKeyInput.trim() || isAuthorizing}
-                        >
-                          {isAuthorizing ? (
-                            <>
-                              <RefreshCw size={12} className="spin" />
-                              <span>Validating...</span>
-                            </>
-                          ) : (
-                            <span>Authorize</span>
-                          )}
-                        </button>
-                      </div>
-
-                      {/* Live Validation Feedback: Cyan OK or Orange Failed */}
-                      {authFeedback && (
-                        <div className={`validation-feedback ${authFeedback.status}`}>
-                          {authFeedback.status === 'success' ? (
-                            <Check size={14} className="text-cyan-400 shrink-0" />
-                          ) : (
-                            <AlertCircle size={14} className="text-orange-400 shrink-0" />
-                          )}
-                          <span className="text-xs">{authFeedback.message}</span>
-                        </div>
-                      )}
+                    <div className="w-full max-w-sm mt-1">
+                      <input
+                        ref={quickKeyInputRef}
+                        type="password"
+                        value={quickKeyInput}
+                        onChange={e => {
+                          setQuickKeyInput(e.target.value);
+                          if (authFeedback) setAuthFeedback(null);
+                        }}
+                        onPaste={handleTokenPaste}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleProcessToken(quickKeyInput);
+                          }
+                        }}
+                        placeholder="Paste here and Authorize"
+                        className="auth-token-input text-center"
+                        disabled={isAuthorizing}
+                        autoFocus
+                      />
                     </div>
-                  )}
+
+                    {isAuthorizing && (
+                      <div className="flex items-center gap-1.5 text-xs text-accent mt-1">
+                        <RefreshCw size={12} className="spin" />
+                        <span>Validating and connecting...</span>
+                      </div>
+                    )}
+
+                    {/* Live Validation Feedback: Cyan OK or Orange Failed */}
+                    {authFeedback && !isAuthorizing && (
+                      <div className={`validation-feedback ${authFeedback.status} w-full max-w-sm justify-center`}>
+                        {authFeedback.status === 'success' ? (
+                          <Check size={14} className="text-cyan-400 shrink-0" />
+                        ) : (
+                          <AlertCircle size={14} className="text-orange-400 shrink-0" />
+                        )}
+                        <span className="text-xs">{authFeedback.message}</span>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="modal-actions">
                     <button

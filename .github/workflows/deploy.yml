@@ -1,4 +1,4 @@
-name: Deploy ZMK Display Studio to GitHub Pages
+name: Deploy Scyan ZMK Studio to GitHub Pages
 
 on:
   push:

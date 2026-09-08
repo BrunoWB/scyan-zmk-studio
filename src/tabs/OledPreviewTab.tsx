@@ -19,6 +19,14 @@ import {
   parseZmkKeymap,
   getMatchingKeyCoords,
 } from '../services/keymapService';
+import {
+  renderBlocksToGrid,
+  renderWidgetById,
+} from '../services/widgetRegistry';
+import {
+  DEFAULT_LEFT_LAYOUT_BLOCKS,
+  DEFAULT_RIGHT_LAYOUT_BLOCKS,
+} from '../types/zmk';
 
 export interface OledPreviewTabProps {
   symbolsGrid: BwpxGrid;
@@ -26,9 +34,13 @@ export interface OledPreviewTabProps {
   fontGrid: BwpxGrid;
   fontGlyphs?: FontGlyph[];
   fontMappings?: FontCharMapping[];
-  layoutBlocks: LayoutBlock[];
+  leftBlocks?: LayoutBlock[];
+  rightBlocks?: LayoutBlock[];
+  layoutBlocks?: LayoutBlock[];
   customText: string;
   onCustomTextChange: (text: string) => void;
+  instances?: import('../types/widget').WidgetInstanceMap;
+  customizations?: import('../types/widget').WidgetCustomizationMap;
   config?: GitHubRepoConfig;
   connection?: GitHubConnectionState;
   onShowToast?: (type: 'success' | 'error', message: string) => void;
@@ -42,18 +54,26 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   fontGrid,
   fontGlyphs = [],
   fontMappings = [],
+  leftBlocks,
+  rightBlocks,
   layoutBlocks,
   customText,
   onCustomTextChange: _onCustomTextChange,
+  instances,
+  customizations,
   config,
   connection,
   onShowToast,
   onOpenSettings,
   syncTrigger,
 }) => {
+  const activeLeftBlocks = leftBlocks ?? layoutBlocks ?? DEFAULT_LEFT_LAYOUT_BLOCKS;
+  const activeRightBlocks = rightBlocks ?? DEFAULT_RIGHT_LAYOUT_BLOCKS;
+
   // Simulator states
   const [isIdle, setIsIdle] = useState<boolean>(false);
   const [outputMode, setOutputMode] = useState<'usb' | 'ble'>('usb');
+  const [bleProfileIndex, setBleProfileIndex] = useState<number>(1);
   const [battery, setBattery] = useState<number>(88);
   const [currentLayer, setCurrentLayer] = useState<number>(0);
   const [wpm, setWpm] = useState<number>(68);
@@ -202,13 +222,8 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
 
   // Block helpers
   const getBlockY = (blockId: string, defaultY: number): number => {
-    const b = layoutBlocks.find(item => item.id === blockId);
+    const b = activeLeftBlocks.find((item: LayoutBlock) => item.id === blockId || item.widgetType === blockId);
     return b && b.enabled ? b.y : defaultY;
-  };
-
-  const isBlockEnabled = (blockId: string): boolean => {
-    const b = layoutBlocks.find(item => item.id === blockId);
-    return b ? b.enabled : true;
   };
 
   // Record timestamp for live WPM calculation
@@ -325,17 +340,6 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
       if (ctx) {
         const vbuf = new BwpxGrid(V_WIDTH, V_HEIGHT);
 
-        const blitSlice = (sliceId: string, destX: number, destY: number) => {
-          const slice = getSlice(sliceId);
-          if (!slice) return;
-          for (let sy = 0; sy < slice.height; sy++) {
-            for (let sx = 0; sx < slice.width; sx++) {
-              if (symbolsGrid.get(slice.x + sx, slice.y + sy)) {
-                vbuf.set(destX + sx, destY + sy, 1);
-              }
-            }
-          }
-        };
 
         const drawText = (str: string, startX: number, startY: number, size: 'small' | 'big' = 'small'): number => {
           if (!str) return startX;
@@ -383,72 +387,39 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
         };
 
         if (!isIdle) {
-          // Status Bar
-          if (isBlockEnabled('block-status')) {
-            const statusY = getBlockY('block-status', 0);
-            if (outputMode === 'usb') {
-              blitSlice('SYMBOL_USB', 1, statusY + 1);
-            } else {
-              blitSlice('SYMBOL_BLUETOOTH', 3, statusY + 2);
-            }
-
-            blitSlice('SYMBOL_BATTERY_FRAME', 14, statusY + 1);
-            const numBars = Math.min(4, Math.floor((battery + 12) / 25));
-            for (let b = 0; b < numBars; b++) {
-              const bx = 16 + b * 3;
-              for (let by = statusY + 3; by <= statusY + 7; by++) {
-                vbuf.set(bx, by, 1);
-                vbuf.set(bx + 1, by, 1);
-              }
-            }
-          }
-
-          // Layer Bar
-          if (isBlockEnabled('block-layer-label')) {
-            const layerY = getBlockY('block-layer-label', 25);
-            blitSlice(`SYMBOL_BRACKET_LAYER_${currentLayer % 4}`, 5, layerY);
-            const curLayerName = layerNames[currentLayer] || layerNames[0] || 'DEFAULT';
-            drawText(curLayerName, 4, layerY + 3);
-          }
-
-          // Center Art
-          if (isBlockEnabled('block-art')) {
-            const artY = getBlockY('block-art', 47);
-            blitSlice(`SYMBOL_SKULL_LAYER_${currentLayer % 4}`, 3, artY);
-          }
-
-          // WPM Section
-          if (isBlockEnabled('block-wpm')) {
-            const wpmY = getBlockY('block-wpm', 83);
-            const wpmStr = Math.min(999, Math.max(0, wpm)).toString().padStart(3, '0');
-            drawText(wpmStr[0], 2, wpmY, 'big');
-            drawText(wpmStr[1], 12, wpmY, 'big');
-            drawText(wpmStr[2], 22, wpmY, 'big');
-
-            const thresholds = [1, 10, 25, 40, 60, 80, 100];
-            for (let stage = 0; stage < 7; stage++) {
-              const arrowX = 2 + stage * 4;
-              const arrowY = wpmY + 12;
-              if (wpm >= thresholds[stage]) {
-                blitSlice('SYMBOL_ARROW_HEAD', arrowX, arrowY);
-              } else {
-                blitSlice('SYMBOL_ARROW_DOT', arrowX, arrowY);
-              }
-            }
-          }
-
-          // Split Status
-          if (isBlockEnabled('block-split')) {
-            const splitY = getBlockY('block-split', 116);
-            blitSlice(
-              splitConnected ? 'SYMBOL_SPLIT_CONNECTED' : 'SYMBOL_SPLIT_DISCONNECTED',
-              10,
-              splitY
-            );
-          }
+          renderBlocksToGrid(activeLeftBlocks, vbuf, {
+            symbolsGrid,
+            symbolSlices,
+            fontGrid,
+            fontGlyphs,
+            fontMappings,
+            battery,
+            outputMode,
+            bleProfileIndex,
+            currentLayer,
+            layerNames,
+            wpm,
+            splitConnected,
+            customText,
+            instances,
+            side: 'left',
+            isIdle: false,
+            customizations,
+          });
         } else {
-          // IDLE SCREEN
-          blitSlice('SYMBOL_SKULL_LAYER_0', 3, 35);
+          // IDLE SCREEN: render screensaver widget with customization support
+          renderWidgetById('screensaver', vbuf, 35, {
+            symbolsGrid,
+            symbolSlices,
+            fontGrid,
+            fontGlyphs,
+            fontMappings,
+            customText,
+            instances,
+            customizations,
+            side: 'left',
+            isIdle: true,
+          });
           const brandY = getBlockY('block-branding', 73);
           const brandText = (customText || 'ZMK DISPLAY').toUpperCase();
           const startX = Math.max(1, Math.floor((32 - brandText.length * 4) / 2));
@@ -542,36 +513,80 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
           return curX;
         };
 
-        // Peripheral Battery Frame & bars
-        blitSlice('SYMBOL_BATTERY_FRAME', 8, 8);
-        const numBars = Math.min(4, Math.floor((battery + 12) / 25));
-        for (let b = 0; b < numBars; b++) {
-          const bx = 10 + b * 3;
-          for (let by = 10; by <= 14; by++) {
-            vbuf.set(bx, by, 1);
-            vbuf.set(bx + 1, by, 1);
+        if (isIdle) {
+          // Peripheral Idle Screen: render screensaver widget with customization support
+          renderWidgetById('screensaver', vbuf, 35, {
+            symbolsGrid,
+            symbolSlices,
+            fontGrid,
+            fontGlyphs,
+            fontMappings,
+            customText,
+            instances,
+            customizations,
+            side: 'right',
+            isIdle: true,
+          });
+          const brandText = (customText || 'ZMK DISPLAY').toUpperCase();
+          const startX = Math.max(1, Math.floor((32 - brandText.length * 4) / 2));
+          drawText(brandText, startX, 73);
+
+          // Sleep dots
+          vbuf.set(24, 25, 1);
+          vbuf.set(26, 23, 1);
+          vbuf.set(28, 20, 1);
+        } else if (activeRightBlocks && activeRightBlocks.length > 0) {
+          renderBlocksToGrid(activeRightBlocks, vbuf, {
+            symbolsGrid,
+            symbolSlices,
+            fontGrid,
+            fontGlyphs,
+            fontMappings,
+            battery,
+            outputMode,
+            bleProfileIndex,
+            currentLayer,
+            layerNames,
+            wpm,
+            splitConnected,
+            customText,
+            instances,
+            side: 'right',
+            isIdle: false,
+            customizations,
+          });
+        } else {
+          // Peripheral Battery Frame & bars
+          blitSlice('SYMBOL_BATTERY_FRAME', 8, 8);
+          const numBars = Math.min(4, Math.floor((battery + 12) / 25));
+          for (let b = 0; b < numBars; b++) {
+            const bx = 10 + b * 3;
+            for (let by = 10; by <= 14; by++) {
+              vbuf.set(bx, by, 1);
+              vbuf.set(bx + 1, by, 1);
+            }
           }
+
+          // Split Wireless Link Status
+          blitSlice(
+            splitConnected ? 'SYMBOL_SPLIT_CONNECTED' : 'SYMBOL_SPLIT_DISCONNECTED',
+            10,
+            26
+          );
+
+          // Center Art (mirrored/matching layer art or skull)
+          blitSlice(`SYMBOL_SKULL_LAYER_${currentLayer % 4}`, 3, 48);
+
+          // Peripheral Label & Layer name
+          const sideModel = keymapLayout.columns === 6 ? 'CORNE 6X3' : keymapLayout.columns === 5 ? 'CORNE 5X3' : 'ZMK 5X3';
+          const modelParts = sideModel.split(' ');
+          drawText(modelParts[0], 6, 82);
+          if (modelParts[1]) {
+            drawText(modelParts[1], 10, 92);
+          }
+          const curLayerName = layerNames[currentLayer] || layerNames[0] || 'DEFAULT';
+          drawText(curLayerName, 4, 108);
         }
-
-        // Split Wireless Link Status
-        blitSlice(
-          splitConnected ? 'SYMBOL_SPLIT_CONNECTED' : 'SYMBOL_SPLIT_DISCONNECTED',
-          10,
-          26
-        );
-
-        // Center Art (mirrored/matching layer art or skull)
-        blitSlice(`SYMBOL_SKULL_LAYER_${currentLayer % 4}`, 3, 48);
-
-        // Peripheral Label & Layer name
-        const sideModel = keymapLayout.columns === 6 ? 'CORNE 6X3' : keymapLayout.columns === 5 ? 'CORNE 5X3' : 'ZMK 5X3';
-        const modelParts = sideModel.split(' ');
-        drawText(modelParts[0], 6, 82);
-        if (modelParts[1]) {
-          drawText(modelParts[1], 10, 92);
-        }
-        const curLayerName = layerNames[currentLayer] || layerNames[0] || 'DEFAULT';
-        drawText(curLayerName, 4, 108);
 
         const finalGrid = vbuf;
         rightCanvas.width = V_WIDTH * PIXEL_PITCH;
@@ -593,15 +608,20 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     symbolSlices,
     fontGrid,
     fontGlyphs,
-    layoutBlocks,
+    fontMappings,
+    activeLeftBlocks,
+    activeRightBlocks,
     isIdle,
     outputMode,
+    bleProfileIndex,
     battery,
     currentLayer,
     wpm,
     splitConnected,
     customText,
     layerNames,
+    keymapLayout,
+    customizations,
   ]);
 
   return (
@@ -801,6 +821,20 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
                   <span>Bluetooth</span>
                 </button>
               </div>
+              {outputMode === 'ble' && (
+                <div className="flex items-center gap-1 mt-2">
+                  <span className="text-xs text-muted mr-1">Profile:</span>
+                  {[0, 1, 2, 3, 4, 5].map(idx => (
+                    <button
+                      key={idx}
+                      className={`btn-chip !px-2 !py-0.5 text-xs ${bleProfileIndex === idx ? 'active' : ''}`}
+                      onClick={() => setBleProfileIndex(idx)}
+                    >
+                      {idx === 0 ? 'No conn' : `P${idx}`}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Active Layer Buttons */}

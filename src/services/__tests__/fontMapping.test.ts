@@ -58,7 +58,7 @@ describe('Font Character Mapping & Dual-Slot Architecture', () => {
     const symbolsGrid = new BwpxGrid(128, 34);
     const fontGrid = new BwpxGrid(128, 22);
     const symbolSlices: SpriteSlice[] = [
-      { id: 'SYMBOL_USB', name: 'USB', x: 0, y: 0, width: 8, height: 8 },
+      { id: 'SYMBOL_USB', name: 'USB', groupId: 'SYMBOL_USB', groupOrder: 1, x: 0, y: 0, width: 8, height: 8 },
     ];
     const mappings: FontCharMapping[] = [
       {
@@ -108,7 +108,7 @@ describe('Font Character Mapping & Dual-Slot Architecture', () => {
     const symbolsGrid = new BwpxGrid(128, 34);
     const fontGrid = new BwpxGrid(128, 22);
     const symbolSlices: SpriteSlice[] = [
-      { id: 'SYMBOL_USB', name: 'USB', x: 0, y: 0, width: 8, height: 8 },
+      { id: 'SYMBOL_USB', name: 'USB', groupId: 'SYMBOL_USB', groupOrder: 1, x: 0, y: 0, width: 8, height: 8 },
     ];
     const mappings: FontCharMapping[] = [
       {

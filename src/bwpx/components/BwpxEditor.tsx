@@ -36,6 +36,9 @@ import {
   Copy,
 } from 'lucide-react';
 import type { SpriteSlice } from '../../types/zmk';
+import { renderBwpxCanvas } from '../core/gridRenderer';
+import { ImageImportModal } from './ImageImportModal';
+import { CanvasContextMenu } from './CanvasContextMenu';
 import './BwpxEditor.css';
 
 export type ToolType =
@@ -64,9 +67,12 @@ export interface BwpxEditorProps {
   showPresets?: boolean;
   slices?: SpriteSlice[];
   selectedSliceId?: string;
-  onSelectSlice?: (id: string) => void;
+  selectedSliceIds?: string[];
+  pendingSelection?: { x: number; y: number; width: number; height: number } | null;
+  onSelectSlice?: (id: string, isMulti?: boolean) => void;
   onNewSelection?: (rect: { x: number; y: number; width: number; height: number }) => void;
   onSliceMove?: (sliceId: string, newX: number, newY: number) => void;
+  onSlicesMove?: (updates: { id: string; dx: number; dy: number }[]) => void;
   externalTool?: ToolType;
 }
 
@@ -79,9 +85,12 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   showPresets = true,
   slices = [],
   selectedSliceId = '',
+  selectedSliceIds = [],
+  pendingSelection = null,
   onSelectSlice,
   onNewSelection,
   onSliceMove,
+  onSlicesMove,
   externalTool,
 }) => {
   const [grid, setGrid] = useState<BwpxGrid>(
@@ -129,10 +138,33 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   const [isInsideSelectionOnDown, setIsInsideSelectionOnDown] = useState<boolean>(false);
 
   const [isPanning, setIsPanning] = useState<boolean>(false);
+  
+  // Internal clipboard for skipping image import
+  const [, setInternalClipboard] = useState<{
+    width: number;
+    height: number;
+    pixels: [number, number][];
+  } | null>(null);
   const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const [modalContent, setModalContent] = useState<{ title: string; text: string } | null>(null);
   const [copiedNotification, setCopiedNotification] = useState<boolean>(false);
+
+  // Floating ghost placement for imported images
+  const [ghostPlacement, setGhostPlacement] = useState<{
+    grid: BwpxGrid;
+    width: number;
+    height: number;
+    pixels: [number, number][];
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // Image Import Modal & Context Menu states
+  const [importModalOpen, setImportModalOpen] = useState<boolean>(false);
+  const [pendingImageSource, setPendingImageSource] = useState<File | Blob | string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -150,7 +182,37 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   // Sync selection when selectedSliceId changes from inspector or outside
   useEffect(() => {
     if (isDrawing || movingPixels) return;
-    if (selectedSliceId && slices && slices.length > 0) {
+    if (pendingSelection) {
+      setSelection({
+        x: pendingSelection.x,
+        y: pendingSelection.y,
+        w: pendingSelection.width,
+        h: pendingSelection.height,
+        active: true,
+      });
+      return;
+    }
+    if (selectedSliceIds && selectedSliceIds.length > 0 && slices && slices.length > 0) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      selectedSliceIds.forEach(id => {
+         const s = slices.find(item => item.id === id);
+         if (s) {
+           minX = Math.min(minX, s.x);
+           minY = Math.min(minY, s.y);
+           maxX = Math.max(maxX, s.x + s.width);
+           maxY = Math.max(maxY, s.y + s.height);
+         }
+      });
+      if (minX !== Infinity) {
+        setSelection({
+          x: minX,
+          y: minY,
+          w: maxX - minX,
+          h: maxY - minY,
+          active: true,
+        });
+      }
+    } else if (selectedSliceId && slices && slices.length > 0) {
       const s = slices.find(item => item.id === selectedSliceId);
       if (s) {
         setSelection({
@@ -161,8 +223,11 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           active: true,
         });
       }
+    } else if (!selectedSliceId && (!selectedSliceIds || selectedSliceIds.length === 0)) {
+      if (activeTool === 'select' && selection && !movingPixels) setSelection(null);
     }
-  }, [selectedSliceId, slices, isDrawing, movingPixels]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSliceId, selectedSliceIds ? selectedSliceIds.join(',') : '', slices, isDrawing, movingPixels, activeTool, pendingSelection]);
 
   const commitGridState = useCallback(
     (newGrid: BwpxGrid) => {
@@ -201,6 +266,24 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
   const gridRef = useRef<BwpxGrid>(grid);
   gridRef.current = grid;
+  const panRef = useRef(pan);
+  panRef.current = pan;
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+  const slicesRef = useRef(slices);
+  slicesRef.current = slices;
+  const selectedSliceIdsRef = useRef(selectedSliceIds);
+  selectedSliceIdsRef.current = selectedSliceIds;
+  const selectedSliceIdRef = useRef(selectedSliceId);
+  selectedSliceIdRef.current = selectedSliceId;
+  const ghostPlacementRef = useRef(ghostPlacement);
+  ghostPlacementRef.current = ghostPlacement;
+  const commitGridStateRef = useRef(commitGridState);
+  commitGridStateRef.current = commitGridState;
+  const onNewSelectionRef = useRef(onNewSelection);
+  onNewSelectionRef.current = onNewSelection;
 
   // Center view on (0, 0) origin with reasonable zoom (manual or once on mount)
   const fitToView = useCallback(() => {
@@ -251,11 +334,110 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     };
   }, [pan, zoom]);
 
-  // Spacebar tracking for panning
+  // Spacebar tracking and Escape cancellation
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      const selection = selectionRef.current;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        if (selection && selection.active) {
+          const sIds = selectedSliceIdsRef.current?.length ? selectedSliceIdsRef.current : (selectedSliceIdRef.current ? [selectedSliceIdRef.current] : []);
+          let pixels: [number, number][] = [];
+          
+          if (sIds.length > 0 && slicesRef.current) {
+            sIds.forEach(id => {
+              const s = slicesRef.current.find(item => item.id === id);
+              if (s) {
+                const slicePixels = gridRef.current.extractRect({
+                  x: s.x,
+                  y: s.y,
+                  w: s.width,
+                  h: s.height,
+                });
+                slicePixels.forEach(([rx, ry]) => {
+                  pixels.push([s.x + rx - selection.x, s.y + ry - selection.y]);
+                });
+              }
+            });
+          } else {
+            pixels = gridRef.current.extractRect({
+              x: selection.x,
+              y: selection.y,
+              w: selection.w,
+              h: selection.h,
+            });
+          }
+
+          setInternalClipboard({
+            width: selection.w,
+            height: selection.h,
+            pixels,
+          });
+          setCopiedNotification(true);
+          setTimeout(() => setCopiedNotification(false), 2000);
+          return;
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+        setInternalClipboard(clip => {
+          if (clip) {
+            const canvas = canvasRef.current;
+            const pan = panRef.current;
+            const zoom = zoomRef.current;
+            let initialX = 0;
+            let initialY = 0;
+            if (canvas) {
+              initialX = Math.round((-pan.x + canvas.width / 2) / zoom - clip.width / 2);
+              initialY = Math.round((-pan.y + canvas.height / 2) / zoom - clip.height / 2);
+            }
+            const tempGrid = new BwpxGrid(clip.width, clip.height);
+            clip.pixels.forEach(([rx, ry]) => {
+              tempGrid.set(rx, ry, 1);
+            });
+            setGhostPlacement({
+              grid: tempGrid,
+              width: clip.width,
+              height: clip.height,
+              pixels: clip.pixels,
+              x: initialX,
+              y: initialY,
+            });
+          }
+          return clip;
+        });
+        return;
+      }
       if (e.code === 'Space' && !e.repeat) {
         setIsSpaceHeld(true);
+      }
+      if (e.key === 'Escape') {
+        setGhostPlacement(null);
+        setContextMenu(null);
+      }
+      if (e.key === 'Enter') {
+        const ghost = ghostPlacementRef.current;
+        if (ghost) {
+          const targetX = ghost.x;
+          const targetY = ghost.y;
+          const next = gridRef.current.clone();
+          ghost.pixels.forEach(([rx, ry]) => {
+            next.set(targetX + rx, targetY + ry, 1);
+          });
+          commitGridStateRef.current(next);
+          setSelection({
+            x: targetX,
+            y: targetY,
+            w: ghost.width,
+            h: ghost.height,
+            active: true,
+          });
+          onNewSelectionRef.current?.({
+            x: targetX,
+            y: targetY,
+            width: ghost.width,
+            height: ghost.height,
+          });
+          setGhostPlacement(null);
+        }
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -271,73 +453,41 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     };
   }, []);
 
+  // Global clipboard paste listener for images (Ctrl+V / Cmd+V)
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        return;
+      }
+
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            setPendingImageSource(file);
+            setImportModalOpen(true);
+            return;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, []);
+
   // Render canvas loop
   const renderCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Deep studio infinite canvas background
-    ctx.fillStyle = '#0b0d11';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Visible viewport grid bounds
-    const startGridX = Math.floor(-pan.x / zoom);
-    const endGridX = Math.ceil((canvas.width - pan.x) / zoom);
-    const startGridY = Math.floor(-pan.y / zoom);
-    const endGridY = Math.ceil((canvas.height - pan.y) / zoom);
-
-    // 1. Subtle infinite grid lines
-    if (zoom >= 5) {
-      ctx.save();
-      ctx.translate(pan.x, pan.y);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (let x = startGridX; x <= endGridX; x++) {
-        ctx.moveTo(x * zoom, startGridY * zoom);
-        ctx.lineTo(x * zoom, endGridY * zoom);
-      }
-      for (let y = startGridY; y <= endGridY; y++) {
-        ctx.moveTo(startGridX * zoom, y * zoom);
-        ctx.lineTo(endGridX * zoom, y * zoom);
-      }
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // 2. Coordinate Axes (X axis and Y axis crossing at 0, 0)
-    const originX = pan.x;
-    const originY = pan.y;
-
-    // Horizontal X-axis (y = 0) - faint white
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, originY);
-    ctx.lineTo(canvas.width, originY);
-    ctx.stroke();
-
-    // Vertical Y-axis (x = 0) - faint white
-    ctx.beginPath();
-    ctx.moveTo(originX, 0);
-    ctx.lineTo(originX, canvas.height);
-    ctx.stroke();
-
-    // Origin (0,0) center point marker - faint white
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
-    ctx.beginPath();
-    ctx.arc(originX, originY, 2.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    if (zoom >= 8) {
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
-      ctx.font = '10px "JetBrains Mono", monospace';
-      ctx.fillText('(0, 0)', originX + 5, originY - 5);
-    }
 
     // Render preview state if dragging a shape
     let displayGrid = grid;
@@ -390,111 +540,43 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       displayGrid = temp;
     }
 
-    ctx.save();
-    ctx.translate(pan.x, pan.y);
+    const activeGhost =
+      movingPixels && movingPixels.active
+        ? {
+            pixels: movingPixels.pixels,
+            x: movingPixels.originalRect.x + movingPixels.offset.dx,
+            y: movingPixels.originalRect.y + movingPixels.offset.dy,
+            w: movingPixels.originalRect.w,
+            h: movingPixels.originalRect.h,
+          }
+        : ghostPlacement
+        ? {
+            pixels: ghostPlacement.pixels,
+            x: ghostPlacement.x,
+            y: ghostPlacement.y,
+            w: ghostPlacement.width,
+            h: ghostPlacement.height,
+          }
+        : null;
 
-    // 3. Draw active pixels
-    ctx.fillStyle = '#00d2ff';
-    const allPixels = displayGrid.getAllPixels();
-    for (let i = 0; i < allPixels.length; i++) {
-      const [x, y] = allPixels[i];
-      if (x >= startGridX && x <= endGridX && y >= startGridY && y <= endGridY) {
-        ctx.fillRect(x * zoom, y * zoom, zoom, zoom);
-      }
-    }
+    renderBwpxCanvas(canvas, ctx, {
+      grid: displayGrid,
+      zoom,
+      pan,
+      pixelColor: '#00d2ff',
+      bgColor: '#0b0d11',
+      showAxes: true,
+      showGridLines: zoom >= 5,
+      ghost: activeGhost,
+      selection: !movingPixels || !movingPixels.active ? selection : null,
+      slices,
+      selectedSliceId,
+    });
 
-    // 4. Ghost image preview during pixel move drag
-    if (movingPixels && movingPixels.active) {
-      const targetX = movingPixels.originalRect.x + movingPixels.offset.dx;
-      const targetY = movingPixels.originalRect.y + movingPixels.offset.dy;
-
-      // Translucent ghost preview during drag (purple accent)
-      ctx.fillStyle = 'rgba(192, 132, 252, 0.7)';
-      ctx.shadowColor = '#c084fc';
-      ctx.shadowBlur = 10;
-      movingPixels.pixels.forEach(([relX, relY]) => {
-        ctx.fillRect((targetX + relX) * zoom, (targetY + relY) * zoom, zoom, zoom);
-      });
-      ctx.shadowBlur = 0;
-
-      // Ghost marquee
-      ctx.strokeStyle = '#c084fc';
-      ctx.fillStyle = 'rgba(192, 132, 252, 0.12)';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 4]);
-      ctx.strokeRect(
-        targetX * zoom,
-        targetY * zoom,
-        movingPixels.originalRect.w * zoom,
-        movingPixels.originalRect.h * zoom
-      );
-      ctx.fillRect(
-        targetX * zoom,
-        targetY * zoom,
-        movingPixels.originalRect.w * zoom,
-        movingPixels.originalRect.h * zoom
-      );
-      ctx.setLineDash([]);
-    }
-
-    // 5. Sprite Slices Overlay on canvas
-    if (slices && slices.length > 0) {
-      slices.forEach(s => {
-        const isSelected = selectedSliceId === s.id;
-        const sx = s.x * zoom;
-        const sy = s.y * zoom;
-        const sw = s.width * zoom;
-        const sh = s.height * zoom;
-
-        ctx.strokeStyle = isSelected ? '#c084fc' : (s.color || 'rgba(168, 85, 247, 0.45)');
-        ctx.lineWidth = isSelected ? 2 : 1;
-        if (!isSelected) {
-          ctx.setLineDash([3, 3]);
-        } else {
-          ctx.setLineDash([]);
-          ctx.shadowColor = '#c084fc';
-          ctx.shadowBlur = 8;
-        }
-        ctx.strokeRect(sx, sy, sw, sh);
-        ctx.shadowBlur = 0;
-        ctx.setLineDash([]);
-
-        // Slice badge label
-        if (zoom >= 6) {
-          const label = `${s.name} (${s.width}×${s.height})`;
-          ctx.font = '10px "JetBrains Mono", monospace';
-          const textWidth = ctx.measureText(label).width;
-          ctx.fillStyle = isSelected ? 'rgba(192, 132, 252, 0.95)' : 'rgba(18, 20, 26, 0.85)';
-          ctx.fillRect(sx, sy - 15, textWidth + 8, 14);
-          ctx.fillStyle = isSelected ? '#090a0d' : '#cbd5e1';
-          ctx.fillText(label, sx + 4, sy - 4);
-        }
-      });
-    }
-
-    // 6. Selection Marquee (when not moving pixels) - vibrant purple
-    if (selection && selection.active && (!movingPixels || !movingPixels.active)) {
-      ctx.strokeStyle = '#c084fc';
-      ctx.fillStyle = 'rgba(192, 132, 252, 0.12)';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 4]);
-      ctx.strokeRect(
-        selection.x * zoom,
-        selection.y * zoom,
-        selection.w * zoom,
-        selection.h * zoom
-      );
-      ctx.fillRect(
-        selection.x * zoom,
-        selection.y * zoom,
-        selection.w * zoom,
-        selection.h * zoom
-      );
-      ctx.setLineDash([]);
-    }
-
-    // 7. Hover brush indicator
-    if (hoverPos) {
+    // Hover brush indicator (when not panning, not placing ghost, and using drawing tool)
+    if (hoverPos && !ghostPlacement && !isPanning && activeTool !== 'select') {
+      ctx.save();
+      ctx.translate(pan.x, pan.y);
       const half = Math.floor(brushSize / 2);
       ctx.strokeStyle = 'rgba(0, 229, 163, 0.6)';
       ctx.lineWidth = 1;
@@ -504,9 +586,8 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
         brushSize * zoom,
         brushSize * zoom
       );
+      ctx.restore();
     }
-
-    ctx.restore();
   }, [
     grid,
     pan,
@@ -519,9 +600,11 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     brushSize,
     selection,
     movingPixels,
+    ghostPlacement,
     slices,
     selectedSliceId,
     hoverPos,
+    isPanning,
   ]);
 
   useEffect(() => {
@@ -557,6 +640,48 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
   // Mouse Handlers
   const handleMouseDown = (e: React.MouseEvent) => {
+    // Close context menu if open
+    if (contextMenu) {
+      setContextMenu(null);
+    }
+
+    // Ghost Placement mode for imported image
+    if (ghostPlacement) {
+      if (e.button === 0) {
+        // Left click: stamp pixels onto grid
+        const targetX = ghostPlacement.x;
+        const targetY = ghostPlacement.y;
+        const next = grid.clone();
+        ghostPlacement.pixels.forEach(([rx, ry]) => {
+          next.set(targetX + rx, targetY + ry, 1);
+        });
+        commitGridState(next);
+        setSelection({
+          x: targetX,
+          y: targetY,
+          w: ghostPlacement.width,
+          h: ghostPlacement.height,
+          active: true,
+        });
+        onNewSelection?.({
+          x: targetX,
+          y: targetY,
+          width: ghostPlacement.width,
+          height: ghostPlacement.height,
+        });
+        setGhostPlacement(null);
+      } else if (e.button === 2) {
+        // Right click: cancel ghost placement without modifying grid
+        setGhostPlacement(null);
+      }
+      return;
+    }
+
+    // Right-click is reserved for context menu; don't start drawing or erase instantly
+    if (e.button === 2) {
+      return;
+    }
+
     // Middle click or spacebar -> Pan
     if (e.button === 1 || isSpaceHeld) {
       setIsPanning(true);
@@ -624,6 +749,20 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
     if (!coords) return;
 
+    // Track ghost placement position centered on cursor
+    if (ghostPlacement) {
+      setGhostPlacement(prev =>
+        prev
+          ? {
+              ...prev,
+              x: coords.x - Math.floor(prev.width / 2),
+              y: coords.y - Math.floor(prev.height / 2),
+            }
+          : null
+      );
+      return;
+    }
+
     if (activeTool === 'select') {
       if (isDrawing && startPos) {
         setDragCurrentPos(coords);
@@ -635,19 +774,46 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           // User started drag INSIDE an active selection marquee -> Move pixels!
           if (!movingPixels && hasMoved) {
             // Lift pixels now that drag has actually started
-            const extracted = grid.extractRect({
-              x: selection.x,
-              y: selection.y,
-              w: selection.w,
-              h: selection.h,
-            });
+            let extracted: [number, number][] = [];
             const temp = grid.clone();
-            temp.clearRect({
-              x: selection.x,
-              y: selection.y,
-              w: selection.w,
-              h: selection.h,
-            });
+            const activeIds = selectedSliceIds?.length ? selectedSliceIds : (selectedSliceId ? [selectedSliceId] : []);
+            
+            if (activeIds.length > 0 && slices) {
+              activeIds.forEach(id => {
+                const s = slices.find(item => item.id === id);
+                if (s) {
+                  const slicePixels = grid.extractRect({
+                    x: s.x,
+                    y: s.y,
+                    w: s.width,
+                    h: s.height,
+                  });
+                  slicePixels.forEach(([rx, ry]) => {
+                    extracted.push([s.x + rx - selection.x, s.y + ry - selection.y]);
+                  });
+                  temp.clearRect({
+                    x: s.x,
+                    y: s.y,
+                    w: s.width,
+                    h: s.height,
+                  });
+                }
+              });
+            } else {
+              extracted = grid.extractRect({
+                x: selection.x,
+                y: selection.y,
+                w: selection.w,
+                h: selection.h,
+              });
+              temp.clearRect({
+                x: selection.x,
+                y: selection.y,
+                w: selection.w,
+                h: selection.h,
+              });
+            }
+
             setGrid(temp);
             setMovingPixels({
               originalRect: { ...selection },
@@ -703,7 +869,11 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     }
   };
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (e?: React.MouseEvent) => {
+    if (ghostPlacement) {
+      return;
+    }
+
     if (isPanning) {
       setIsPanning(false);
       return;
@@ -727,7 +897,9 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       });
 
       // Update slice coordinates if this move was on a valid slice selection
-      if (selectedSliceId && onSliceMove) {
+      if (selectedSliceIds && selectedSliceIds.length > 0 && onSlicesMove) {
+        onSlicesMove(selectedSliceIds.map(id => ({ id, dx: movingPixels.offset.dx, dy: movingPixels.offset.dy })));
+      } else if (selectedSliceId && onSliceMove) {
         onSliceMove(selectedSliceId, targetX, targetY);
       } else if (slices && onSliceMove) {
         const matchingSlice = slices.find(
@@ -740,6 +912,13 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
         if (matchingSlice) {
           onSliceMove(matchingSlice.id, targetX, targetY);
         }
+      } else if (pendingSelection) {
+        onNewSelection?.({
+          x: targetX,
+          y: targetY,
+          width: movingPixels.originalRect.w,
+          height: movingPixels.originalRect.h
+        });
       }
 
       setMovingPixels(null);
@@ -770,7 +949,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
               startPos.y < s.y + s.height
           );
           if (clickedSlice) {
-            onSelectSlice?.(clickedSlice.id);
+            onSelectSlice?.(clickedSlice.id, e?.ctrlKey || e?.metaKey);
             setSelection({
               x: clickedSlice.x,
               y: clickedSlice.y,
@@ -784,7 +963,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           }
         }
         // Clicked outside any slice
-        onSelectSlice?.('');
+        onSelectSlice?.('', e?.ctrlKey || e?.metaKey);
         setSelection(null);
         setStartPos(null);
         setDragCurrentPos(null);
@@ -869,13 +1048,8 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
       setZoom(prevZoom => {
         let nextZoom: number;
-        if (e.deltaY < 0) {
-          // Zoom in: guarantee at least +1 step to prevent rounding lock (e.g. 2 * 1.2 = 2.4 => 2)
-          nextZoom = Math.max(prevZoom + 1, Math.round(prevZoom * 1.25));
-        } else {
-          // Zoom out: guarantee at least -1 step
-          nextZoom = Math.min(prevZoom - 1, Math.round(prevZoom * 0.8));
-        }
+        const zoomFactor = Math.pow(0.998, e.deltaY);
+        nextZoom = prevZoom * zoomFactor;
         nextZoom = Math.min(64, Math.max(1, nextZoom));
 
         if (nextZoom !== prevZoom) {
@@ -896,6 +1070,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   }, []);
 
   const getCanvasCursor = () => {
+    if (ghostPlacement) return 'copy';
     if (isPanning) return 'grabbing';
     if (isSpaceHeld) return 'grab';
     if (activeTool === 'select') {
@@ -1009,33 +1184,62 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     if (!file) return;
 
     if (file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = ev => {
-        const img = new Image();
-        img.onload = () => {
-          const off = document.createElement('canvas');
-          off.width = img.width;
-          off.height = img.height;
-          const octx = off.getContext('2d');
-          if (!octx) return;
-          octx.drawImage(img, 0, 0);
-          const imgData = octx.getImageData(0, 0, img.width, img.height);
-          const next = new BwpxGrid(img.width, img.height);
-          for (let y = 0; y < img.height; y++) {
-            for (let x = 0; x < img.width; x++) {
-              const idx = (y * img.width + x) * 4;
-              const brightness = (imgData.data[idx] + imgData.data[idx + 1] + imgData.data[idx + 2]) / 3;
-              if (brightness > 127) {
-                next.set(x, y, 1);
-              }
-            }
+      setPendingImageSource(file);
+      setImportModalOpen(true);
+    }
+    e.target.value = '';
+  };
+
+  const handleConfirmImageImport = (importedGrid: BwpxGrid, width: number, height: number) => {
+    setImportModalOpen(false);
+    setPendingImageSource(null);
+
+    // Initial position: center of the visible viewport canvas
+    const canvas = canvasRef.current;
+    let initialX = 0;
+    let initialY = 0;
+    if (canvas) {
+      initialX = Math.round((-pan.x + canvas.width / 2) / zoom - width / 2);
+      initialY = Math.round((-pan.y + canvas.height / 2) / zoom - height / 2);
+    }
+
+    setGhostPlacement({
+      grid: importedGrid,
+      width,
+      height,
+      pixels: importedGrid.getAllPixels(),
+      x: initialX,
+      y: initialY,
+    });
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (ghostPlacement) {
+      setGhostPlacement(null);
+      return;
+    }
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleContextMenuPaste = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.read) {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          const imgType = item.types.find(t => t.startsWith('image/'));
+          if (imgType) {
+            const blob = await item.getType(imgType);
+            setPendingImageSource(blob);
+            setImportModalOpen(true);
+            return;
           }
-          commitGridState(next);
-          fitToView();
-        };
-        img.src = ev.target?.result as string;
-      };
-      reader.readAsDataURL(file);
+        }
+      }
+      alert('No image found in clipboard. Copy an image or screenshot first (Ctrl+C / PrintScreen).');
+    } catch (err) {
+      console.warn('Clipboard read error or permission denied:', err);
+      fileInputRef.current?.click();
     }
   };
 
@@ -1149,7 +1353,13 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           <label className="bwpx-btn-import">
             <Upload size={13} />
             <span>Import</span>
-            <input type="file" accept=".png,.bmp,.json" onChange={handleImportFile} style={{ display: 'none' }} />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,.json"
+              onChange={handleImportFile}
+              style={{ display: 'none' }}
+            />
           </label>
 
           {showPresets && (
@@ -1316,14 +1526,14 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
         <main
           ref={containerRef}
           className="bwpx-viewport"
-          onContextMenu={e => e.preventDefault()}
+          onContextMenu={handleContextMenu}
         >
           <canvas
             ref={canvasRef}
             style={{ cursor: getCanvasCursor() }}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
+            onMouseUp={(e) => handleMouseUp(e)}
             onMouseLeave={() => {
               setHoverPos(null);
               setIsPanning(false);
@@ -1341,7 +1551,13 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       {/* 3. BOTTOM STATUS BAR */}
       <footer className="bwpx-statusbar">
         <div className="bwpx-status-left">
-          <span className="bwpx-status-tool">{activeTool}</span>
+          {ghostPlacement ? (
+            <span className="bwpx-status-tool" style={{ color: '#c084fc', background: 'rgba(192, 132, 252, 0.15)' }}>
+              Ghost Drag: Click to stamp, Esc or Right-click to cancel
+            </span>
+          ) : (
+            <span className="bwpx-status-tool">{activeTool}</span>
+          )}
           <span>
             Pos:{' '}
             <strong className="bwpx-status-val">
@@ -1420,6 +1636,33 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Image Import & Tuning Modal */}
+      <ImageImportModal
+        isOpen={importModalOpen}
+        imageSource={pendingImageSource}
+        onClose={() => {
+          setImportModalOpen(false);
+          setPendingImageSource(null);
+        }}
+        onConfirm={handleConfirmImageImport}
+      />
+
+      {/* Canvas Context Menu */}
+      {contextMenu && (
+        <CanvasContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onPaste={handleContextMenuPaste}
+          onImportFile={() => fileInputRef.current?.click()}
+          onInvert={handleInvert}
+          onFlipH={handleFlipH}
+          onFlipV={handleFlipV}
+          onRotate90={handleRotate90}
+          hasSelection={Boolean(selection && selection.active)}
+        />
       )}
     </div>
   );

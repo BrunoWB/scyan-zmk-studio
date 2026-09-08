@@ -53,6 +53,8 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
     fontMappings.forEach(m => {
       if (m.small) {
         list.push({
+          groupId: `${m.id}__small`,
+          groupOrder: 1,
           id: `${m.id}__small`,
           name: `${m.chars || '?'} (S)`,
           x: m.small.x, y: m.small.y, width: m.small.width, height: m.small.height,
@@ -61,6 +63,8 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
       }
       if (m.big) {
         list.push({
+          groupId: `${m.id}__big`,
+          groupOrder: 1,
           id: `${m.id}__big`,
           name: `${m.chars || '?'} (B)`,
           x: m.big.x, y: m.big.y, width: m.big.width, height: m.big.height,
@@ -339,15 +343,11 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
                 const isSmall = slotType === 'small';
                 const color = isSmall ? '#38bdf8' : '#c084fc';
                 const label = isSmall ? 'S' : 'B';
-                const isAssigningThis =
-                  assigningSlot?.mappingId === selectedMapping.id &&
-                  assigningSlot?.slotType === slotType;
 
                 return (
                   <div
                     key={slotType}
                     className={`font-slot-panel ${slot ? 'assigned' : 'empty'}`}
-                    style={isAssigningThis ? { borderColor: color, boxShadow: `0 0 8px ${color}44` } : {}}
                   >
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="font-slot-label" style={{ color }}>{label}</span>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { BwpxGrid } from './bwpx/core/BwpxGrid';
 import type {
   SpriteSlice,
@@ -6,14 +6,17 @@ import type {
   FontCharMapping,
   LayoutBlock,
 } from './types/zmk';
+import type { WidgetInstanceMap, WidgetInstance } from './types/widget';
+import { WIDGET_REGISTRY } from './services/widgetRegistry';
 import {
   DEFAULT_SYMBOL_SLICES,
   DEFAULT_FONT_GLYPHS,
   DEFAULT_FONT_MAPPINGS,
-  DEFAULT_LAYOUT_BLOCKS,
+  DEFAULT_LEFT_LAYOUT_BLOCKS,
+  DEFAULT_RIGHT_LAYOUT_BLOCKS,
 } from './types/zmk';
 import { createDefaultSymbolsGrid, createDefaultFontGrid } from './services/defaultAssets';
-import { parseCHeader, generateCHeader } from './services/cHeaderParser';
+import { parseCHeader, generateCHeader, type HeaderMetadata, type ParsedAssets } from './services/cHeaderParser';
 import type {
   GitHubRepoConfig,
   GitHubConnectionState,
@@ -32,6 +35,7 @@ import { SymbolsAtlasTab } from './tabs/SymbolsAtlasTab';
 import { FontAtlasTab } from './tabs/FontAtlasTab';
 import { WidgetsTab } from './tabs/WidgetsTab';
 import { BlocksTab } from './tabs/BlocksTab';
+import { ScreenSizePopover } from './components/ScreenSizePopover';
 import {
   Monitor,
   Shapes,
@@ -40,6 +44,8 @@ import {
   LayoutGrid,
   CheckCircle2,
   AlertCircle,
+  RefreshCw,
+  Settings,
 } from 'lucide-react';
 import './App.css';
 
@@ -58,14 +64,219 @@ export function App() {
   // Navigation Tab: initialized and tracked via URL hash (#preview, #symbols, etc.)
   const [activeTab, setActiveTab] = useState<TabType>(() => getTabFromHash());
 
-  // Core Bitmaps & Descriptors
-  const [symbolsGrid, setSymbolsGrid] = useState<BwpxGrid>(() => createDefaultSymbolsGrid());
-  const [symbolSlices, setSymbolSlices] = useState<SpriteSlice[]>(() => [...DEFAULT_SYMBOL_SLICES]);
-  const [fontGrid, setFontGrid] = useState<BwpxGrid>(() => createDefaultFontGrid());
-  const [fontGlyphs, setFontGlyphs] = useState<FontGlyph[]>(() => [...DEFAULT_FONT_GLYPHS]);
-  const [fontMappings, setFontMappings] = useState<FontCharMapping[]>(() => [...DEFAULT_FONT_MAPPINGS]);
-  const [layoutBlocks, setLayoutBlocks] = useState<LayoutBlock[]>(() => [...DEFAULT_LAYOUT_BLOCKS]);
+  // Loading overlay state: keep true until repository data (or defaults fallback) is loaded
+  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
+
+  // Core Bitmaps & Descriptors (starts empty with no preloaded content until repo or defaults resolve)
+  const [symbolsGrid, setSymbolsGrid] = useState<BwpxGrid>(() => new BwpxGrid(128, 34));
+  const [symbolSlices, setSymbolSlices] = useState<SpriteSlice[]>([]);
+  const [fontGrid, setFontGrid] = useState<BwpxGrid>(() => new BwpxGrid(128, 22));
+  const [fontGlyphs, setFontGlyphs] = useState<FontGlyph[]>([]);
+  const [fontMappings, setFontMappings] = useState<FontCharMapping[]>([]);
+  const [leftBlocks, setLeftBlocks] = useState<LayoutBlock[]>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-left-blocks');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [...DEFAULT_LEFT_LAYOUT_BLOCKS];
+  });
+  const [rightBlocks, setRightBlocks] = useState<LayoutBlock[]>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-right-blocks');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [...DEFAULT_RIGHT_LAYOUT_BLOCKS];
+  });
+  const [idleLeftBlocks, setIdleLeftBlocks] = useState<LayoutBlock[]>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-idle-left-blocks');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [
+      { id: 'idle-left-art', widgetType: 'screensaver', name: 'Mascot Image', x: 3, y: 35, width: 26, height: 26, enabled: true, side: 'left' }
+    ];
+  });
+  const [idleRightBlocks, setIdleRightBlocks] = useState<LayoutBlock[]>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-idle-right-blocks');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [
+      { id: 'idle-right-art', widgetType: 'screensaver', name: 'Mascot Image', x: 3, y: 35, width: 26, height: 26, enabled: true, side: 'right' }
+    ];
+  });
+  const [screenDimensions, setScreenDimensions] = useState<{ width: number; height: number }>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-screen-dimensions');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { width: 32, height: 128 };
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-left-blocks', JSON.stringify(leftBlocks));
+    } catch {}
+  }, [leftBlocks]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-right-blocks', JSON.stringify(rightBlocks));
+    } catch {}
+  }, [rightBlocks]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-idle-left-blocks', JSON.stringify(idleLeftBlocks));
+    } catch {}
+  }, [idleLeftBlocks]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-idle-right-blocks', JSON.stringify(idleRightBlocks));
+    } catch {}
+  }, [idleRightBlocks]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-screen-dimensions', JSON.stringify(screenDimensions));
+    } catch {}
+  }, [screenDimensions]);
+
   const [customText, setCustomText] = useState<string>('BRUNOWB');
+  const [_clearedTemplates, setClearedTemplates] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-cleared-templates');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
+
+  const [widgetInstances, setWidgetInstances] = useState<WidgetInstanceMap>(() => {
+    let savedInstances: WidgetInstanceMap = {};
+    try {
+      const saved = localStorage.getItem('zmk-widget-instances');
+      if (saved) savedInstances = JSON.parse(saved);
+    } catch {}
+    
+    // Auto-populate defaults for templates that aren't in savedInstances AND aren't cleared
+    const defaults: WidgetInstanceMap = { ...savedInstances };
+    let clearedStr = localStorage.getItem('zmk-cleared-templates');
+    let clearedSet = new Set<string>();
+    if (clearedStr) {
+      try { clearedSet = new Set(JSON.parse(clearedStr)); } catch {}
+    }
+
+    WIDGET_REGISTRY.forEach(w => {
+      const shouldAutoPopulate = w.id === 'wpm-chart' || (w.associatedSliceIds && w.associatedSliceIds.length > 0);
+      if (!defaults[w.id] && !clearedSet.has(w.id) && shouldAutoPopulate) {
+        let initialConfig: import('./types/widget').WidgetInstanceConfig = { mode: 'symbol' };
+        if (w.id === 'wpm-chart') {
+          initialConfig = { mode: 'symbol', wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100 } };
+        } else if (w.id === 'connection') {
+          initialConfig = {
+            mode: 'symbol',
+            groupId: 'SYMBOL_USB',
+            groupIds: [
+              'SYMBOL_BLUETOOTH',
+              'SYMBOL_BLUETOOTH',
+              'SYMBOL_BLUETOOTH',
+              'SYMBOL_BLUETOOTH',
+              'SYMBOL_BLUETOOTH',
+              'SYMBOL_BLUETOOTH',
+            ],
+            textEntries: ['USB', 'No conn', 'P1', 'P2', 'P3', 'P4', 'P5'],
+          };
+        }
+
+        const inst: WidgetInstance = {
+          id: `w_${Math.random().toString(36).substr(2, 6)}`,
+          widgetTypeId: w.id,
+          label: `${w.name}`,
+          config: initialConfig,
+          slots: {}
+        };
+        w.slots.forEach(slot => {
+          if (slot.defaultSymbolId || slot.defaultText) {
+            if (!inst.slots) inst.slots = {};
+            inst.slots[slot.id] = {
+              mode: slot.defaultMode,
+              symbolId: slot.defaultSymbolId,
+              text: slot.defaultText
+            };
+          }
+        });
+        defaults[w.id] = [inst];
+      }
+    });
+
+    if (defaults['ble-profile']) {
+      delete defaults['ble-profile'];
+    }
+    return defaults;
+  });
+
+  const handleInstancesChange = useCallback((newInstances: WidgetInstanceMap) => {
+    setWidgetInstances(prev => {
+      // Find templates that went from having instances to having 0 instances
+      const newlyCleared = Object.keys(prev).filter(
+        typeId => prev[typeId].length > 0 && (!newInstances[typeId] || newInstances[typeId].length === 0)
+      );
+      
+      if (newlyCleared.length > 0) {
+        setClearedTemplates(prevCleared => {
+          const nextCleared = Array.from(new Set([...prevCleared, ...newlyCleared]));
+          localStorage.setItem('zmk-cleared-templates', JSON.stringify(nextCleared));
+          return nextCleared;
+        });
+      }
+      return newInstances;
+    });
+    
+    try {
+      localStorage.setItem('zmk-widget-instances', JSON.stringify(newInstances));
+    } catch (e) {
+      console.error('Failed to save instances to localStorage', e);
+    }
+  }, []);
+
+  const applyDefaults = useCallback(() => {
+    setSymbolsGrid(createDefaultSymbolsGrid());
+    setSymbolSlices([...DEFAULT_SYMBOL_SLICES]);
+    setFontGrid(createDefaultFontGrid());
+    setFontGlyphs([...DEFAULT_FONT_GLYPHS]);
+    setFontMappings([...DEFAULT_FONT_MAPPINGS]);
+  }, []);
+
+  const applyParsedAssets = useCallback((parsed: ParsedAssets) => {
+    setSymbolsGrid(parsed.symbolsGrid);
+    setSymbolSlices(parsed.symbolSlices);
+    setFontGrid(parsed.fontGrid);
+    setFontGlyphs(parsed.fontGlyphs);
+    if (parsed.fontMappings && parsed.fontMappings.length > 0) {
+      setFontMappings(parsed.fontMappings);
+    }
+    if (parsed.metadata) {
+      if (parsed.metadata.leftBlocks && parsed.metadata.leftBlocks.length > 0) {
+        setLeftBlocks(parsed.metadata.leftBlocks);
+      }
+      if (parsed.metadata.rightBlocks && parsed.metadata.rightBlocks.length > 0) {
+        setRightBlocks(parsed.metadata.rightBlocks);
+      }
+      if (parsed.metadata.idleLeftBlocks && parsed.metadata.idleLeftBlocks.length > 0) {
+        setIdleLeftBlocks(parsed.metadata.idleLeftBlocks);
+      }
+      if (parsed.metadata.idleRightBlocks && parsed.metadata.idleRightBlocks.length > 0) {
+        setIdleRightBlocks(parsed.metadata.idleRightBlocks);
+      }
+      if (parsed.metadata.screenDimensions) {
+        setScreenDimensions(parsed.metadata.screenDimensions);
+      }
+      if (parsed.metadata.widgetInstances) {
+        setWidgetInstances(parsed.metadata.widgetInstances);
+      }
+    }
+  }, []);
 
   // GitHub integration & Connection State
   const [config, setConfig] = useState<GitHubRepoConfig>(getStoredGitHubConfig());
@@ -75,13 +286,18 @@ export function App() {
     repo: null,
     errorMessage: null,
     lastCheckedAt: null,
+    resolvedOwner: null,
+    resolvedRepo: null,
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isScreenSettingsOpen, setIsScreenSettingsOpen] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(() => localStorage.getItem('zmk_builder_last_saved_at'));
   const [currentSha, setCurrentSha] = useState<string | undefined>(undefined);
+  const [currentHeaderPath, setCurrentHeaderPath] = useState<string>('config/custom_display_assets.h');
   const [syncTrigger, setSyncTrigger] = useState<number>(0);
+  const autoSyncedRepoRef = useRef<string | null>(null);
 
   // Notification Toast
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -99,21 +315,160 @@ export function App() {
     const result = await verifyGitHubConnection(cfg);
     setConnection(result);
 
+    let updatedCfg = { ...cfg };
+    let configChanged = false;
+
+    // If auto-discovery resolved a different owner/repo, write it back to config
+    // so the commit target is always the same repo that was verified.
+    if (result.resolvedOwner && result.resolvedOwner !== cfg.owner) {
+      updatedCfg = { ...updatedCfg, owner: result.resolvedOwner };
+      configChanged = true;
+    }
+    if (result.resolvedRepo && result.resolvedRepo !== cfg.repo) {
+      updatedCfg = { ...updatedCfg, repo: result.resolvedRepo };
+      configChanged = true;
+    }
+
     // If connected and default branch is detected (e.g. main while config was master), auto-align
     if (result.status === 'connected' && result.repo?.defaultBranch) {
-      if (cfg.branch !== result.repo.defaultBranch && (cfg.branch === 'master' || !cfg.branch)) {
-        const updated = { ...cfg, branch: result.repo.defaultBranch };
-        setConfig(updated);
-        saveStoredGitHubConfig(updated);
+      if (updatedCfg.branch !== result.repo.defaultBranch && (updatedCfg.branch === 'master' || !updatedCfg.branch)) {
+        updatedCfg = { ...updatedCfg, branch: result.repo.defaultBranch };
+        configChanged = true;
       }
+    }
+
+    if (configChanged) {
+      setConfig(updatedCfg);
+      saveStoredGitHubConfig(updatedCfg);
     }
 
     return result;
   }, []);
 
+  // Initial startup: verify connection, fetch repo custom_display_assets.h, or load factory defaults
   useEffect(() => {
-    testConnection(config);
-  }, [config, testConnection]);
+    let isCancelled = false;
+
+    const initializeWorkspace = async () => {
+      setIsInitialLoading(true);
+
+      // Check if credentials exist
+      if (!config.token || !config.owner || !config.repo) {
+        applyDefaults();
+        setConnection({
+          status: 'disconnected',
+          user: null,
+          repo: null,
+          errorMessage: null,
+          lastCheckedAt: Date.now(),
+          resolvedOwner: null,
+          resolvedRepo: null,
+        });
+        if (!isCancelled) {
+          setIsInitialLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const connResult = await testConnection(config);
+        if (isCancelled) return;
+
+        if (connResult.status === 'connected') {
+          try {
+            const activeOwner = connResult.resolvedOwner || config.owner;
+            const activeRepo = connResult.resolvedRepo || config.repo;
+            const activeBranch = connResult.repo?.defaultBranch || config.branch || 'main';
+            const fetchConfig = { ...config, owner: activeOwner, repo: activeRepo, branch: activeBranch };
+
+            const fileData = await fetchFileFromRepo(fetchConfig, 'include/custom_display_assets.h');
+            if (isCancelled) return;
+
+            if (fileData.content) {
+              const parsed = parseCHeader(fileData.content);
+              applyParsedAssets(parsed);
+              setCurrentSha(fileData.sha);
+              if (fileData.resolvedPath) {
+                setCurrentHeaderPath(fileData.resolvedPath);
+              }
+              localStorage.setItem('zmk_builder_cached_header', fileData.content);
+              showToast('success', `Loaded display assets from ${activeOwner}/${activeRepo}!`);
+            } else {
+              applyDefaults();
+            }
+          } catch {
+            // First time setting up Scyan ZMK: no custom_display_assets.h in repo yet
+            console.info('No custom_display_assets.h in repo (first time setup). Loading defaults.');
+            applyDefaults();
+          }
+        } else {
+          // Connection failed, load defaults
+          applyDefaults();
+        }
+      } catch (err) {
+        console.warn('Initial workspace loading error:', err);
+        applyDefaults();
+      } finally {
+        if (!isCancelled) {
+          setIsInitialLoading(false);
+        }
+      }
+    };
+
+    initializeWorkspace();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []); // Run on initial mount
+
+  // Automatically fetch latest assets when repository selection changes after initial load
+  useEffect(() => {
+    if (isInitialLoading) return;
+    if (connection.status !== 'connected' || !config.owner || !config.repo || !config.token) {
+      return;
+    }
+
+    const repoKey = `${config.owner}/${config.repo}@${config.branch}`;
+    if (autoSyncedRepoRef.current === repoKey) {
+      return;
+    }
+    autoSyncedRepoRef.current = repoKey;
+
+    let isMounted = true;
+    const syncRepoAssets = async () => {
+      try {
+        setIsSyncing(true);
+        const fileData = await fetchFileFromRepo(config, 'include/custom_display_assets.h');
+        if (!isMounted) return;
+
+        if (fileData.content) {
+          const parsed = parseCHeader(fileData.content);
+          applyParsedAssets(parsed);
+          setCurrentSha(fileData.sha);
+          if (fileData.resolvedPath) {
+            setCurrentHeaderPath(fileData.resolvedPath);
+          }
+          localStorage.setItem('zmk_builder_cached_header', fileData.content);
+          showToast('success', `Loaded display assets from ${config.owner}/${config.repo}!`);
+        } else {
+          applyDefaults();
+        }
+      } catch (err: any) {
+        console.info('Repository does not contain custom_display_assets.h yet. Keeping defaults.', err);
+      } finally {
+        if (isMounted) {
+          setIsSyncing(false);
+        }
+      }
+    };
+
+    syncRepoAssets();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isInitialLoading, connection.status, config.owner, config.repo, config.branch, config.token, showToast, applyDefaults]);
 
   // Detect GitHub OAuth token or callback in URL parameters
   useEffect(() => {
@@ -154,6 +509,8 @@ export function App() {
 
   const handleDisconnect = () => {
     clearStoredGitHubToken();
+    autoSyncedRepoRef.current = null;
+    localStorage.removeItem('zmk_builder_cached_header');
     const newConfig = { ...config, token: '' };
     setConfig(newConfig);
     setConnection({
@@ -162,6 +519,8 @@ export function App() {
       repo: null,
       errorMessage: null,
       lastCheckedAt: Date.now(),
+      resolvedOwner: null,
+      resolvedRepo: null,
     });
     showToast('success', 'GitHub repository disconnected.');
   };
@@ -189,14 +548,12 @@ export function App() {
       try {
         const fileData = await fetchFileFromRepo(config, 'include/custom_display_assets.h');
         const parsed = parseCHeader(fileData.content);
-        setSymbolsGrid(parsed.symbolsGrid);
-        setSymbolSlices(parsed.symbolSlices);
-        setFontGrid(parsed.fontGrid);
-        setFontGlyphs(parsed.fontGlyphs);
-        if (parsed.fontMappings && parsed.fontMappings.length > 0) {
-          setFontMappings(parsed.fontMappings);
-        }
+        applyParsedAssets(parsed);
         setCurrentSha(fileData.sha);
+        if (fileData.resolvedPath) {
+          setCurrentHeaderPath(fileData.resolvedPath);
+        }
+        localStorage.setItem('zmk_builder_cached_header', fileData.content);
         showToast('success', `Synced display assets from ${config.owner}/${config.repo}!`);
       } catch (assetErr: any) {
         // If include/custom_display_assets.h does not exist yet in the repo, that is normal for fresh ZMK repos!
@@ -224,23 +581,54 @@ export function App() {
       return;
     }
 
+    // Guard against config drift: ensure the commit target matches what was verified
+    if (connection.repo && connection.repo.name !== config.repo) {
+      showToast('error',
+        `Config mismatch: connection was verified for "${connection.repo.name}" but config targets "${config.repo}". ` +
+        `Re-open Settings to re-verify the connection.`
+      );
+      return;
+    }
+
     try {
       setIsSaving(true);
-      const generatedC = generateCHeader(symbolsGrid, symbolSlices, fontGrid, fontMappings);
+      const metadata: HeaderMetadata = {
+        version: 1,
+        leftBlocks,
+        rightBlocks,
+        idleLeftBlocks,
+        idleRightBlocks,
+        screenDimensions,
+        widgetInstances,
+      };
+      const generatedC = generateCHeader(symbolsGrid, symbolSlices, fontGrid, fontMappings, metadata);
+      const targetPath = config.repo === 'zmk-display-core'
+        ? 'include/custom_display_assets.h'
+        : (currentHeaderPath || 'config/custom_display_assets.h');
       const commitRes = await commitFileToRepo(
         config,
-        'include/custom_display_assets.h',
+        targetPath,
         generatedC,
         'feat(display): update 2-Atlas display spritesheets & glyph tables via ZMK Display Studio',
         currentSha
       );
       setCurrentSha(commitRes.sha);
+      setCurrentHeaderPath(targetPath);
+      localStorage.setItem('zmk_builder_cached_header', generatedC);
       const nowStr = new Date().toLocaleTimeString();
       setLastSavedAt(nowStr);
+      localStorage.setItem('zmk_builder_last_saved_at', nowStr);
       showToast('success', `Committed to ${config.branch}! GitHub Actions firmware build started.`);
     } catch (err: any) {
       console.error('Save failed:', err);
-      showToast('error', `Save failed: ${err.message || 'Check repository permissions'}`);
+      let msg = err.message || 'Check repository permissions';
+      if (err.status === 403 || msg.includes('accessible by personal access token')) {
+        msg =
+          `Permission denied writing to ${config.owner}/${config.repo}. ` +
+          `Ensure your PAT has "Contents: Read & write" access for this exact repository, ` +
+          `then re-open Settings and reconnect.`;
+      }
+      showToast('error', `Save failed: ${msg}`);
     } finally {
       setIsSaving(false);
     }
@@ -262,6 +650,7 @@ export function App() {
         lastSavedAt={lastSavedAt}
         isSettingsOpen={isSettingsOpen}
         setIsSettingsOpen={setIsSettingsOpen}
+        showToast={showToast}
       />
 
       {/* Main Tab Navigation Bar with Locked State indicator */}
@@ -308,73 +697,148 @@ export function App() {
           </button>
 
           {/* Tab 5: Blocks */}
-          <button
-            className={`tab-btn ${activeTab === 'blocks' ? 'active' : ''}`}
-            onClick={() => handleTabClick('blocks')}
-            title="Drag & drop screen layout blocks"
-          >
-            <LayoutGrid size={15} />
-            <span>Blocks</span>
-          </button>
+          <div className="tab-blocks-wrapper">
+            <button
+              className={`tab-btn ${activeTab === 'blocks' ? 'active' : ''}`}
+              onClick={() => handleTabClick('blocks')}
+              title="Drag & drop screen layout blocks"
+            >
+              <LayoutGrid size={15} />
+              <span>Blocks</span>
+            </button>
+            <button
+              className={`tab-blocks-gear-btn ${isScreenSettingsOpen ? 'active' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (activeTab !== 'blocks') {
+                  handleTabClick('blocks');
+                }
+                setIsScreenSettingsOpen(prev => !prev);
+              }}
+              title="Screen Dimensions Settings"
+            >
+              <Settings size={13} />
+            </button>
+
+            {isScreenSettingsOpen && (
+              <ScreenSizePopover
+                screenDimensions={screenDimensions}
+                onScreenDimensionsChange={setScreenDimensions}
+                onClose={() => setIsScreenSettingsOpen(false)}
+              />
+            )}
+          </div>
         </div>
       </div>
 
       {/* Main Tab Content */}
       <main className="tab-content-area">
-        {activeTab === 'preview' && (
-          <OledPreviewTab
-            symbolsGrid={symbolsGrid}
-            symbolSlices={symbolSlices}
-            fontGrid={fontGrid}
-            fontGlyphs={fontGlyphs}
-            fontMappings={fontMappings}
-            layoutBlocks={layoutBlocks}
-            customText={customText}
-            onCustomTextChange={setCustomText}
-            config={config}
-            connection={connection}
-            onShowToast={showToast}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-            syncTrigger={syncTrigger}
-          />
-        )}
+        {isInitialLoading ? (
+          <div className="assets-loading-overlay">
+            <div className="assets-loading-card">
+              <div className="assets-loading-spinner">
+                <RefreshCw size={24} className="spin" />
+              </div>
+              <div className="assets-loading-title">Loading ZMK Display Assets</div>
+              <div className="assets-loading-subtitle">
+                {config.token && config.owner && config.repo ? (
+                  <>
+                    Connecting to <strong className="text-cyan-300">{config.owner}/{config.repo}</strong> and retrieving display assets...
+                  </>
+                ) : (
+                  'Initializing display workspace...'
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {activeTab === 'preview' && (
+              <OledPreviewTab
+                symbolsGrid={symbolsGrid}
+                symbolSlices={symbolSlices}
+                fontGrid={fontGrid}
+                fontGlyphs={fontGlyphs}
+                fontMappings={fontMappings}
+                leftBlocks={leftBlocks}
+                rightBlocks={rightBlocks}
+                layoutBlocks={leftBlocks}
+                customText={customText}
+                onCustomTextChange={setCustomText}
+                instances={widgetInstances}
+                config={config}
+                connection={connection}
+                onShowToast={showToast}
+                onOpenSettings={() => setIsSettingsOpen(true)}
+                syncTrigger={syncTrigger}
+              />
+            )}
 
-        {activeTab === 'symbols' && (
-          <SymbolsAtlasTab
-            symbolsGrid={symbolsGrid}
-            onSymbolsGridChange={setSymbolsGrid}
-            slices={symbolSlices}
-            onSlicesChange={setSymbolSlices}
-          />
-        )}
+            {activeTab === 'symbols' && (
+              <SymbolsAtlasTab
+                symbolsGrid={symbolsGrid}
+                onSymbolsGridChange={setSymbolsGrid}
+                slices={symbolSlices}
+                onSlicesChange={setSymbolSlices}
+              />
+            )}
 
-        {activeTab === 'font' && (
-          <FontAtlasTab
-            fontGrid={fontGrid}
-            onFontGridChange={setFontGrid}
-            fontMappings={fontMappings}
-            onFontMappingsChange={setFontMappings}
-          />
-        )}
+            {activeTab === 'font' && (
+              <FontAtlasTab
+                fontGrid={fontGrid}
+                onFontGridChange={setFontGrid}
+                fontMappings={fontMappings}
+                onFontMappingsChange={setFontMappings}
+              />
+            )}
 
-        {activeTab === 'widgets' && (
-          <WidgetsTab
-            symbolsGrid={symbolsGrid}
-            symbolSlices={symbolSlices}
-            fontGrid={fontGrid}
-            fontGlyphs={fontGlyphs}
-            fontMappings={fontMappings}
-            customText={customText}
-            onCustomTextChange={setCustomText}
-          />
-        )}
+            {activeTab === 'widgets' && (
+              <WidgetsTab
+                symbolsGrid={symbolsGrid}
+                symbolSlices={symbolSlices}
+                fontGrid={fontGrid}
+                fontGlyphs={fontGlyphs}
+                fontMappings={fontMappings}
+                customText={customText}
+                onCustomTextChange={setCustomText}
+                instances={widgetInstances}
+                onInstancesChange={handleInstancesChange}
+                leftBlocks={leftBlocks}
+                rightBlocks={rightBlocks}
+                onLeftBlocksChange={setLeftBlocks}
+                onRightBlocksChange={setRightBlocks}
+              />
+            )}
 
-        {activeTab === 'blocks' && (
-          <BlocksTab
-            layoutBlocks={layoutBlocks}
-            onLayoutBlocksChange={setLayoutBlocks}
-            onResetDefaults={() => setLayoutBlocks([...DEFAULT_LAYOUT_BLOCKS])}
-          />
+            {activeTab === 'blocks' && (
+              <BlocksTab
+                leftBlocks={leftBlocks}
+                rightBlocks={rightBlocks}
+                onLeftBlocksChange={setLeftBlocks}
+                onRightBlocksChange={setRightBlocks}
+                idleLeftBlocks={idleLeftBlocks}
+                idleRightBlocks={idleRightBlocks}
+                onIdleLeftBlocksChange={setIdleLeftBlocks}
+                onIdleRightBlocksChange={setIdleRightBlocks}
+                screenDimensions={screenDimensions}
+                onScreenDimensionsChange={setScreenDimensions}
+                onResetDefaults={() => {
+                  setLeftBlocks([...DEFAULT_LEFT_LAYOUT_BLOCKS]);
+                  setRightBlocks([...DEFAULT_RIGHT_LAYOUT_BLOCKS]);
+                }}
+                symbolsGrid={symbolsGrid}
+                symbolSlices={symbolSlices}
+                fontGrid={fontGrid}
+                fontGlyphs={fontGlyphs}
+                fontMappings={fontMappings}
+                customText={customText}
+                instances={widgetInstances}
+                onInstancesChange={handleInstancesChange}
+                layoutBlocks={leftBlocks}
+                onLayoutBlocksChange={setLeftBlocks}
+              />
+            )}
+          </>
         )}
       </main>
 

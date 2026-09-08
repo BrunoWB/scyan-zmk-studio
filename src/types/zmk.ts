@@ -1,6 +1,8 @@
 export interface SpriteSlice {
   id: string;
-  name: string;
+  name?: string;
+  groupId: string;
+  groupOrder: number;
   x: number;
   y: number;
   width: number;
@@ -35,11 +37,16 @@ export interface FontGlyph {
 
 export interface LayoutBlock {
   id: string;
+  widgetType?: string;
+  instanceId?: string;
   name: string;
+  x?: number;
   y: number;
+  width?: number;
   height: number;
   enabled: boolean;
-  description: string;
+  description?: string;
+  side?: 'left' | 'right';
 }
 
 export interface DisplaySettings {
@@ -54,31 +61,40 @@ export interface DisplaySettings {
 }
 
 export const DEFAULT_SYMBOL_SLICES: SpriteSlice[] = [
-  { id: 'SYMBOL_USB', name: 'USB Plug', x: 104, y: 0, width: 12, height: 10, color: '#38bdf8' },
-  { id: 'SYMBOL_BLUETOOTH', name: 'Bluetooth Rune', x: 118, y: 0, width: 8, height: 8, color: '#60a5fa' },
-  { id: 'SYMBOL_BATTERY_FRAME', name: 'Battery Frame & Terminal', x: 88, y: 23, width: 17, height: 10, color: '#4ade80' },
-  { id: 'SYMBOL_SPLIT_CONNECTED', name: 'Split Connected Chain', x: 104, y: 11, width: 13, height: 9, color: '#2dd4bf' },
-  { id: 'SYMBOL_SPLIT_DISCONNECTED', name: 'Split Broken Link', x: 106, y: 23, width: 13, height: 9, color: '#f87171' },
-  { id: 'SYMBOL_ARROW_HEAD', name: 'WPM Arrow Head', x: 118, y: 11, width: 3, height: 5, color: '#fbbf24' },
-  { id: 'SYMBOL_ARROW_DOT', name: 'WPM Progress Dot', x: 122, y: 11, width: 3, height: 5, color: '#f59e0b' },
-  { id: 'SYMBOL_BRACKET_LAYER_0', name: 'Layer 0 Bracket', x: 0, y: 23, width: 22, height: 11, color: '#a78bfa' },
-  { id: 'SYMBOL_BRACKET_LAYER_1', name: 'Layer 1 Bracket', x: 22, y: 23, width: 22, height: 11, color: '#c084fc' },
-  { id: 'SYMBOL_BRACKET_LAYER_2', name: 'Layer 2 Bracket', x: 44, y: 23, width: 22, height: 11, color: '#e879f9' },
-  { id: 'SYMBOL_BRACKET_LAYER_3', name: 'Layer 3 Bracket', x: 66, y: 23, width: 22, height: 11, color: '#f472b6' },
-  { id: 'SYMBOL_SKULL_LAYER_0', name: 'Skull (Straight / Idle)', x: 0, y: 0, width: 26, height: 23, color: '#34d399' },
-  { id: 'SYMBOL_SKULL_LAYER_1', name: 'Skull (Right Tilt)', x: 26, y: 0, width: 26, height: 23, color: '#10b981' },
-  { id: 'SYMBOL_SKULL_LAYER_2', name: 'Skull (Left Tilt)', x: 52, y: 0, width: 26, height: 23, color: '#059669' },
-  { id: 'SYMBOL_SKULL_LAYER_3', name: 'Skull (Symmetrical Angle)', x: 78, y: 0, width: 26, height: 23, color: '#047857' },
+  { id: 'SYMBOL_USB', groupId: 'SYMBOL_USB', groupOrder: 1, name: 'USB Plug', x: 104, y: 0, width: 12, height: 10, color: '#38bdf8' },
+  { id: 'SYMBOL_BLUETOOTH', groupId: 'SYMBOL_BLUETOOTH', groupOrder: 1, name: 'Bluetooth Rune', x: 118, y: 0, width: 8, height: 8, color: '#60a5fa' },
+  { id: 'SYMBOL_BATTERY_FRAME', groupId: 'SYMBOL_BATTERY_FRAME', groupOrder: 1, name: 'Battery Frame & Terminal', x: 88, y: 23, width: 17, height: 10, color: '#4ade80' },
+  { id: 'SYMBOL_SPLIT_CONNECTED', groupId: 'SYMBOL_SPLIT_CONNECTED', groupOrder: 1, name: 'Split Connected Chain', x: 104, y: 11, width: 13, height: 9, color: '#2dd4bf' },
+  { id: 'SYMBOL_SPLIT_DISCONNECTED', groupId: 'SYMBOL_SPLIT_CONNECTED', groupOrder: 2, x: 106, y: 23, width: 13, height: 9, color: '#f87171' },
+  { id: 'SYMBOL_ARROW_HEAD', groupId: 'SYMBOL_ARROW_HEAD', groupOrder: 1, name: 'WPM Arrow Head', x: 118, y: 11, width: 3, height: 5, color: '#fbbf24' },
+  { id: 'SYMBOL_ARROW_DOT', groupId: 'SYMBOL_ARROW_HEAD', groupOrder: 2, x: 122, y: 11, width: 3, height: 5, color: '#f59e0b' },
+  { id: 'SYMBOL_BRACKET_LAYER_0', groupId: 'SYMBOL_BRACKET_LAYER_0', groupOrder: 1, name: 'Layer 0 Bracket', x: 0, y: 23, width: 22, height: 11, color: '#a78bfa' },
+  { id: 'SYMBOL_BRACKET_LAYER_1', groupId: 'SYMBOL_BRACKET_LAYER_1', groupOrder: 1, name: 'Layer 1 Bracket', x: 22, y: 23, width: 22, height: 11, color: '#c084fc' },
+  { id: 'SYMBOL_BRACKET_LAYER_2', groupId: 'SYMBOL_BRACKET_LAYER_2', groupOrder: 1, name: 'Layer 2 Bracket', x: 44, y: 23, width: 22, height: 11, color: '#e879f9' },
+  { id: 'SYMBOL_BRACKET_LAYER_3', groupId: 'SYMBOL_BRACKET_LAYER_3', groupOrder: 1, name: 'Layer 3 Bracket', x: 66, y: 23, width: 22, height: 11, color: '#f472b6' },
+  { id: 'SYMBOL_SKULL_LAYER_0', groupId: 'SYMBOL_SKULL_LAYER_0', groupOrder: 1, name: 'Skull (Straight / Idle)', x: 0, y: 0, width: 26, height: 23, color: '#34d399' },
+  { id: 'SYMBOL_SKULL_LAYER_1', groupId: 'SYMBOL_SKULL_LAYER_1', groupOrder: 1, name: 'Skull (Right Tilt)', x: 26, y: 0, width: 26, height: 23, color: '#10b981' },
+  { id: 'SYMBOL_SKULL_LAYER_2', groupId: 'SYMBOL_SKULL_LAYER_2', groupOrder: 1, name: 'Skull (Left Tilt)', x: 52, y: 0, width: 26, height: 23, color: '#059669' },
+  { id: 'SYMBOL_SKULL_LAYER_3', groupId: 'SYMBOL_SKULL_LAYER_3', groupOrder: 1, name: 'Skull (Symmetrical Angle)', x: 78, y: 0, width: 26, height: 23, color: '#047857' },
 ];
 
-export const DEFAULT_LAYOUT_BLOCKS: LayoutBlock[] = [
-  { id: 'block-status', name: 'Status Bar (USB/BLE + Battery)', y: 0, height: 15, enabled: true, description: 'Top connection icon and battery meter' },
-  { id: 'block-layer-label', name: 'Layer Banner / Brackets', y: 25, height: 12, enabled: true, description: 'QWERTY text or layer brackets' },
-  { id: 'block-art', name: 'Center Character Art', y: 47, height: 24, enabled: true, description: 'Skull or custom avatar art' },
-  { id: 'block-branding', name: 'Idle Custom Text', y: 73, height: 6, enabled: true, description: 'Custom username branding' },
-  { id: 'block-wpm', name: 'WPM Speed & Arrow Gauge', y: 83, height: 20, enabled: true, description: '3-digit WPM readout and 7-arrow progress meter' },
-  { id: 'block-split', name: 'Split Peripheral Link', y: 116, height: 10, enabled: true, description: 'Bottom link chain icon' },
+export const DEFAULT_LEFT_LAYOUT_BLOCKS: LayoutBlock[] = [
+  { id: 'left-connection', widgetType: 'connection', name: 'Output Status', x: 10, y: 0, width: 12, height: 10, enabled: true, description: 'Active keystroke output (USB / Bluetooth)', side: 'left' },
+  { id: 'left-battery', widgetType: 'battery', name: 'Battery Meter', x: 7, y: 11, width: 17, height: 10, enabled: true, description: 'Battery charge level', side: 'left' },
+  { id: 'left-layer', widgetType: 'layer-banner', name: 'Layer Banner / Brackets', x: 4, y: 22, width: 24, height: 12, enabled: true, description: 'QWERTY text or layer brackets', side: 'left' },
+  { id: 'left-branding', widgetType: 'branding', name: 'Idle Custom Text', x: 9, y: 73, width: 14, height: 5, enabled: true, description: 'Custom username branding', side: 'left' },
+  { id: 'left-wpm', widgetType: 'wpm', name: 'WPM Speed & Arrow Gauge', x: 2, y: 85, width: 28, height: 18, enabled: true, description: '3-digit WPM readout and 7-arrow progress meter', side: 'left' },
+  { id: 'left-split', widgetType: 'split', name: 'Split Peripheral Link', x: 9, y: 114, width: 13, height: 9, enabled: true, description: 'Bottom link chain icon', side: 'left' },
 ];
+
+export const DEFAULT_RIGHT_LAYOUT_BLOCKS: LayoutBlock[] = [
+  { id: 'right-battery', widgetType: 'battery', name: 'Battery Meter', x: 7, y: 4, width: 17, height: 10, enabled: true, description: 'Battery terminal frame and charge level', side: 'right' },
+  { id: 'right-split', widgetType: 'split', name: 'Split Peripheral Link', x: 9, y: 20, width: 13, height: 9, enabled: true, description: 'Wireless link status with master half', side: 'right' },
+  { id: 'right-branding', widgetType: 'branding', name: 'Peripheral Model Text', x: 9, y: 76, width: 14, height: 5, enabled: true, description: 'Corne / ZMK model branding', side: 'right' },
+  { id: 'right-layer', widgetType: 'layer-banner', name: 'Layer Banner / Brackets', x: 4, y: 96, width: 24, height: 12, enabled: true, description: 'Active layer banner', side: 'right' },
+];
+
+export const DEFAULT_LAYOUT_BLOCKS: LayoutBlock[] = DEFAULT_LEFT_LAYOUT_BLOCKS;
 
 export const DEFAULT_FONT_GLYPHS: FontGlyph[] = [
   // Digits 0-9

@@ -45,6 +45,10 @@ export interface GitHubConnectionState {
   repo: GitHubRepoDetails | null;
   errorMessage: string | null;
   lastCheckedAt: number | null;
+  /** The owner/repo that connection verification was actually performed against.
+   *  May differ from the raw config values when auto-discovery ran. */
+  resolvedOwner: string | null;
+  resolvedRepo: string | null;
 }
 
 const STORAGE_KEY_TOKEN = 'zmk_builder_gh_token';
@@ -93,6 +97,8 @@ export async function verifyGitHubConnection(config: GitHubRepoConfig): Promise<
       repo: null,
       errorMessage: null,
       lastCheckedAt: Date.now(),
+      resolvedOwner: null,
+      resolvedRepo: null,
     };
   }
 
@@ -121,20 +127,25 @@ export async function verifyGitHubConnection(config: GitHubRepoConfig): Promise<
       // This is expected and normal for modern GitHub fine-grained tokens.
     }
 
-    // 2. Try to list accessible repositories for this token
-    try {
-      const listRes = await octokit.repos.listForAuthenticatedUser({ per_page: 20 });
-      if (listRes.data.length > 0) {
-        const found = listRes.data.find(r => r.name.toLowerCase() === repo.toLowerCase()) || listRes.data[0];
-        owner = found.owner.login;
-        repo = found.name;
-        if (!user.avatarUrl) {
-          user.login = found.owner.login;
-          user.avatarUrl = found.owner.avatar_url;
+    // 2. Auto-discover owner/repo ONLY when both are completely blank.
+    //    Never silently override a configured repo — doing so causes the
+    //    connection check to pass against a different repo than the one the
+    //    commit will target, resulting in a 403 on save.
+    if (!config.owner && !config.repo) {
+      try {
+        const listRes = await octokit.repos.listForAuthenticatedUser({ per_page: 20 });
+        if (listRes.data.length > 0) {
+          const found = listRes.data[0];
+          owner = found.owner.login;
+          repo = found.name;
+          if (!user.avatarUrl) {
+            user.login = found.owner.login;
+            user.avatarUrl = found.owner.avatar_url;
+          }
         }
+      } catch {
+        // Direct repo fetch will be the fallback probe
       }
-    } catch {
-      // Direct repo fetch will be the fallback probe
     }
 
     // 3. Verify repository existence
@@ -158,6 +169,8 @@ export async function verifyGitHubConnection(config: GitHubRepoConfig): Promise<
           repo: null,
           errorMessage: `Token is missing 'Contents' permission for ${owner}/${repo}. In GitHub token settings, add 'Contents' with 'Read and write' access.`,
           lastCheckedAt: Date.now(),
+          resolvedOwner: owner,
+          resolvedRepo: repo,
         };
       }
       throw contentsErr;
@@ -179,6 +192,8 @@ export async function verifyGitHubConnection(config: GitHubRepoConfig): Promise<
         },
         errorMessage: `Token has read access but lacks write/push permissions for ${owner}/${repo}. In GitHub token settings, change 'Contents' to 'Read and write'.`,
         lastCheckedAt: Date.now(),
+        resolvedOwner: owner,
+        resolvedRepo: repo,
       };
     }
 
@@ -195,6 +210,8 @@ export async function verifyGitHubConnection(config: GitHubRepoConfig): Promise<
       },
       errorMessage: null,
       lastCheckedAt: Date.now(),
+      resolvedOwner: owner,
+      resolvedRepo: repo,
     };
   } catch (err: any) {
     let msg = err.message || 'Failed to authenticate with GitHub';
@@ -211,6 +228,8 @@ export async function verifyGitHubConnection(config: GitHubRepoConfig): Promise<
       repo: null,
       errorMessage: msg,
       lastCheckedAt: Date.now(),
+      resolvedOwner: owner,
+      resolvedRepo: repo,
     };
   }
 }
@@ -221,32 +240,45 @@ export async function verifyGitHubConnection(config: GitHubRepoConfig): Promise<
 export async function fetchFileFromRepo(
   config: GitHubRepoConfig,
   path = 'include/custom_display_assets.h'
-): Promise<{ content: string; sha: string }> {
+): Promise<{ content: string; sha: string; resolvedPath?: string }> {
   const octokit = getOctokit(config.token);
 
   // Try configured branch first, then fallback to main/master
   const branches = [config.branch, 'main', 'master'].filter(Boolean);
   const uniqueBranches = Array.from(new Set(branches));
 
-  let lastErr: any = null;
-  for (const branch of uniqueBranches) {
-    try {
-      const res = await octokit.repos.getContent({
-        owner: config.owner,
-        repo: config.repo,
-        path,
-        ref: branch,
-      });
+  // Determine candidate paths to probe in target repository
+  const isDefaultAssetPath = path === 'include/custom_display_assets.h';
+  const candidatePaths = isDefaultAssetPath
+    ? (config.repo === 'zmk-display-core'
+        ? ['include/custom_display_assets.h', 'config/custom_display_assets.h']
+        : ['config/custom_display_assets.h', 'config/include/custom_display_assets.h', 'include/custom_display_assets.h'])
+    : [path, 'config/custom_display_assets.h', 'include/custom_display_assets.h'];
+  const uniqueCandidatePaths = Array.from(new Set(candidatePaths));
 
-      if ('content' in res.data && typeof res.data.content === 'string') {
-        const decoded = atob(res.data.content.replace(/\s/g, ''));
-        return {
-          content: decoded,
-          sha: res.data.sha,
-        };
+  let lastErr: any = null;
+  for (const candidatePath of uniqueCandidatePaths) {
+    for (const branch of uniqueBranches) {
+      try {
+        const res = await octokit.repos.getContent({
+          owner: config.owner,
+          repo: config.repo,
+          path: candidatePath,
+          ref: branch,
+          ...({ timestamp: Date.now() } as any)
+        });
+
+        if ('content' in res.data && typeof res.data.content === 'string') {
+          const decoded = atob(res.data.content.replace(/\s/g, ''));
+          return {
+            content: decoded,
+            sha: res.data.sha,
+            resolvedPath: candidatePath,
+          };
+        }
+      } catch (err: any) {
+        lastErr = err;
       }
-    } catch (err: any) {
-      lastErr = err;
     }
   }
 
@@ -264,6 +296,7 @@ export async function fetchFileFromRepo(
         return {
           content: decoded,
           sha: '', // New file for the destination repo
+          resolvedPath: 'config/custom_display_assets.h',
         };
       }
     }
@@ -290,25 +323,6 @@ export async function commitFileToRepo(
 
   const octokit = getOctokit(config.token);
 
-  // If SHA was not provided, look it up
-  let currentSha = fileSha;
-  if (!currentSha) {
-    try {
-      const existing = await octokit.repos.getContent({
-        owner: config.owner,
-        repo: config.repo,
-        path,
-        ref: config.branch,
-      });
-      if ('sha' in existing.data) {
-        currentSha = existing.data.sha;
-      }
-    } catch (e: any) {
-      // File doesn't exist yet, which is fine for creation
-      if (e.status !== 404) throw e;
-    }
-  }
-
   // Base64 encode UTF-8 string cleanly
   const utf8Bytes = new TextEncoder().encode(content);
   let binary = '';
@@ -317,20 +331,49 @@ export async function commitFileToRepo(
   });
   const base64Content = btoa(binary);
 
-  const res = await octokit.repos.createOrUpdateFileContents({
-    owner: config.owner,
-    repo: config.repo,
-    path,
-    message: commitMessage,
-    content: base64Content,
-    branch: config.branch,
-    sha: currentSha || undefined,
-  });
+  try {
+    const res = await octokit.repos.createOrUpdateFileContents({
+      owner: config.owner,
+      repo: config.repo,
+      path,
+      message: commitMessage,
+      content: base64Content,
+      branch: config.branch,
+      sha: fileSha || undefined,
+    });
 
-  return {
-    commitUrl: res.data.commit.html_url || '',
-    sha: res.data.content?.sha || '',
-  };
+    return {
+      commitUrl: res.data.commit.html_url || '',
+      sha: res.data.content?.sha || '',
+    };
+  } catch (err: any) {
+    // If a conflict or SHA mismatch occurs (409 or 422), re-fetch and retry once
+    if (err.status === 409 || (err.status === 422 && err.message?.includes('does not match'))) {
+      const existing = await octokit.repos.getContent({
+        owner: config.owner,
+        repo: config.repo,
+        path,
+        ref: config.branch,
+        ...({ timestamp: Date.now() } as any)
+      });
+      if ('sha' in existing.data) {
+        const retryRes = await octokit.repos.createOrUpdateFileContents({
+          owner: config.owner,
+          repo: config.repo,
+          path,
+          message: commitMessage,
+          content: base64Content,
+          branch: config.branch,
+          sha: existing.data.sha,
+        });
+        return {
+          commitUrl: retryRes.data.commit.html_url || '',
+          sha: retryRes.data.content?.sha || '',
+        };
+      }
+    }
+    throw err;
+  }
 }
 
 /**
