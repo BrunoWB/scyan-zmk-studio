@@ -214,11 +214,17 @@ export const WidgetCatalogList: React.FC<WidgetCatalogListProps> = ({
                   draggable={false}
                   title={`Drag ${inst.label} (Tier ${widget.tier}) to screen`}
                 >
-                  <div className="widget-tile-header">
-                    <span className={`tier-badge-pill tier-${widget.tier}`}>T{widget.tier}</span>
+                  <div className="widget-tile-badges">
+                    <span className={`tier-badge-pill tier-${widget.tier}`} title={`Tier ${widget.tier}`}>
+                      T{widget.tier}
+                    </span>
                     {widget.requiresMaster && (
-                      <span className="badge-master" title="Requires Central (Master) half in ZMK split">MASTER</span>
+                      <span className="badge-master badge-master--nav" title="Requires Central (Master) half in ZMK split">
+                        M
+                      </span>
                     )}
+                  </div>
+                  <div className="widget-tile-header">
                     <span className="widget-tile-title">{widget.name}</span>
                   </div>
                   <div className="widget-tile-preview" style={{ minHeight: `${Math.max(widget.defaultHeight * 3, 32)}px` }}>

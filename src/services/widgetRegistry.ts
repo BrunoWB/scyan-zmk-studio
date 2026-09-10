@@ -464,7 +464,7 @@ export function interpolateTemplate(template: string, context: WidgetRenderConte
 
   const batteryVal = context.battery ?? 80;
   const currentLayer = Math.max(0, context.currentLayer ?? 0);
-  const layerNames = context.layerNames ?? ['QWERTY', 'LOWER', 'RAISE', 'ADJUST'];
+  const layerNames = context.layerNames ?? ['DEFAULT', 'LOWER', 'RAISE', 'ADJUST'];
   const layerName = layerNames[currentLayer] || `L${currentLayer}`;
   const wpmVal = Math.min(999, Math.max(0, context.wpm ?? 60));
   const outputMode = (context.outputMode ?? 'usb').toUpperCase();
@@ -628,7 +628,8 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
         const entries = inst?.config?.textEntries || [];
         const idx = Math.min(divCount - 1, Math.floor((battery / 100) * divCount));
         const text = entries[idx] || `${battery}%`;
-        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, 'small');
+        const fontSize = inst?.config?.fontSize || 'small';
+        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize);
       }
     },
   },
@@ -674,16 +675,17 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
           }
         }
       } else {
+        const fontSize = inst?.config?.fontSize || 'small';
         if (!isBle) {
           const text = inst?.config?.textEntries?.[0] || 'USB';
-          drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, 'small');
+          drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize);
         } else {
           const profileIdx = ctx.bleProfileIndex ?? 1;
           const entries = inst?.config?.textEntries || ['USB', 'No conn', 'P1', 'P2', 'P3', 'P4', 'P5'];
           const text = profileIdx === 0
             ? (entries[1] || 'No conn')
             : (entries[profileIdx + 1] || entries[profileIdx] || `P${profileIdx}`);
-          drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, 'small');
+          drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize);
         }
       }
     },
@@ -721,7 +723,8 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
       } else {
         const entries = inst?.config?.textEntries || ['Connected', 'Not connected'];
         const text = isConnected ? entries[0] : entries[1] || 'Not connected';
-        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, 'small');
+        const fontSize = inst?.config?.fontSize || 'small';
+        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize);
       }
     },
   },
@@ -745,7 +748,7 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     render: (grid, destX, destY, ctx) => {
       const inst = ctx.instances?.['caps-lock']?.find(i => i.id === ctx.activeInstanceId);
       const mode = inst?.config?.mode || 'font';
-      const isOn = false; // Add to context if needed, just mocking for now since no caps value passed
+      const isOn = ctx.capsLock ?? false;
       
       if (mode === 'symbol') {
         const groupId = inst?.config?.groupId;
@@ -759,7 +762,8 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
       } else {
         const entries = inst?.config?.textEntries || ['On', 'Off'];
         const text = isOn ? entries[0] : entries[1] || 'Off';
-        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, 'small');
+        const fontSize = inst?.config?.fontSize || 'small';
+        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize);
       }
     },
   },
@@ -794,10 +798,14 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
           renderSlot(grid, destX, destY, 'layer-banner', 'fallback', ctx, { width: 22, height: 12 });
         }
       } else {
-        const entries = inst?.config?.textEntries || ['QWERTY', 'LOWER', 'RAISE', 'ADJUST'];
-        const text = entries[layer] || `L${layer}`;
-        const startX = destX + Math.max(1, Math.floor((24 - text.length * 4) / 2));
-        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, startX, destY + 3, 'small');
+        const textFromEntries = inst?.config?.textEntries?.[layer];
+        const textFromContext = ctx.layerNames?.[layer];
+        const defaultLayers = ['DEFAULT', 'LOWER', 'RAISE', 'ADJUST'];
+        const text = textFromEntries || textFromContext || defaultLayers[layer] || `L${layer}`;
+        const fontSize = inst?.config?.fontSize || 'small';
+        const textW = measureTextWidth(text, ctx.fontGlyphs, ctx.fontMappings, fontSize);
+        const startX = destX + Math.max(0, Math.floor((24 - textW) / 2));
+        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, startX, destY + (fontSize === 'big' ? 1 : 3), fontSize);
       }
     },
   },
@@ -840,7 +848,8 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
         const entries = inst?.config?.textEntries || [];
         const idx = Math.min(divCount - 1, Math.floor(progress * divCount));
         const text = entries[idx] || `${wpmVal}`;
-        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, 'small');
+        const fontSize = inst?.config?.fontSize || 'small';
+        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize);
       }
     },
   },
@@ -867,7 +876,8 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
         ? inst.config.textEntries[0]
         : (customCfg?.text !== undefined ? customCfg.text : (ctx.customText || 'ZMK'));
       const text = (interpolateTemplate(rawText, ctx) || 'ZMK').toUpperCase();
-      drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, 'small');
+      const fontSize = inst?.config?.fontSize || 'small';
+      drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize);
     },
   },
   {
@@ -1036,14 +1046,29 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     minHeight: 16,
     maxHeight: 36,
     icon: 'cat',
-    associatedSliceIds: [],
+    associatedSliceIds: ['SYMBOL_SLICE_40_4046', 'SYMBOL_BONGO_SCYAN_5477'],
     defaultPlacement: { side: 'both', defaultX: 0, defaultY: 35 },
     slots: [],
     render: (grid, destX, destY, ctx) => {
       const inst = ctx.instances?.['bongo']?.find(i => i.id === ctx.activeInstanceId) || ctx.instances?.['bongo']?.[0];
-      const groupId = inst?.config?.groupId;
+      let groupId = inst?.config?.groupId;
+      if (!groupId) {
+        const bongoSlice = ctx.symbolSlices.find(s =>
+          s.id.toUpperCase().includes('BONGO') ||
+          s.groupId.toUpperCase().includes('BONGO') ||
+          (s.name && s.name.toUpperCase().includes('BONGO')) ||
+          s.id.startsWith('SYMBOL_SLICE_40_4046') ||
+          s.groupId.startsWith('SYMBOL_SLICE_40_4046')
+        );
+        if (bongoSlice) {
+          groupId = bongoSlice.groupId;
+        }
+      }
       if (groupId) {
-        const groupMembers = ctx.symbolSlices.filter(s => s.groupId === groupId).sort((a, b) => a.groupOrder - b.groupOrder);
+        let groupMembers = ctx.symbolSlices.filter(s => s.groupId === groupId).sort((a, b) => a.groupOrder - b.groupOrder);
+        if (groupMembers.length === 0) {
+          groupMembers = ctx.symbolSlices.filter(s => s.id === groupId);
+        }
         if (groupMembers.length >= 3) {
           const stateIdx = ctx.bongoState ?? 0;
           const slice = groupMembers[stateIdx] || groupMembers[0];
@@ -1054,7 +1079,22 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
           return;
         }
       }
-      renderSlot(grid, destX, destY, 'bongo', 'mascot', ctx, { width: 32, height: 23 });
+      // Direct bongo slice matching
+      const directBongos = ctx.symbolSlices.filter(s =>
+        s.id.toUpperCase().includes('BONGO') ||
+        (s.name && s.name.toUpperCase().includes('BONGO')) ||
+        s.id.startsWith('SYMBOL_SLICE_40_4046')
+      ).sort((a, b) => a.groupOrder - b.groupOrder);
+      if (directBongos.length > 0) {
+        const stateIdx = ctx.bongoState ?? 0;
+        const slice = directBongos[stateIdx] || directBongos[0];
+        blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY);
+        return;
+      }
+      // Text fallback mirroring firmware
+      const customText = inst?.config?.textEntries?.[0] || '(=^.^=)';
+      const fontSize = inst?.config?.fontSize || 'small';
+      drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, customText, destX, destY, fontSize);
     },
   }
 ];
@@ -1169,10 +1209,22 @@ export function getWidgetNaturalSize(
     if (slice) return { width: slice.width, height: slice.height };
   }
 
-  if (widget.id === 'bongo' && activeInstance?.config?.groupId) {
-    const slice = symbolSlices.find(s => s.groupId === activeInstance.config?.groupId && s.groupOrder === 1)
-      || symbolSlices.find(s => s.groupId === activeInstance.config?.groupId)
-      || symbolSlices.find(s => s.id === activeInstance.config?.groupId);
+  if (widget.id === 'bongo') {
+    const targetGroupId = activeInstance?.config?.groupId;
+    let slice: SpriteSlice | undefined;
+    if (targetGroupId) {
+      slice = symbolSlices.find(s => s.groupId === targetGroupId && s.groupOrder === 1)
+        || symbolSlices.find(s => s.groupId === targetGroupId)
+        || symbolSlices.find(s => s.id === targetGroupId);
+    }
+    if (!slice) {
+      slice = symbolSlices.find(s =>
+        s.id.toUpperCase().includes('BONGO') ||
+        s.groupId.toUpperCase().includes('BONGO') ||
+        (s.name && s.name.toUpperCase().includes('BONGO')) ||
+        s.id.startsWith('SYMBOL_SLICE_40_4046')
+      );
+    }
     if (slice) return { width: slice.width, height: slice.height };
   }
 
@@ -1181,10 +1233,11 @@ export function getWidgetNaturalSize(
       ? activeInstance.config.textEntries[0]
       : 'ZMK';
     const text = (rawText || 'ZMK').toUpperCase();
-    const textWidth = measureTextWidth(text, fontGlyphs, fontMappings, 'small');
+    const fontSize = activeInstance?.config?.fontSize || 'small';
+    const textWidth = measureTextWidth(text, fontGlyphs, fontMappings, fontSize);
     return {
       width: Math.min(32, Math.max(textWidth, 4)),
-      height: 5,
+      height: fontSize === 'big' ? 10 : 5,
     };
   }
 
@@ -1215,8 +1268,9 @@ export function getWidgetNaturalSize(
             longestStr = e;
           }
         }
-        const textW = Math.max(12, measureTextWidth(longestStr.toUpperCase(), fontGlyphs, fontMappings, 'small'));
-        return { width: Math.min(32, textW), height: 6 };
+        const fontSize = activeInstance?.config?.fontSize || 'small';
+        const textW = Math.max(12, measureTextWidth(longestStr.toUpperCase(), fontGlyphs, fontMappings, fontSize));
+        return { width: Math.min(32, textW), height: fontSize === 'big' ? 10 : 6 };
       }
       // Digits mode (e.g. up to 3 digits '100' at 8px advance each = 24px width, 10px height)
       return { width: 24, height: 10 };

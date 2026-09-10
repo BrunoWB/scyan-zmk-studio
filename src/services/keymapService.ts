@@ -49,6 +49,24 @@ export const DEFAULT_EMPTY_5X3_LAYOUT: ParsedKeymapLayout = {
 };
 
 /**
+ * Formats a layer label with its numerical index and optional human-readable name from GitHub.
+ * Format: "Layer N (NAME)" or "Layer N" if name is absent or identical to index.
+ */
+export function formatLayerLabel(index: number, name?: string): string {
+  const trimmed = name?.trim();
+  if (
+    !trimmed ||
+    trimmed === String(index) ||
+    trimmed.toUpperCase() === `LAYER_${index}` ||
+    trimmed.toUpperCase() === `LAYER ${index}` ||
+    trimmed.toUpperCase() === `L${index}`
+  ) {
+    return `Layer ${index}`;
+  }
+  return `Layer ${index} (${trimmed})`;
+}
+
+/**
  * Standard ZMK keycode names to clean human-readable keycap labels
  */
 const KEY_CODE_MAP: Record<string, string> = {

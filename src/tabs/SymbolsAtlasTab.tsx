@@ -2,11 +2,15 @@ import React, { useState } from 'react';
 import { BwpxGrid } from '../bwpx/core/BwpxGrid';
 import { BwpxEditor } from '../bwpx/components/BwpxEditor';
 import type { SpriteSlice } from '../types/zmk';
+import { Chip } from '@heroui/react';
+import { StepperControl } from '../components/ScreenSizePopover';
 import {
   Plus,
   Trash2,
   BoxSelect,
   Sparkles,
+  Move,
+  Layers,
 } from 'lucide-react';
 
 export interface SymbolsAtlasTabProps {
@@ -329,98 +333,103 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
 
       {/* Right Pane: Slice Inspector */}
       <div className="atlas-inspector-pane">
-        <div className="inspector-header">
+        <div className="inspector-header pb-2.5 border-b border-[#1e2538] flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <BoxSelect size={18} className="text-accent" />
-            <h3 className="inspector-title">Sprite Slices ({slices.length})</h3>
+            <BoxSelect size={18} className="text-[#00f0ff]" />
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider">Sprite Slices ({slices.length})</h3>
           </div>
+          <Chip className="bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/30 text-[10px] font-mono h-5 px-2">
+            1-Item Atlas
+          </Chip>
         </div>
 
         {/* New Slice Prompt from Selection */}
         {pendingNewSlice && selectedSliceIds.size === 0 && (
-          <div className="selected-slice-card" style={{ borderColor: '#c084fc', boxShadow: '0 0 14px rgba(192, 132, 252, 0.25)' }}>
-            <div className="flex items-center justify-between mb-2">
+          <div
+            className="selected-slice-card bg-[#131722] border border-[#a953f6]/40 rounded-2xl p-4 space-y-3.5 shadow-[0_0_18px_rgba(169,83,246,0.18)]"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-[#1e2538]">
               <div className="flex items-center gap-2">
-                <Sparkles size={15} className="text-[#c084fc] animate-pulse" />
-                <span className="font-bold text-xs text-[#c084fc]">New Selection Detected</span>
+                <Sparkles size={14} className="text-[#a953f6] animate-pulse" />
+                <span className="font-bold text-xs text-[#a953f6] uppercase tracking-wider">New Selection Detected</span>
               </div>
-              <span className="text-[11px] font-mono text-purple-300">
+              <Chip className="bg-[#a953f6]/15 text-[#a953f6] border border-[#a953f6]/30 text-[10px] font-mono h-5 px-2">
                 {pendingNewSlice.width}×{pendingNewSlice.height}
-              </span>
+              </Chip>
             </div>
 
-            <div className="text-xs text-slate-300 mb-3 font-mono">
-              Coordinates: ({pendingNewSlice.x}, {pendingNewSlice.y})
+            <div className="text-[11px] text-[#94a3b8] font-mono flex items-center justify-between bg-[#0b0d13] p-2 px-3 rounded-xl border border-[#1e2538]">
+              <span>Coordinates [X, Y]:</span>
+              <span className="text-white font-bold">({pendingNewSlice.x}, {pendingNewSlice.y})</span>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <input
-                type="text"
-                placeholder="Enter slice name..."
-                value={newSliceName}
-                onChange={e => setNewSliceName(e.target.value)}
-                className="input-text-dark text-xs"
-                onKeyDown={e => e.key === 'Enter' && handleAddSlice()}
-                autoFocus
-              />
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-white flex items-center justify-between">
+                  <span>Slice Name</span>
+                  <span className="text-[10px] font-mono text-[#555e6e]">Standard</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Enter slice name..."
+                  value={newSliceName}
+                  onChange={e => setNewSliceName(e.target.value)}
+                  className="w-full bg-[#0b0d13] border border-[#1e2538] focus:border-[#a953f6] text-xs text-white placeholder-[#555e6e] rounded-xl px-3.5 py-2 outline-none font-mono transition-colors"
+                  onKeyDown={e => e.key === 'Enter' && handleAddSlice()}
+                  autoFocus
+                />
+              </div>
 
-              <div className="flex items-center gap-2 mt-1">
+              <label className="flex items-center gap-2.5 text-xs text-[#94a3b8] hover:text-white cursor-pointer select-none">
                 <input
                   type="checkbox"
                   id="splitGroup"
                   checked={splitGroup}
                   onChange={e => setSplitGroup(e.target.checked)}
+                  className="accent-[#a953f6] rounded cursor-pointer size-3.5"
                 />
-                <label htmlFor="splitGroup" className="text-xs text-slate-300 cursor-pointer">Split evenly into group</label>
-              </div>
+                <span>Split evenly into group</span>
+              </label>
 
               {splitGroup && (
-                <div className="flex flex-col gap-2 p-2 bg-slate-800/50 rounded border border-slate-700/50">
+                <div className="space-y-2.5 p-3 bg-[#0b0d13] rounded-xl border border-[#1e2538]">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-400">Slices</span>
+                    <span className="text-xs text-[#94a3b8]">Slices</span>
                     <input
                       type="number"
                       min={2}
                       value={splitCount}
                       onChange={e => setSplitCount(e.target.value === '' ? '' : (parseInt(e.target.value, 10) || 2))}
-                      className="input-text-dark text-xs w-16"
+                      className="bg-[#131722] border border-[#1e2538] focus:border-[#a953f6] text-xs text-white font-mono rounded-lg px-2 py-1 w-16 text-center outline-none"
                     />
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-400">Direction</span>
+                    <span className="text-xs text-[#94a3b8]">Direction</span>
                     <select
                       value={splitDirection}
                       onChange={e => setSplitDirection(e.target.value as 'Horizontal' | 'Vertical')}
-                      className="input-text-dark text-xs w-24"
+                      className="bg-[#131722] border border-[#1e2538] focus:border-[#a953f6] text-xs font-mono text-white rounded-lg px-2 py-1 w-28 outline-none cursor-pointer"
                     >
                       <option value="Horizontal">Horizontal</option>
                       <option value="Vertical">Vertical</option>
                     </select>
                   </div>
-                  <div className="text-[10px] text-slate-400 font-mono mt-1">
+                  <div className="text-[10px] text-[#94a3b8] font-mono pt-1 border-t border-[#1e2538]/60">
                     Preview: {Math.min(splitDirection === 'Horizontal' ? pendingNewSlice.width : pendingNewSlice.height, Math.max(2, Number(splitCount) || 2))} slices of {splitDirection === 'Horizontal' ? `${Math.floor(pendingNewSlice.width / Math.min(pendingNewSlice.width, Math.max(2, Number(splitCount) || 2)))}×${pendingNewSlice.height}` : `${pendingNewSlice.width}×${Math.floor(pendingNewSlice.height / Math.min(pendingNewSlice.height, Math.max(2, Number(splitCount) || 2)))}`}
                   </div>
                 </div>
               )}
 
-              <div className="flex gap-2 mt-1">
+              <div className="flex gap-2 pt-1">
                 <button
-                  className="btn-add-slice"
-                  style={{
-                    flex: 1,
-                    justifyContent: 'center',
-                    padding: '7px 0',
-                    background: '#9333ea',
-                    borderColor: '#a855f7',
-                    boxShadow: '0 0 10px rgba(168, 85, 247, 0.35)',
-                  }}
+                  className="flex-1 bg-[#a953f6] hover:bg-[#bf84fd] text-white font-bold text-xs py-2 rounded-xl shadow-[0_0_12px_rgba(169,83,246,0.3)] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                   onClick={handleAddSlice}
                 >
                   <Plus size={14} />
                   <span>{splitGroup ? 'Create Group' : 'Create Slice'}</span>
                 </button>
                 <button
-                  className="btn-toggle-subtle text-xs px-3"
+                  className="px-3.5 bg-[#131722] hover:bg-[#19202f] border border-[#1e2538] text-[#94a3b8] hover:text-white text-xs rounded-xl transition-colors cursor-pointer"
                   onClick={() => setPendingNewSlice(null)}
                 >
                   Cancel
@@ -432,30 +441,76 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
 
         {/* Selected Slice Details Card */}
         {selectedSlice && (
-          <div className="selected-slice-card">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
+          <div
+            className="selected-slice-card bg-[#131722] border rounded-2xl p-4 space-y-4 shadow-xl transition-all"
+            style={{
+              borderColor: `${selectedSlice.color || '#00f0ff'}40`,
+              boxShadow: `0 4px 20px rgba(0,0,0,0.5), 0 0 12px ${selectedSlice.color || '#00f0ff'}15`,
+            }}
+          >
+            {/* Header: Name, Group Status, Thumbnail, Delete */}
+            <div className="flex items-center justify-between pb-3 border-b border-[#1e2538]">
+              <div className="flex items-center gap-2.5 min-w-0">
                 <span
-                  className="slice-color-pip"
-                  style={{ backgroundColor: selectedSlice.color || '#38bdf8' }}
+                  className="size-2.5 rounded-full flex-shrink-0"
+                  style={{
+                    backgroundColor: selectedSlice.color || '#00f0ff',
+                    boxShadow: `0 0 8px ${selectedSlice.color || '#00f0ff'}`,
+                  }}
                 />
-                <span className="font-semibold text-sm">
-                  {selectedSlice.name || (() => {
-                    const head = slices.find(s => s.groupId === selectedSlice.groupId && s.groupOrder === 1);
-                    return head?.name ? `${head.name} (Order ${selectedSlice.groupOrder})` : `Symbol (Order ${selectedSlice.groupOrder})`;
-                  })()}
-                </span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-xs font-bold text-white truncate">
+                      {selectedSlice.name || (() => {
+                        const head = slices.find(s => s.groupId === selectedSlice.groupId && s.groupOrder === 1);
+                        return head?.name ? `${head.name} #${selectedSlice.groupOrder}` : `Symbol #${selectedSlice.groupOrder}`;
+                      })()}
+                    </h4>
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-[10px] font-mono text-[#00f0ff]">
+                      {selectedSlice.groupId === selectedSlice.id && selectedSlice.groupOrder === 1 ? 'Group Master' : `Order #${selectedSlice.groupOrder}`}
+                    </span>
+                    <span className="text-[10px] font-mono text-[#555e6e]">·</span>
+                    <span className="text-[10px] font-mono text-[#94a3b8]">
+                      {`${selectedSlice.width}×${selectedSlice.height}`}
+                    </span>
+                  </div>
+                </div>
               </div>
-              {renderSliceThumb(selectedSlice)}
+
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="bg-[#0b0d13] border border-[#1e2538] rounded-xl p-1 flex items-center justify-center">
+                  {renderSliceThumb(selectedSlice)}
+                </div>
+                {slices.length > 1 && (
+                  <button
+                    onClick={() => handleDeleteSlice(selectedSlice.id)}
+                    className="size-7 rounded-lg text-[#555e6e] hover:text-[#f2741d] hover:bg-[#f2741d]/10 border border-transparent hover:border-[#f2741d]/30 flex items-center justify-center transition-all cursor-pointer"
+                    title="Delete slice"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div className="slice-inputs-grid">
-              <div className="slice-field">
-                <label>Symbol Group</label>
+            {/* Group Membership & Display Name */}
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-white flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Layers className="size-3 text-[#00f0ff]" />
+                    <span>Symbol Group</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-[#00f0ff]">
+                    {selectedSlice.groupId === selectedSlice.id && selectedSlice.groupOrder === 1 ? 'Master' : 'Member'}
+                  </span>
+                </label>
                 <select
                   value={selectedSlice.groupId === selectedSlice.id && selectedSlice.groupOrder === 1 ? selectedSlice.id : selectedSlice.groupId}
                   onChange={e => handleGroupMembershipChange(e.target.value)}
-                  className="input-text-dark text-xs"
+                  className="w-full bg-[#0b0d13] border border-[#1e2538] focus:border-[#00f0ff] text-xs font-mono text-white rounded-xl px-3 py-2 outline-none cursor-pointer transition-colors"
                 >
                   <option value={selectedSlice.id}>[ Standalone / New Group ]</option>
                   {slices.filter(s => s.groupOrder === 1 && s.id !== selectedSlice.id).map(s => (
@@ -465,84 +520,120 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
               </div>
 
               {selectedSlice.groupOrder === 1 ? (
-                <div className="slice-field">
-                  <label>Display Name</label>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-white flex items-center justify-between">
+                    <span>Display Name</span>
+                    <span className="text-[10px] font-mono text-[#555e6e]">Standard</span>
+                  </label>
                   <input
                     type="text"
                     value={selectedSlice.name || ''}
                     onChange={e => handleUpdateSelectedSlice({ name: e.target.value })}
+                    placeholder="Enter slice name..."
+                    className="w-full bg-[#0b0d13] border border-[#1e2538] focus:border-[#00f0ff]/70 text-xs text-white placeholder-[#555e6e] rounded-xl px-3.5 py-2 outline-none transition-colors font-mono"
                   />
                 </div>
               ) : (
-                <div className="slice-field">
-                  <label>Group Order</label>
-                  <input
-                    type="number"
-                    min={1}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-white flex items-center justify-between">
+                    <span>Group Order</span>
+                    <span className="text-[10px] font-mono text-[#a953f6]">Index</span>
+                  </label>
+                  <StepperControl
+                    label="Order"
                     value={selectedSlice.groupOrder || 2}
-                    onChange={e => handleGroupOrderChange(parseInt(e.target.value, 10) || 2)}
+                    onChange={val => handleGroupOrderChange(val || 2)}
+                    min={1}
+                    accentColor="purple"
                   />
                 </div>
               )}
+            </div>
 
-              <div className="slice-coords-row">
-                <div className="slice-coord">
-                  <label>X</label>
-                  <input
-                    type="number"
+            {/* Coordinate & Size Steppers (Matching FormControls Card 2) */}
+            <div className="space-y-3 pt-1">
+              <div>
+                <div className="text-[10px] font-mono text-[#94a3b8] uppercase mb-1.5 flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <Move className="size-3 text-[#00f0ff]" />
+                    <span>Position Vector [X, Y]</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-[#555e6e]">px</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <StepperControl
+                    label="X"
                     value={selectedSlice.x}
-                    onChange={e => handleUpdateSelectedSlice({ x: parseInt(e.target.value, 10) || 0 })}
+                    onChange={val => handleUpdateSelectedSlice({ x: val })}
+                    min={0}
+                    accentColor="cyan"
                   />
-                </div>
-                <div className="slice-coord">
-                  <label>Y</label>
-                  <input
-                    type="number"
+                  <StepperControl
+                    label="Y"
                     value={selectedSlice.y}
-                    onChange={e => handleUpdateSelectedSlice({ y: parseInt(e.target.value, 10) || 0 })}
-                  />
-                </div>
-                <div className="slice-coord">
-                  <label>Width</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={selectedSlice.width}
-                    onChange={e => handleUpdateSelectedSlice({ width: Math.max(1, parseInt(e.target.value, 10) || 1) })}
-                  />
-                </div>
-                <div className="slice-coord">
-                  <label>Height</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={selectedSlice.height}
-                    onChange={e => handleUpdateSelectedSlice({ height: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                    onChange={val => handleUpdateSelectedSlice({ y: val })}
+                    min={0}
+                    accentColor="cyan"
                   />
                 </div>
               </div>
+
+              <div>
+                <div className="text-[10px] font-mono text-[#94a3b8] uppercase mb-1.5 flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <Move className="size-3 text-[#a953f6]" />
+                    <span>Dimensions Pair [W, H]</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-[#555e6e]">px</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <StepperControl
+                    label="W"
+                    value={selectedSlice.width}
+                    onChange={val => handleUpdateSelectedSlice({ width: Math.max(1, val) })}
+                    min={1}
+                    accentColor="purple"
+                  />
+                  <StepperControl
+                    label="H"
+                    value={selectedSlice.height}
+                    onChange={val => handleUpdateSelectedSlice({ height: Math.max(1, val) })}
+                    min={1}
+                    accentColor="purple"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Vector Summary */}
+            <div className="pt-2.5 border-t border-[#1e2538] text-[11px] font-mono text-[#94a3b8] flex justify-between items-center">
+              <span>Pos: <strong className="text-[#00f0ff]">{selectedSlice.x}, {selectedSlice.y}</strong></span>
+              <span>Size: <strong className="text-[#a953f6]">{`${selectedSlice.width}×${selectedSlice.height}`}</strong></span>
             </div>
           </div>
         )}
 
         {/* Add Slice Action */}
-        <div className="add-slice-bar">
+        <div className="flex items-center gap-2 p-1">
           <input
             type="text"
             placeholder="New slice name..."
             value={newSliceName}
             onChange={e => setNewSliceName(e.target.value)}
-            className="input-text-dark text-xs"
+            className="flex-1 bg-[#0b0d13] border border-[#1e2538] focus:border-[#00f0ff]/70 text-xs text-white placeholder-[#555e6e] rounded-xl px-3 py-2 outline-none transition-colors font-mono"
             onKeyDown={e => e.key === 'Enter' && handleAddSlice()}
           />
-          <button className="btn-add-slice" onClick={handleAddSlice}>
+          <button
+            className="bg-[#00f0ff]/10 hover:bg-[#00f0ff] text-[#00f0ff] hover:text-[#0b0d13] border border-[#00f0ff]/30 hover:border-[#00f0ff] text-xs font-semibold px-3.5 py-2 rounded-xl transition-all duration-200 hover:shadow-[0_0_14px_rgba(0,240,255,0.35)] flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+            onClick={handleAddSlice}
+          >
             <Plus size={14} />
             <span>Add Slice</span>
           </button>
         </div>
 
         {/* Slices List */}
-        <div className="slices-list-scroll" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px' }}>
+        <div className="slices-list-scroll" style={{ padding: '8px' }}>
           {(() => {
             const groups: Record<string, SpriteSlice[]> = {};
             slices.forEach(s => {
@@ -557,78 +648,123 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
               const groupColor = head?.color || '#38bdf8';
               const hasMultiple = groupSlices.length > 1;
 
-              return (
-                <div 
-                  key={groupId} 
-                  className={`group-container ${hasMultiple ? 'has-multiple' : ''}`}
-                  style={{ 
-                    display: 'flex', 
-                    flexDirection: 'column', 
-                    gap: '4px',
-                    ...(hasMultiple ? {
-                      border: `1px solid ${groupColor}40`,
-                      borderRadius: '6px',
-                      padding: '4px',
-                      backgroundColor: `${groupColor}08`,
-                    } : {})
-                  }}
-                >
-                  {groupSlices.map(slice => {
-                    const isSelected = selectedSliceIds.has(slice.id);
-                    return (
-                      <div
-                        key={slice.id}
-                        className={`slice-list-item ${isSelected ? 'active' : ''}`}
-                        onClick={(e) => {
-                          if (e.ctrlKey || e.metaKey) {
-                            const next = new Set(selectedSliceIds);
-                            if (next.has(slice.id)) next.delete(slice.id);
-                            else next.add(slice.id);
-                            setSelectedSliceIds(next);
-                          } else {
-                            setSelectedSliceIds(new Set([slice.id]));
-                          }
-                          setPendingNewSlice(null);
-                        }}
-                      >
-                        <div className="slice-item-left">
-                          <span
-                            className="slice-color-pip"
-                            style={{ backgroundColor: groupColor }}
-                          />
-                          <div className="slice-item-info">
-                            <span className="slice-item-name">
-                              {slice.name || (() => {
-                                return head?.name ? `${head.name} #${slice.groupOrder}` : `Symbol #${slice.groupOrder}`;
-                              })()}
-                            </span>
-                            <span className="slice-item-bounds font-mono">
-                              {slice.x},{slice.y} · {slice.width}×{slice.height}
-                            </span>
+              if (hasMultiple) {
+                return (
+                  <div
+                    key={groupId}
+                    className="mb-3"
+                    style={{
+                      background: '#131722',
+                      border: `1px solid ${groupColor}30`,
+                      borderRadius: '14px',
+                      padding: '6px',
+                    }}
+                  >
+                    {/* Group header */}
+                    <div className="px-2.5 py-1.5 flex items-center justify-between border-b mb-1" style={{ borderColor: `${groupColor}20` }}>
+                      <span className="text-[10px] font-mono uppercase tracking-wider flex items-center gap-1.5" style={{ color: groupColor }}>
+                        <span className="size-1.5 rounded-full inline-block" style={{ background: groupColor }} />
+                        {head?.name || 'Group'}
+                      </span>
+                      <span className="text-[10px] font-mono text-[#555e6e]">{groupSlices.length} slices</span>
+                    </div>
+
+                    {groupSlices.map(slice => {
+                      const isSelected = selectedSliceIds.has(slice.id);
+                      return (
+                        <div
+                          key={slice.id}
+                          onClick={(e) => {
+                            if (e.ctrlKey || e.metaKey) {
+                              const next = new Set(selectedSliceIds);
+                              if (next.has(slice.id)) next.delete(slice.id);
+                              else next.add(slice.id);
+                              setSelectedSliceIds(next);
+                            } else {
+                              setSelectedSliceIds(new Set([slice.id]));
+                            }
+                            setPendingNewSlice(null);
+                          }}
+                          className="relative rounded-xl p-2 px-3 flex items-center justify-between border transition-all cursor-pointer"
+                          style={{
+                            borderColor: isSelected ? groupColor : 'transparent',
+                            background: isSelected ? '#0b0d13' : undefined,
+                            boxShadow: isSelected ? `0 0 12px ${groupColor}40` : undefined,
+                          }}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <span className="size-1.5 rounded-full inline-block flex-shrink-0" style={{ background: groupColor }} />
+                            <div>
+                              <h4 className="text-xs font-semibold text-white">
+                                {slice.name || (head?.name ? `${head.name} #${slice.groupOrder}` : `Symbol #${slice.groupOrder}`)}
+                              </h4>
+                              <p className="text-[10px] font-mono text-[#94a3b8]">{slice.x},{slice.y} · {slice.width}×{slice.height}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {renderSliceThumb(slice)}
+                            <button
+                              onClick={e => { e.stopPropagation(); handleDeleteSlice(slice.id); }}
+                              className="text-[#555e6e] hover:text-[#f2741d] p-1 rounded transition-colors cursor-pointer"
+                              title="Delete Slice"
+                            >
+                              <Trash2 size={13} />
+                            </button>
                           </div>
                         </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
 
-                        <div className="slice-item-right">
-                          {renderSliceThumb(slice)}
-                          <button
-                            className="btn-slice-delete"
-                            onClick={e => {
-                              e.stopPropagation();
-                              handleDeleteSlice(slice.id);
-                            }}
-                            title="Delete Slice"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
+              // Standalone single-slice item
+              const slice = groupSlices[0];
+              const isSelected = selectedSliceIds.has(slice.id);
+              return (
+                <div
+                  key={slice.id}
+                  onClick={(e) => {
+                    if (e.ctrlKey || e.metaKey) {
+                      const next = new Set(selectedSliceIds);
+                      if (next.has(slice.id)) next.delete(slice.id);
+                      else next.add(slice.id);
+                      setSelectedSliceIds(next);
+                    } else {
+                      setSelectedSliceIds(new Set([slice.id]));
+                    }
+                    setPendingNewSlice(null);
+                  }}
+                  className="relative mb-2 rounded-xl p-2.5 px-3 flex items-center justify-between border transition-all cursor-pointer"
+                  style={{
+                    background: '#131722',
+                    borderColor: isSelected ? groupColor : '#1e2538',
+                    boxShadow: isSelected ? `0 0 12px ${groupColor}40` : undefined,
+                  }}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="size-2 rounded-full flex-shrink-0" style={{ background: groupColor }} />
+                    <div>
+                      <h4 className="text-xs font-semibold text-white">{slice.name || slice.id}</h4>
+                      <p className="text-[10px] font-mono text-[#94a3b8]">{slice.x},{slice.y} · {slice.width}×{slice.height}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {renderSliceThumb(slice)}
+                    <button
+                      onClick={e => { e.stopPropagation(); handleDeleteSlice(slice.id); }}
+                      className="text-[#555e6e] hover:text-[#f2741d] p-1 rounded transition-colors cursor-pointer"
+                      title="Delete Slice"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
               );
             });
           })()}
         </div>
+
       </div>
     </div>
   );

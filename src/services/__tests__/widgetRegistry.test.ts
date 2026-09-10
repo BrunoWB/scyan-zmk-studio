@@ -841,10 +841,10 @@ describe('Widget Registry - Single Source of Truth', () => {
         },
       };
       const size = getWidgetNaturalSize(def, DEFAULT_SYMBOL_SLICES, textInst, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS);
-      // 'SCYAN': S(5) + C(5) + Y(6) + A(5) + N(4) = 25px wide ink extent, 5px high
+      // 'SCYAN': S(4) + C(4) + Y(5) + A(4) + N(4) = 21px wide ink extent, 5px high
       expect(size.height).toBe(5);
-      expect(size.width).toBe(25);
-      expect(measureTextWidth('SCYAN', DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS, 'small')).toBe(25);
+      expect(size.width).toBe(21);
+      expect(measureTextWidth('SCYAN', DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS, 'small')).toBe(21);
     });
 
     it('renders Bongo Cat widget reacting to bongoState (idle, left tap, right tap)', () => {
@@ -906,9 +906,35 @@ describe('Widget Registry - Single Source of Truth', () => {
       // Slice 2 has relative x=2 in its slice coordinates, so blitted at 0+2=2
       expect(gridLeft.get(2, 2)).toBe(1);
 
+      // 2b. Tap Right (state 2)
+      const gridRight = new BwpxGrid(32, 32);
+      bongoDef.render(gridRight, 0, 0, {
+        symbolsGrid,
+        symbolSlices: bongoSlices,
+        fontGrid: new BwpxGrid(128, 32),
+        instances,
+        activeInstanceId: 'inst-bongo',
+        bongoState: 2,
+      });
+      expect(gridRight.get(2, 2)).toBe(1);
+
+      // 2c. Fallback without explicit instances or activeInstanceId
+      const gridAutoFallback = new BwpxGrid(32, 32);
+      bongoDef.render(gridAutoFallback, 0, 0, {
+        symbolsGrid,
+        symbolSlices: bongoSlices,
+        fontGrid: new BwpxGrid(128, 32),
+        bongoState: 0,
+      });
+      expect(gridAutoFallback.get(2, 2)).toBe(1);
+
       // 3. Natural size
       const naturalSize = getWidgetNaturalSize(bongoDef, bongoSlices, bongoInst);
       expect(naturalSize).toEqual({ width: 20, height: 16 });
+
+      // 4. Natural size fallback when no instance provided
+      const autoNaturalSize = getWidgetNaturalSize(bongoDef, bongoSlices);
+      expect(autoNaturalSize).toEqual({ width: 20, height: 16 });
     });
 
     it('computes content-tight natural size for WPM widget in symbol and font modes', () => {
@@ -935,6 +961,62 @@ describe('Widget Registry - Single Source of Truth', () => {
         config: { mode: 'font' as const },
       };
       expect(getWidgetNaturalSize(wpmDef, speedoSlices, fontInst)).toEqual({ width: 24, height: 10 });
+    });
+
+    it('computes natural size and renders branding widget with small and big font size configs', () => {
+      const brandingDef = getWidgetDefinition('branding')!;
+      const smallInst = {
+        id: 'inst-brand-small',
+        widgetTypeId: 'branding',
+        label: 'Brand Small',
+        config: { mode: 'font' as const, fontSize: 'small' as const, textEntries: ['CORNE'] },
+      };
+      const bigInst = {
+        id: 'inst-brand-big',
+        widgetTypeId: 'branding',
+        label: 'Brand Big',
+        config: { mode: 'font' as const, fontSize: 'big' as const, textEntries: ['CORNE'] },
+      };
+
+      const smallSize = getWidgetNaturalSize(brandingDef, [], smallInst);
+      const bigSize = getWidgetNaturalSize(brandingDef, [], bigInst);
+
+      expect(smallSize.height).toBe(5);
+      expect(bigSize.height).toBe(10);
+    });
+
+    it('renders layer-banner in font mode dynamically from context layerNames', () => {
+      const grid = new BwpxGrid(32, 20);
+      const fontInst = {
+        id: 'inst-layer-font',
+        widgetTypeId: 'layer-banner',
+        label: 'Layer Banner Font',
+        config: { mode: 'font' as const },
+      };
+
+      const customLayers = ['FREE', 'QWERTY', 'NUMPAD', 'MEDIA'];
+
+      renderWidgetById('layer-banner', grid, 0, {
+        ...renderContext,
+        currentLayer: 0,
+        layerNames: customLayers,
+        instances: { 'layer-banner': [fontInst] },
+        activeInstanceId: 'inst-layer-font',
+      });
+
+      expect(grid.countOn()).toBeGreaterThan(0);
+
+      const grid2 = new BwpxGrid(32, 20);
+      renderWidgetById('layer-banner', grid2, 0, {
+        ...renderContext,
+        currentLayer: 2,
+        layerNames: customLayers,
+        instances: { 'layer-banner': [fontInst] },
+        activeInstanceId: 'inst-layer-font',
+      });
+
+      expect(grid2.countOn()).toBeGreaterThan(0);
+      expect(grid2.getAllPixels()).not.toEqual(grid.getAllPixels());
     });
   });
 });

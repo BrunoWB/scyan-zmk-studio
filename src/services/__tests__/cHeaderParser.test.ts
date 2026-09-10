@@ -237,6 +237,150 @@ static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
     expect(generated).not.toContain('SYMBOL_BRACKET_LAYER(idx)');
     expect(generated).not.toContain('SYMBOL_SKULL_LAYER(idx)');
   });
+
+  it('correctly handles idleScreensEnabled and power timers in metadata and C defines', () => {
+    const testGrid = new BwpxGrid(16, 16);
+    const metadata = {
+      version: 1 as const,
+      idleScreensEnabled: false,
+      idleTimeoutSec: 45,
+      screenOffTimeoutSec: 120,
+    };
+
+    const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+    expect(cCode).toContain('#define ZMK_DISPLAY_IDLE_SCREENS_ENABLED 0');
+    expect(cCode).toContain('#define SCYAN_IDLE_SCREENS_ENABLED       0');
+    expect(cCode).toContain('#define ZMK_DISPLAY_IDLE_TIMEOUT_MS  45000');
+    expect(cCode).toContain('#define SCYAN_IDLE_TIMEOUT_MS        45000');
+    expect(cCode).toContain('#define CONFIG_SCYAN_IDLE_TIMEOUT_MS 45000');
+    expect(cCode).toContain('#define ZMK_DISPLAY_SLEEP_TIMEOUT_MS 120000');
+    expect(cCode).toContain('#define SCYAN_SLEEP_TIMEOUT_MS       120000');
+
+    const parsed = parseCHeader(cCode);
+    expect(parsed.metadata?.idleScreensEnabled).toBe(false);
+    expect(parsed.metadata?.idleTimeoutSec).toBe(45);
+    expect(parsed.metadata?.screenOffTimeoutSec).toBe(120);
+
+    // Test raw C defines fallback without metadata comment
+    const rawC = `
+#define DISPLAY_VIRTUAL_WIDTH 32
+#define DISPLAY_VIRTUAL_HEIGHT 128
+#define ZMK_DISPLAY_IDLE_SCREENS_ENABLED 0
+#define ZMK_DISPLAY_IDLE_TIMEOUT_MS 15000
+#define ZMK_DISPLAY_SLEEP_TIMEOUT_MS 90000
+static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
+    { .type = 1, .x = 0, .y = 0, .width = 10, .height = 10, .enabled = true }
+};
+`;
+    const parsedRaw = parseCHeader(rawC);
+    expect(parsedRaw.metadata?.idleScreensEnabled).toBe(false);
+    expect(parsedRaw.metadata?.idleTimeoutSec).toBe(15);
+    expect(parsedRaw.metadata?.screenOffTimeoutSec).toBe(90);
+
+    // Test SCYAN module naming fallback
+    const scyanRawC = `
+#define DISPLAY_VIRTUAL_WIDTH 32
+#define DISPLAY_VIRTUAL_HEIGHT 128
+#define SCYAN_IDLE_SCREENS_ENABLED 1
+#define CONFIG_SCYAN_IDLE_TIMEOUT_MS 20000
+#define SCYAN_SLEEP_TIMEOUT_MS 80000
+static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
+    { .type = 1, .x = 0, .y = 0, .width = 10, .height = 10, .enabled = true }
+};
+`;
+    const parsedScyan = parseCHeader(scyanRawC);
+    expect(parsedScyan.metadata?.idleScreensEnabled).toBe(true);
+    expect(parsedScyan.metadata?.idleTimeoutSec).toBe(20);
+    expect(parsedScyan.metadata?.screenOffTimeoutSec).toBe(80);
+  });
+
+  it('correctly handles symmetric and asymmetric settings in metadata and C defines', () => {
+    const testGrid = new BwpxGrid(16, 16);
+    const metadata = {
+      version: 1 as const,
+      screenDimensions: { width: 32, height: 128 },
+      symmetricSettings: false,
+      rightScreenDimensions: { width: 68, height: 160 },
+      idleScreensEnabled: true,
+      rightIdleScreensEnabled: false,
+      idleTimeoutSec: 30,
+      rightIdleTimeoutSec: 15,
+      screenOffTimeoutSec: 60,
+      rightScreenOffTimeoutSec: 120,
+    };
+
+    const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+    // Left (standard) macros
+    expect(cCode).toContain('#define DISPLAY_VIRTUAL_WIDTH  32');
+    expect(cCode).toContain('#define DISPLAY_VIRTUAL_HEIGHT 128');
+    expect(cCode).toContain('#define ZMK_DISPLAY_IDLE_TIMEOUT_MS  30000');
+    expect(cCode).toContain('#define ZMK_DISPLAY_SLEEP_TIMEOUT_MS 60000');
+
+    // Right-side asymmetric macros
+    expect(cCode).toContain('#define DISPLAY_VIRTUAL_WIDTH_RIGHT  68');
+    expect(cCode).toContain('#define DISPLAY_VIRTUAL_HEIGHT_RIGHT 160');
+    expect(cCode).toContain('#define SCYAN_IDLE_SCREENS_ENABLED_RIGHT 0');
+    expect(cCode).toContain('#define SCYAN_IDLE_TIMEOUT_MS_RIGHT        15000');
+    expect(cCode).toContain('#define SCYAN_SLEEP_TIMEOUT_MS_RIGHT       120000');
+
+    // Parse and verify round-trip
+    const parsed = parseCHeader(cCode);
+    expect(parsed.metadata?.symmetricSettings).toBe(false);
+    expect(parsed.metadata?.screenDimensions).toEqual({ width: 32, height: 128 });
+    expect(parsed.metadata?.rightScreenDimensions).toEqual({ width: 68, height: 160 });
+    expect(parsed.metadata?.idleScreensEnabled).toBe(true);
+    expect(parsed.metadata?.rightIdleScreensEnabled).toBe(false);
+    expect(parsed.metadata?.idleTimeoutSec).toBe(30);
+    expect(parsed.metadata?.rightIdleTimeoutSec).toBe(15);
+    expect(parsed.metadata?.screenOffTimeoutSec).toBe(60);
+    expect(parsed.metadata?.rightScreenOffTimeoutSec).toBe(120);
+
+    // Also verify raw C parsing without metadata comment
+    const rawAsymmetricC = `
+#define DISPLAY_VIRTUAL_WIDTH 32
+#define DISPLAY_VIRTUAL_HEIGHT 128
+#define DISPLAY_VIRTUAL_WIDTH_RIGHT 68
+#define DISPLAY_VIRTUAL_HEIGHT_RIGHT 160
+#define SCYAN_IDLE_TIMEOUT_MS_RIGHT 25000
+#define SCYAN_SLEEP_TIMEOUT_MS_RIGHT 75000
+static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
+    { .type = 1, .x = 0, .y = 0, .width = 10, .height = 10, .enabled = true }
+};
+`;
+    const parsedRaw = parseCHeader(rawAsymmetricC);
+    expect(parsedRaw.metadata?.symmetricSettings).toBe(false);
+    expect(parsedRaw.metadata?.rightScreenDimensions).toEqual({ width: 68, height: 160 });
+    expect(parsedRaw.metadata?.rightIdleTimeoutSec).toBe(25);
+    expect(parsedRaw.metadata?.rightScreenOffTimeoutSec).toBe(75);
+  });
+
+  it('encodes metadata.layerNames and populates WIDGET_TYPE_LAYER text_entries', () => {
+    const testGrid = new BwpxGrid(16, 16);
+    const metadata = {
+      version: 1 as const,
+      layerNames: ['FREE', 'QWERTY', 'RIGHTHOLD', 'LEFTHOLD', 'SIMMHOLD'],
+      leftBlocks: [
+        { id: 'b_layer', widgetType: 'layer-banner', name: 'Layer Banner', x: 4, y: 22, width: 24, height: 12, enabled: true, side: 'left' as const }
+      ],
+      rightBlocks: [],
+      idleLeftBlocks: [],
+      idleRightBlocks: [],
+      widgetInstances: {
+        'layer-banner': [{ id: 'inst-layer', widgetTypeId: 'layer-banner', label: 'Layer Banner', config: { mode: 'font' as const } }]
+      }
+    };
+
+    const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+    expect(cCode).toContain('WIDGET_TYPE_LAYER');
+    expect(cCode).toContain('"FREE"');
+    expect(cCode).toContain('"QWERTY"');
+    expect(cCode).toContain('"RIGHTHOLD"');
+    expect(cCode).toContain('"LEFTHOLD"');
+    expect(cCode).toContain('"SIMMHOLD"');
+
+    const parsed = parseCHeader(cCode);
+    expect(parsed.metadata?.layerNames).toEqual(['FREE', 'QWERTY', 'RIGHTHOLD', 'LEFTHOLD', 'SIMMHOLD']);
+  });
 });
 
 

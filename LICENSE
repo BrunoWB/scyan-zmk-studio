@@ -1,0 +1,50 @@
+Scyan Non-Commercial Software License
+Copyright (c) 2025-2026 Bruno Barcellos. All rights reserved.
+
+==============================================================================
+TERMS AND CONDITIONS FOR NON-COMMERCIAL USE
+==============================================================================
+
+1. GRANT OF LICENSE
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software, source code, documentation, graphics, layouts, and associated
+files (collectively, the "Software"), to access, download, run, study, and modify
+the Software strictly for personal, educational, hobbyist, and non-commercial
+purposes, subject to the conditions set forth herein.
+
+2. STRICT COMMERCIAL & FINANCIAL RESTRICTION
+THIS SOFTWARE MAY NOT BE USED FOR ANY COMMERCIAL, REVENUE-GENERATING, OR FINANCIAL
+PURPOSES BY ANY INDIVIDUAL, COMPANY, ORGANIZATION, OR ENTITY OTHER THAN THE
+COPYRIGHT HOLDER, BRUNO BARCELLOS.
+
+Prohibited activities include, without limitation:
+  a. Selling, reselling, sublicensing, leasing, or renting the Software,
+     source code, compiled headers, or derivative works.
+  b. Bundling, pre-installing, or distributing the Software or its generated
+     assets (including display headers, bitmaps, or firmware) with commercial
+     hardware products, keyboard kits, pre-built keyboards, or peripherals sold
+     for profit or monetary consideration.
+  c. Providing commercial services, paid display design, paid keymap/firmware
+     customization, consulting, or commercial software-as-a-service (SaaS)
+     derived from or utilizing the Software.
+  d. Using the Software in support of or in connection with the business
+     operations of any commercial entity or enterprise.
+
+3. EXCLUSIVE COMMERCIAL RIGHTS RESERVED
+All commercial, financial, and monetization rights are exclusively and strictly
+reserved by Bruno Barcellos. Any commercial use, licensing, distribution, or
+partnership requires prior explicit written authorization from Bruno Barcellos.
+
+4. ATTRIBUTION AND REDISTRIBUTION
+Any permitted non-commercial copying, fork, or redistribution of the Software,
+in whole or in part, must include this complete license text, the original
+copyright notice, and clear attribution to Bruno Barcellos.
+
+5. DISCLAIMER OF WARRANTY & LIMITATION OF LIABILITY
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. IN NO EVENT
+SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES,
+OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE,
+ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.

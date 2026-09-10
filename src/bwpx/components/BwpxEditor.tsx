@@ -47,6 +47,7 @@ export type ToolType =
   | 'eraser'
   | 'bucket'
   | 'select'
+  | 'move'
   | 'line'
   | 'rect'
   | 'filled-rect'
@@ -58,6 +59,47 @@ export type ToolType =
   | 'star'
   | 'arrow'
   | 'plus';
+
+export const ZOOM_STEPS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 56, 64];
+
+export function calculateZoomAtPoint(
+  prevZoom: number,
+  prevPan: { x: number; y: number },
+  mouseX: number,
+  mouseY: number,
+  step: number,
+  zoomSteps: number[] = ZOOM_STEPS
+): { zoom: number; pan: { x: number; y: number } } {
+  let closestIdx = 0;
+  let minDiff = Infinity;
+  for (let i = 0; i < zoomSteps.length; i++) {
+    const diff = Math.abs(zoomSteps[i] - prevZoom);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closestIdx = i;
+    }
+  }
+
+  const nextIdx = Math.max(0, Math.min(zoomSteps.length - 1, closestIdx + step));
+  const nextZoom = zoomSteps[nextIdx];
+
+  if (nextZoom === prevZoom) {
+    return { zoom: prevZoom, pan: prevPan };
+  }
+
+  const nextPan = {
+    x: Math.round(mouseX - ((mouseX - prevPan.x) * nextZoom) / prevZoom),
+    y: Math.round(mouseY - ((mouseY - prevPan.y) * nextZoom) / prevZoom),
+  };
+
+  return { zoom: nextZoom, pan: nextPan };
+}
+
+export interface HistoryEntry {
+  grid: BwpxGrid;
+  selection: { x: number; y: number; w: number; h: number; active: boolean } | null;
+  sliceUpdates?: { id: string; prevX: number; prevY: number; newX: number; newY: number }[];
+}
 
 export interface BwpxEditorProps {
   initialWidth?: number;
@@ -99,13 +141,13 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   const [grid, setGrid] = useState<BwpxGrid>(
     () => initialGrid?.clone() ?? new BwpxGrid(initialWidth, initialHeight)
   );
-  const [history, setHistory] = useState<BwpxGrid[]>([
-    initialGrid?.clone() ?? new BwpxGrid(initialWidth, initialHeight),
+  const [history, setHistory] = useState<HistoryEntry[]>([
+    { grid: initialGrid?.clone() ?? new BwpxGrid(initialWidth, initialHeight), selection: null },
   ]);
   const [historyIndex, setHistoryIndex] = useState<number>(0);
 
-  const historyRef = useRef<BwpxGrid[]>([
-    initialGrid?.clone() ?? new BwpxGrid(initialWidth, initialHeight),
+  const historyRef = useRef<HistoryEntry[]>([
+    { grid: initialGrid?.clone() ?? new BwpxGrid(initialWidth, initialHeight), selection: null },
   ]);
   const historyIndexRef = useRef<number>(0);
 
@@ -117,8 +159,19 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     }
   }, [externalTool]);
   const [brushSize, setBrushSize] = useState<number>(1);
-  const [zoom, setZoom] = useState<number>(10); // pixels per cell
-  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 300, y: 200 });
+  const [viewport, setViewport] = useState<{ zoom: number; pan: { x: number; y: number } }>({
+    zoom: 10,
+    pan: { x: 300, y: 200 },
+  });
+  const { zoom, pan } = viewport;
+
+  const setPan = useCallback((action: { x: number; y: number } | ((prev: { x: number; y: number }) => { x: number; y: number })) => {
+    setViewport(v => {
+      const nextPan = typeof action === 'function' ? action(v.pan) : action;
+      panRef.current = nextPan;
+      return { ...v, pan: nextPan };
+    });
+  }, []);
 
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
@@ -168,6 +221,8 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   const lastBlurTimeRef = useRef<number>(0);
 
   const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const wheelDeltaRef = useRef<number>(0);
+  void wheelDeltaRef;
 
   const [modalContent, setModalContent] = useState<{ title: string; text: string } | null>(null);
   const [copiedNotification, setCopiedNotification] = useState<boolean>(false);
@@ -196,10 +251,10 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   useEffect(() => {
     if (initialGrid && initialGrid !== lastCommittedRef.current) {
       const cloned = initialGrid.clone();
-      historyRef.current = [cloned.clone()];
+      historyRef.current = [{ grid: cloned.clone(), selection: null }];
       historyIndexRef.current = 0;
       setGrid(cloned);
-      setHistory([cloned.clone()]);
+      setHistory([{ grid: cloned.clone(), selection: null }]);
       setHistoryIndex(0);
     }
   }, [initialGrid]);
@@ -248,23 +303,53 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           active: true,
         });
       }
-    } else if (!selectedSliceId && (!selectedSliceIds || selectedSliceIds.length === 0)) {
-      if (activeTool === 'select' && selection && !movingPixels) setSelection(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSliceId, selectedSliceIds ? selectedSliceIds.join(',') : '', slices, isDrawing, movingPixels, activeTool, pendingSelection]);
 
+  const onSliceMoveRef = useRef(onSliceMove);
+  onSliceMoveRef.current = onSliceMove;
+  const onSlicesMoveRef = useRef(onSlicesMove);
+  onSlicesMoveRef.current = onSlicesMove;
+
   const commitGridState = useCallback(
-    (newGrid: BwpxGrid) => {
+    (
+      newGrid: BwpxGrid,
+      explicitNewSelection?: { x: number; y: number; w: number; h: number; active: boolean } | null,
+      sliceUpdates?: { id: string; prevX: number; prevY: number; newX: number; newY: number }[]
+    ) => {
       lastCommittedRef.current = newGrid;
       const currentIdx = historyIndexRef.current;
       const nextHistory = historyRef.current.slice(0, currentIdx + 1);
-      nextHistory.push(newGrid.clone());
+
+      // Ensure the state before this action recorded whatever selection was active
+      if (nextHistory[currentIdx]) {
+        if (selectionRef.current && !nextHistory[currentIdx].selection) {
+          nextHistory[currentIdx] = {
+            ...nextHistory[currentIdx],
+            selection: { ...selectionRef.current },
+          };
+        }
+      }
+
+      const finalSelection = explicitNewSelection !== undefined
+        ? (explicitNewSelection ? { ...explicitNewSelection } : null)
+        : (selectionRef.current ? { ...selectionRef.current } : null);
+
+      nextHistory.push({
+        grid: newGrid.clone(),
+        selection: finalSelection,
+        sliceUpdates,
+      });
+
       historyRef.current = nextHistory;
       historyIndexRef.current = nextHistory.length - 1;
       setHistory(nextHistory);
       setHistoryIndex(nextHistory.length - 1);
       setGrid(newGrid);
+      if (explicitNewSelection !== undefined) {
+        setSelection(explicitNewSelection);
+      }
       onGridChange?.(newGrid);
     },
     [onGridChange]
@@ -273,12 +358,33 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   const handleUndo = useCallback(() => {
     const currentIdx = historyIndexRef.current;
     if (currentIdx > 0) {
+      const currentEntry = historyRef.current[currentIdx];
       const nextIdx = currentIdx - 1;
       historyIndexRef.current = nextIdx;
-      const nextGrid = historyRef.current[nextIdx].clone();
+      const targetEntry = historyRef.current[nextIdx];
+      const nextGrid = targetEntry.grid.clone();
       lastCommittedRef.current = nextGrid;
       setHistoryIndex(nextIdx);
       setGrid(nextGrid);
+      setSelection(targetEntry.selection ? { ...targetEntry.selection } : null);
+
+      // If currentEntry had sliceUpdates, revert slices to original coordinates
+      if (currentEntry.sliceUpdates && currentEntry.sliceUpdates.length > 0) {
+        if (onSlicesMoveRef.current) {
+          onSlicesMoveRef.current(
+            currentEntry.sliceUpdates.map(u => ({
+              id: u.id,
+              dx: u.prevX - u.newX,
+              dy: u.prevY - u.newY,
+            }))
+          );
+        } else if (onSliceMoveRef.current) {
+          currentEntry.sliceUpdates.forEach(u => {
+            onSliceMoveRef.current?.(u.id, u.prevX, u.prevY);
+          });
+        }
+      }
+
       onGridChange?.(nextGrid);
     }
   }, [onGridChange]);
@@ -288,10 +394,30 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     if (currentIdx < historyRef.current.length - 1) {
       const nextIdx = currentIdx + 1;
       historyIndexRef.current = nextIdx;
-      const nextGrid = historyRef.current[nextIdx].clone();
+      const targetEntry = historyRef.current[nextIdx];
+      const nextGrid = targetEntry.grid.clone();
       lastCommittedRef.current = nextGrid;
       setHistoryIndex(nextIdx);
       setGrid(nextGrid);
+      setSelection(targetEntry.selection ? { ...targetEntry.selection } : null);
+
+      // If targetEntry had sliceUpdates, re-apply them forward
+      if (targetEntry.sliceUpdates && targetEntry.sliceUpdates.length > 0) {
+        if (onSlicesMoveRef.current) {
+          onSlicesMoveRef.current(
+            targetEntry.sliceUpdates.map(u => ({
+              id: u.id,
+              dx: u.newX - u.prevX,
+              dy: u.newY - u.prevY,
+            }))
+          );
+        } else if (onSliceMoveRef.current) {
+          targetEntry.sliceUpdates.forEach(u => {
+            onSliceMoveRef.current?.(u.id, u.newX, u.newY);
+          });
+        }
+      }
+
       onGridChange?.(nextGrid);
     }
   }, [onGridChange]);
@@ -332,6 +458,12 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     onNewSelectionRef.current?.(null);
   }, []);
 
+  useEffect(() => {
+    if (activeTool !== 'select') {
+      clearFreeSelections();
+    }
+  }, [activeTool, clearFreeSelections]);
+
   // Center view on (0, 0) origin with reasonable zoom (manual or once on mount)
   const fitToView = useCallback(() => {
     if (!containerRef.current) return;
@@ -343,22 +475,26 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     const targetH = b.height > 0 ? Math.max(b.height, 32) : 34;
 
     const fitZoom = Math.min(18, Math.max(4, Math.floor(Math.min((rect.width - 100) / targetW, (rect.height - 100) / targetH))));
-    setZoom(fitZoom);
 
     // If pixels exist, center the bounding box around origin/center
+    let newPan: { x: number; y: number };
     if (b.width > 0) {
       const centerX = b.minX + b.width / 2;
       const centerY = b.minY + b.height / 2;
-      setPan({
+      newPan = {
         x: Math.round(rect.width / 2 - centerX * fitZoom),
         y: Math.round(rect.height / 2 - centerY * fitZoom),
-      });
+      };
     } else {
-      setPan({
+      newPan = {
         x: Math.round(rect.width / 2),
         y: Math.round(rect.height / 2),
-      });
+      };
     }
+
+    zoomRef.current = fitZoom;
+    panRef.current = newPan;
+    setViewport({ zoom: fitZoom, pan: newPan });
   }, []);
 
   // Only auto-fit once on initial mount
@@ -539,7 +675,6 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
         if (isControlHeldRef.current) {
           isControlHeldRef.current = false;
           setIsControlHeld(false);
-          clearFreeSelections();
         }
       }
       if (e.key === 'Shift') {
@@ -555,7 +690,6 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       if (isControlHeldRef.current) {
         isControlHeldRef.current = false;
         setIsControlHeld(false);
-        clearFreeSelections();
       }
       if (isShiftHeldRef.current) {
         isShiftHeldRef.current = false;
@@ -572,7 +706,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
     };
-  }, [handleUndo, handleRedo, clearFreeSelections]);
+  }, [handleUndo, handleRedo]);
 
   // Global clipboard paste listener with canvas vs external image precedence
   useEffect(() => {
@@ -729,7 +863,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       grid: displayGrid,
       zoom,
       pan,
-      pixelColor: '#00d2ff',
+      pixelColor: '#ffffff',
       bgColor: '#0b0d11',
       showAxes: true,
       showGridLines: zoom >= 5,
@@ -743,16 +877,15 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     const isInteractingTool = isControlHeld || isShiftHeld || activeTool === 'select';
     if (hoverPos && !ghostPlacement && !isPanning && !isInteractingTool) {
       ctx.save();
-      ctx.translate(pan.x, pan.y);
+      ctx.translate(Math.round(pan.x), Math.round(pan.y));
       const half = Math.floor(brushSize / 2);
       ctx.strokeStyle = 'rgba(0, 229, 163, 0.6)';
       ctx.lineWidth = 1;
-      ctx.strokeRect(
-        (hoverPos.x - half) * zoom,
-        (hoverPos.y - half) * zoom,
-        brushSize * zoom,
-        brushSize * zoom
-      );
+      const bx = Math.round((hoverPos.x - half) * zoom);
+      const by = Math.round((hoverPos.y - half) * zoom);
+      const bw = Math.round((hoverPos.x - half + brushSize) * zoom) - bx;
+      const bh = Math.round((hoverPos.y - half + brushSize) * zoom) - by;
+      ctx.strokeRect(bx + 0.5, by + 0.5, bw, bh);
       ctx.restore();
     }
   }, [
@@ -850,19 +983,19 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     // Middle click or spacebar -> Pan
     if (e.button === 1 || isSpaceHeld) {
       setIsPanning(true);
-      setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+      setPanStart({ x: Math.round(e.clientX - pan.x), y: Math.round(e.clientY - pan.y) });
       return;
     }
 
     const coords = getGridCoords(e.clientX, e.clientY);
     if (!coords) return;
 
-    // Right-clicking is ALWAYS an eraser regardless of active tool!
-    const isErasing = e.button === 2;
+    // Right-clicking is ALWAYS an eraser regardless of active tool, or if eraser tool is selected:
+    const isErasing = e.button === 2 || activeTool === 'eraser';
 
-    // Quick move tool: activated by Shift key or shift click
-    const isQuickMove = !isErasing && (isShiftHeldRef.current || e.shiftKey);
-    // Selection tool: activated by Control key or external tool
+    // Quick move tool: activated by Shift key or shift click, or activeTool === 'move'
+    const isQuickMove = !isErasing && (isShiftHeldRef.current || e.shiftKey || activeTool === 'move');
+    // Selection tool: activated by Control key or external tool, or activeTool === 'select'
     const isSelect = !isErasing && !isQuickMove && (isControlHeldRef.current || e.ctrlKey || e.metaKey || activeTool === 'select');
 
     if (isQuickMove) {
@@ -987,9 +1120,9 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     lastDrawPosRef.current = coords;
     strokeModifiedRef.current = false;
 
-    const val = isErasing || activeTool === 'eraser' ? 0 : 1;
+    const val = isErasing ? 0 : 1;
 
-    if (isErasing || activeTool === 'pencil' || activeTool === 'eraser') {
+    if (isErasing || activeTool === 'pencil') {
       const temp = grid.clone();
       drawBrushDot(temp, coords.x, coords.y, val, brushSize);
       strokeModifiedRef.current = true;
@@ -1003,7 +1136,10 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (isPanning) {
-      setPan({ x: e.clientX - panStart.x, y: e.clientY - panStart.y });
+      setPan({
+        x: Math.round(e.clientX - panStart.x),
+        y: Math.round(e.clientY - panStart.y),
+      });
       return;
     }
 
@@ -1153,8 +1289,8 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     setDragCurrentPos(coords);
 
     // Continuous pencil / eraser drawing without gaps:
-    if (isErasing || activeTool === 'pencil' || activeTool === 'eraser') {
-      const val = isErasing || activeTool === 'eraser' ? 0 : 1;
+    if (isErasing || activeTool === 'pencil') {
+      const val = isErasing ? 0 : 1;
       const last = lastDrawPosRef.current || startPos || coords;
       const temp = grid.clone();
       drawLine(temp, last.x, last.y, coords.x, coords.y, val, brushSize);
@@ -1256,22 +1392,58 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       movingPixels.pixels.forEach(([relX, relY]) => {
         next.set(targetX + relX, targetY + relY, 1);
       });
-      commitGridState(next);
+      const originalSelection = {
+        x: movingPixels.originalRect.x,
+        y: movingPixels.originalRect.y,
+        w: movingPixels.originalRect.w,
+        h: movingPixels.originalRect.h,
+        active: true,
+      };
 
-      setSelection({
+      const newSelection = {
         x: targetX,
         y: targetY,
         w: movingPixels.originalRect.w,
         h: movingPixels.originalRect.h,
         active: true,
-      });
+      };
 
-      // Update slice coordinates if this move was on a valid slice selection
-      if (selectedSliceIds && selectedSliceIds.length > 0 && onSlicesMove) {
-        onSlicesMove(selectedSliceIds.map(id => ({ id, dx: movingPixels.offset.dx, dy: movingPixels.offset.dy })));
-      } else if (selectedSliceId && onSliceMove) {
-        onSliceMove(selectedSliceId, targetX, targetY);
-      } else if (slices && onSliceMove) {
+      // Ensure the history entry before the move records the selection in its original place!
+      const currentIdx = historyIndexRef.current;
+      if (historyRef.current[currentIdx]) {
+        historyRef.current[currentIdx] = {
+          ...historyRef.current[currentIdx],
+          selection: originalSelection,
+        };
+      }
+
+      // Collect slice updates if slices were moved
+      let sliceUpdates: { id: string; prevX: number; prevY: number; newX: number; newY: number }[] = [];
+      if (selectedSliceIds && selectedSliceIds.length > 0) {
+        selectedSliceIds.forEach(id => {
+          const s = slices?.find(item => item.id === id);
+          if (s) {
+            sliceUpdates.push({
+              id,
+              prevX: s.x,
+              prevY: s.y,
+              newX: s.x + movingPixels.offset.dx,
+              newY: s.y + movingPixels.offset.dy,
+            });
+          }
+        });
+      } else if (selectedSliceId) {
+        const s = slices?.find(item => item.id === selectedSliceId);
+        if (s) {
+          sliceUpdates.push({
+            id: selectedSliceId,
+            prevX: s.x,
+            prevY: s.y,
+            newX: targetX,
+            newY: targetY,
+          });
+        }
+      } else if (slices) {
         const matchingSlice = slices.find(
           s =>
             s.x === movingPixels.originalRect.x &&
@@ -1280,8 +1452,25 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
             s.height === movingPixels.originalRect.h
         );
         if (matchingSlice) {
-          onSliceMove(matchingSlice.id, targetX, targetY);
+          sliceUpdates.push({
+            id: matchingSlice.id,
+            prevX: matchingSlice.x,
+            prevY: matchingSlice.y,
+            newX: targetX,
+            newY: targetY,
+          });
         }
+      }
+
+      commitGridState(next, newSelection, sliceUpdates.length > 0 ? sliceUpdates : undefined);
+
+      // Update slice coordinates if this move was on a valid slice selection
+      if (selectedSliceIds && selectedSliceIds.length > 0 && onSlicesMove) {
+        onSlicesMove(selectedSliceIds.map(id => ({ id, dx: movingPixels.offset.dx, dy: movingPixels.offset.dy })));
+      } else if (selectedSliceId && onSliceMove) {
+        onSliceMove(selectedSliceId, targetX, targetY);
+      } else if (slices && onSliceMove && sliceUpdates.length > 0) {
+        onSliceMove(sliceUpdates[0].id, targetX, targetY);
       } else if (pendingSelection) {
         onNewSelectionRef.current?.({
           x: targetX,
@@ -1299,7 +1488,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       return;
     }
 
-    const isErasing = drawButton === 2;
+    const isErasing = drawButton === 2 || activeTool === 'eraser';
     const isSelect = !isErasing && (isControlHeldRef.current || e?.ctrlKey || e?.metaKey || activeTool === 'select');
 
     if (isDrawing && isSelect) {
@@ -1369,7 +1558,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       const val = 1;
       const temp = grid.clone();
 
-      if (activeTool !== 'pencil' && activeTool !== 'eraser' && activeTool !== 'bucket' && activeTool !== 'select') {
+      if (activeTool !== 'pencil' && activeTool !== 'bucket' && activeTool !== 'select' && activeTool !== 'move') {
         switch (activeTool) {
           case 'line':
             drawLine(temp, startPos.x, startPos.y, dragCurrentPos.x, dragCurrentPos.y, val, brushSize);
@@ -1417,35 +1606,45 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
   // Zoom with mouse wheel centered at cursor (non-passive to allow preventDefault safely)
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const target = containerRef.current || canvasRef.current;
+    if (!target) return;
 
     const onWheelNative = (e: WheelEvent) => {
       e.preventDefault();
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
-      setZoom(prevZoom => {
-        let nextZoom: number;
-        const zoomFactor = Math.pow(0.998, e.deltaY);
-        nextZoom = prevZoom * zoomFactor;
-        nextZoom = Math.min(64, Math.max(1, nextZoom));
-
-        if (nextZoom !== prevZoom) {
-          setPan(prevPan => ({
-            x: Math.round(mouseX - ((mouseX - prevPan.x) * nextZoom) / prevZoom),
-            y: Math.round(mouseY - ((mouseY - prevPan.y) * nextZoom) / prevZoom),
-          }));
-          return nextZoom;
+      const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 800 : e.deltaY;
+      let step = 0;
+      if (Math.abs(dy) >= 40) {
+        step = dy > 0 ? -1 : 1;
+        wheelDeltaRef.current = 0;
+      } else {
+        wheelDeltaRef.current += dy;
+        const threshold = 30;
+        if (Math.abs(wheelDeltaRef.current) >= threshold) {
+          step = wheelDeltaRef.current > 0 ? -1 : 1;
+          wheelDeltaRef.current = 0;
         }
-        return prevZoom;
+      }
+
+      if (step === 0) return;
+
+      setViewport(prev => {
+        const next = calculateZoomAtPoint(prev.zoom, prev.pan, mouseX, mouseY, step);
+        zoomRef.current = next.zoom;
+        panRef.current = next.pan;
+        return next;
       });
     };
 
-    canvas.addEventListener('wheel', onWheelNative, { passive: false });
+    target.addEventListener('wheel', onWheelNative as EventListener, { passive: false });
     return () => {
-      canvas.removeEventListener('wheel', onWheelNative);
+      target.removeEventListener('wheel', onWheelNative as EventListener);
     };
   }, []);
 
@@ -1791,13 +1990,19 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           </button>
 
           <div className="has-tooltip">
-            <div className="bwpx-tool-btn bwpx-tool-btn-hint" title="Right click">
+            <button
+              type="button"
+              onClick={() => setActiveTool('eraser')}
+              className={`bwpx-tool-btn ${activeTool === 'eraser' ? 'active' : ''}`}
+              title="Eraser (or Right click)"
+            >
               <Eraser size={15} />
-            </div>
-            <div className="tooltip">Right click</div>
+            </button>
+            <div className="tooltip">Eraser (or Right click)</div>
           </div>
 
           <button
+            type="button"
             onClick={() => setActiveTool('bucket')}
             className={`bwpx-tool-btn ${activeTool === 'bucket' && !isControlHeld && !isShiftHeld ? 'active' : ''}`}
             title="Flood Fill Bucket"
@@ -1806,23 +2011,27 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           </button>
 
           <div className="has-tooltip">
-            <div
-              className={`bwpx-tool-btn bwpx-tool-btn-hint tool-select ${isControlHeld ? 'active' : ''}`}
-              title="Control click"
+            <button
+              type="button"
+              onClick={() => setActiveTool('select')}
+              className={`bwpx-tool-btn tool-select ${activeTool === 'select' || isControlHeld ? 'active' : ''}`}
+              title="Selection (or Ctrl click)"
             >
               <MousePointer2 size={15} />
-            </div>
-            <div className="tooltip">Control click</div>
+            </button>
+            <div className="tooltip">Select (or Ctrl click)</div>
           </div>
 
           <div className="has-tooltip">
-            <div
-              className={`bwpx-tool-btn bwpx-tool-btn-hint ${isShiftHeld ? 'active' : ''}`}
-              title="Shift click"
+            <button
+              type="button"
+              onClick={() => setActiveTool('move')}
+              className={`bwpx-tool-btn ${activeTool === 'move' || isShiftHeld ? 'active' : ''}`}
+              title="Move (or Shift click)"
             >
               <Move size={15} />
-            </div>
-            <div className="tooltip">Shift click</div>
+            </button>
+            <div className="tooltip">Move (or Shift click)</div>
           </div>
 
           <div className="bwpx-h-divider" />
@@ -1983,7 +2192,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
             On: <strong className="bwpx-status-val" style={{ color: 'var(--accent, #00d2ff)' }}>{grid.countOn()}</strong>
           </span>
           <span>
-            Zoom: <strong className="bwpx-status-val">{zoom * 100}%</strong>
+            Zoom: <strong className="bwpx-status-val">{Math.round(zoom * 100)}%</strong>
           </span>
         </div>
       </footer>

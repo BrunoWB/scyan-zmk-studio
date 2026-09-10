@@ -9,6 +9,7 @@ export type WidgetMode = 'symbol' | 'font';
 
 export interface WidgetInstanceConfig {
   mode: WidgetMode;
+  fontSize?: 'small' | 'big';     // Font size: 'small' (default) or 'big'
   groupId?: string;               // For single group selection
   groupIds?: string[];            // For multi-group selection
   textEntries?: string[];         // Text values for 1, 2, 6, or N divisions
@@ -21,6 +22,8 @@ export interface WidgetInstanceConfig {
     targetSpeed: number;
     timeWindow?: number;
   };
+  bongoTapMs?: number;            // Tap duration in ms, matching CONFIG_SCYAN_BONGO_TAP_MS (default 60)
+  bongoDebounceMs?: number;       // Debounce interval in ms (default 100)
 }
 
 export interface WidgetSlotDefinition {
@@ -74,6 +77,7 @@ export interface WidgetRenderContext {
   fontGlyphs?: FontGlyph[];
   fontMappings?: FontCharMapping[];
   battery?: number; // 0-100
+  charging?: boolean;
   outputMode?: 'usb' | 'ble';
   bleProfileIndex?: number; // 0: no connection, 1-5: profiles P1-P5
   currentLayer?: number;
@@ -81,6 +85,7 @@ export interface WidgetRenderContext {
   wpm?: number;
   wpmHistory?: number[]; // Rolling samples over time (oldest to newest, or chronological)
   splitConnected?: boolean;
+  capsLock?: boolean;
   customText?: string;
   side?: 'left' | 'right';
   isIdle?: boolean;

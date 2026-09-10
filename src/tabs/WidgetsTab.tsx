@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { BwpxGrid } from '../bwpx/core/BwpxGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../types/zmk';
 import {
@@ -6,7 +6,9 @@ import {
   getWidgetDefinition,
   renderWidgetById,
   getWidgetsByTier,
+  getWidgetNaturalSize,
 } from '../services/widgetRegistry';
+import { formatLayerLabel } from '../services/keymapService';
 import { WidgetMiniPreview } from './blocks/WidgetCatalogList';
 import type {
   DisplayWidgetDefinition,
@@ -33,6 +35,7 @@ export interface WidgetsTabProps {
   rightBlocks?: LayoutBlock[];
   onLeftBlocksChange?: (blocks: LayoutBlock[]) => void;
   onRightBlocksChange?: (blocks: LayoutBlock[]) => void;
+  layerNames?: string[];
 }
 
 const WIDGET_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
@@ -81,19 +84,31 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   leftBlocks,
   rightBlocks,
   onLeftBlocksChange,
-  onRightBlocksChange
+  onRightBlocksChange,
+  layerNames,
 }) => {
   const [activeWidgetId, setActiveWidgetId] = useState<string>(WIDGET_REGISTRY[0]?.id || 'status-bar');
   const [selectedTier, setSelectedTier] = useState<'all' | 1 | 2 | 3>('all');
   
+  const effectiveLayerNames = useMemo(() => {
+    if (layerNames && layerNames.length > 0) return layerNames;
+    return ['DEFAULT', 'LOWER', 'RAISE', 'ADJUST'];
+  }, [layerNames]);
+
   const [testBattery, setTestBattery] = useState<number>(75);
   const [testWpm] = useState<number>(55);
   const [testOutputMode, setTestOutputMode] = useState<'usb' | 'ble'>('usb');
   const [testBleProfile, setTestBleProfile] = useState<number>(1);
-  const [testLayer] = useState<number>(0);
+  const [testLayer, setTestLayer] = useState<number>(0);
   const [testSplitConnected] = useState<boolean>(true);
   const [simulateMissingSymbols] = useState<boolean>(false);
   const [testBongoState, setTestBongoState] = useState<0 | 1 | 2>(0);
+
+  useEffect(() => {
+    if (testLayer >= effectiveLayerNames.length) {
+      setTestLayer(0);
+    }
+  }, [effectiveLayerNames.length, testLayer]);
 
   const activeWidget: DisplayWidgetDefinition = getWidgetDefinition(activeWidgetId) || WIDGET_REGISTRY[0];
   const activeInstances = instances[activeWidget.id] || [];
@@ -101,7 +116,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   const handleAddInstance = () => {
     if (!onInstancesChange) return;
     const newInstanceId = `${activeWidget.id}-${Date.now()}`;
-    let initialConfig: import('../types/widget').WidgetInstanceConfig = { mode: 'symbol' };
+    let initialConfig: import('../types/widget').WidgetInstanceConfig = { mode: 'symbol', fontSize: 'small' };
     if (activeWidget.id === 'wpm-chart') {
       initialConfig = { mode: 'symbol', wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 } };
     } else if (activeWidget.id === 'connection') {
@@ -123,7 +138,9 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
       initialConfig = {
         mode: 'symbol',
         groupId: bongoGroup?.groupId || '',
-        textEntries: ['(=^.^=)']
+        textEntries: ['(=^.^=)'],
+        bongoTapMs: 60,
+        bongoDebounceMs: 100,
       };
     }
 
@@ -229,9 +246,14 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
 
                     return (
                       <button key={widget.id} className={`widget-nav-item ${isActive ? 'active' : ''}`} onClick={() => setActiveWidgetId(widget.id)}>
-                        {instanceCount > 0 && (
-                          <span className="instance-count-badge">{instanceCount}</span>
-                        )}
+                        <div className="widget-nav-badges">
+                          {widget.requiresMaster && (
+                            <span className="badge-master badge-master--nav" title="Requires Central (Master) half in ZMK split">M</span>
+                          )}
+                          {instanceCount > 0 && (
+                            <span className="instance-count-badge">{instanceCount}</span>
+                          )}
+                        </div>
                         <div className="widget-nav-thumb-wrapper">
                           <WidgetMiniPreview
                             widget={widget}
@@ -244,11 +266,8 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                             instances={instances}
                           />
                         </div>
-                        <div className="widget-nav-meta flex-1 min-w-0 flex items-center justify-between gap-1">
+                        <div className="widget-nav-meta flex-1 min-w-0">
                           <span className="widget-nav-name truncate">{widget.name}</span>
-                          {widget.requiresMaster && (
-                            <span className="badge-master" title="Requires Central (Master) half in ZMK split">MASTER</span>
-                          )}
                         </div>
                       </button>
                     );
@@ -262,184 +281,234 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
 
       {/* Right Content */}
       <div className="widgets-content-pane">
-        <div className="widget-config-card mb-8">
-          <div className="widget-card-header !mb-2 !pb-2 border-b-0">
-            <div>
-              <div className="flex items-center gap-2">
-                {React.createElement(WIDGET_ICONS[activeWidget.icon] || Sparkles, { size: 20, className: 'text-accent' })}
-                <h3 className="text-base font-semibold text-text-main">{activeWidget.name} Template</h3>
-                <span className={`px-2 py-0.5 rounded text-[10px] font-mono tier-pill tier-pill-${activeWidget.tier}`}>
-                  Tier {activeWidget.tier} · {activeWidget.category}
-                </span>
-                {activeWidget.requiresMaster && (
-                  <span className="badge-master" title="Requires Central (Master) half in ZMK split">MASTER</span>
-                )}
-              </div>
-              <p className="text-sm text-muted mt-2">{activeWidget.description}</p>
-            </div>
+        <div className="widgets-content-inner">
+          {/* Template Header — outside the card */}
+          <div className="mb-5">
+          <div className="flex items-center gap-2 mb-1">
+            {React.createElement(WIDGET_ICONS[activeWidget.icon] || Sparkles, { size: 18, className: 'text-accent' })}
+            <h3 className="text-base font-semibold text-text-main">{activeWidget.name} Template</h3>
+            <span className={`px-2 py-0.5 rounded text-[10px] font-mono tier-pill tier-pill-${activeWidget.tier}`}>
+              Tier {activeWidget.tier} · {activeWidget.category}
+            </span>
+            {activeWidget.requiresMaster && (
+              <span className="badge-master" title="Requires Central (Master) half in ZMK split">MASTER</span>
+            )}
           </div>
-          {activeWidget.id === 'battery' && activeInstances.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-border/40 flex items-center gap-3">
-              <span className="text-xs font-semibold text-text-main whitespace-nowrap">Preview Battery: {testBattery}%</span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={testBattery}
-                onChange={e => setTestBattery(parseInt(e.target.value, 10))}
-                className="flex-1 accent-accent"
-              />
-            </div>
-          )}
-          {activeWidget.id === 'connection' && activeInstances.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-border/40 flex flex-wrap items-center gap-3">
-              <span className="text-xs font-semibold text-text-main whitespace-nowrap">Preview Output:</span>
-              <div className="button-pair">
-                <button
-                  type="button"
-                  className={`btn-chip ${testOutputMode === 'usb' ? 'active' : ''}`}
-                  onClick={() => setTestOutputMode('usb')}
-                >
-                  <Usb size={13} />
-                  <span>USB</span>
-                </button>
-                <button
-                  type="button"
-                  className={`btn-chip ${testOutputMode === 'ble' ? 'active' : ''}`}
-                  onClick={() => setTestOutputMode('ble')}
-                >
-                  <Bluetooth size={13} />
-                  <span>Bluetooth</span>
-                </button>
-              </div>
-              {testOutputMode === 'ble' && (
-                <div className="flex items-center gap-1.5 ml-2">
-                  <span className="text-xs text-muted">Profile:</span>
-                  {[0, 1, 2, 3, 4, 5].map(idx => (
+          <p className="text-sm text-muted">{activeWidget.description}</p>
+        </div>
+
+        {/* Preview Controls — uncontained template options */}
+        {activeInstances.length > 0 && (activeWidget.id === 'battery' || activeWidget.id === 'connection' || activeWidget.id === 'bongo' || activeWidget.id === 'layer-banner') && (
+          <div className="mb-6 flex flex-col gap-3">
+            {activeWidget.id === 'layer-banner' && (
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs font-semibold text-text-main whitespace-nowrap">Preview Layer:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {effectiveLayerNames.map((name, idx) => (
                     <button
                       key={idx}
                       type="button"
-                      className={`btn-chip !px-2 !py-0.5 text-xs ${testBleProfile === idx ? 'active' : ''}`}
-                      onClick={() => setTestBleProfile(idx)}
+                      className={`btn-chip !px-2.5 !py-1 text-xs ${testLayer === idx ? 'active' : ''}`}
+                      onClick={() => setTestLayer(idx)}
                     >
-                      {idx === 0 ? 'No conn' : `P${idx}`}
+                      <span>{formatLayerLabel(idx, name)}</span>
                     </button>
                   ))}
                 </div>
-              )}
-            </div>
-          )}
-          {activeWidget.id === 'bongo' && activeInstances.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-border/40 flex flex-wrap items-center gap-3">
-              <span className="text-xs font-semibold text-text-main whitespace-nowrap">Preview Tap:</span>
-              <div className="button-pair">
-                <button
-                  type="button"
-                  className={`btn-chip ${testBongoState === 1 ? 'active' : ''}`}
-                  onClick={() => setTestBongoState(1)}
-                >
-                  <span>Left Paw</span>
-                </button>
-                <button
-                  type="button"
-                  className={`btn-chip ${testBongoState === 0 ? 'active' : ''}`}
-                  onClick={() => setTestBongoState(0)}
-                >
-                  <span>Neutral</span>
-                </button>
-                <button
-                  type="button"
-                  className={`btn-chip ${testBongoState === 2 ? 'active' : ''}`}
-                  onClick={() => setTestBongoState(2)}
-                >
-                  <span>Right Paw</span>
-                </button>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+            {activeWidget.id === 'battery' && (
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-semibold text-text-main whitespace-nowrap">Preview Battery: {testBattery}%</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={testBattery}
+                  onChange={e => setTestBattery(parseInt(e.target.value, 10))}
+                  className="flex-1 accent-accent"
+                />
+              </div>
+            )}
+            {activeWidget.id === 'connection' && (
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs font-semibold text-text-main whitespace-nowrap">Preview Output:</span>
+                <div className="button-pair">
+                  <button
+                    type="button"
+                    className={`btn-chip ${testOutputMode === 'usb' ? 'active' : ''}`}
+                    onClick={() => setTestOutputMode('usb')}
+                  >
+                    <Usb size={13} />
+                    <span>USB</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn-chip ${testOutputMode === 'ble' ? 'active' : ''}`}
+                    onClick={() => setTestOutputMode('ble')}
+                  >
+                    <Bluetooth size={13} />
+                    <span>Bluetooth</span>
+                  </button>
+                </div>
+                {testOutputMode === 'ble' && (
+                  <div className="flex items-center gap-1.5 ml-2">
+                    <span className="text-xs text-muted">Profile:</span>
+                    {[0, 1, 2, 3, 4, 5].map(idx => (
+                      <button
+                        key={idx}
+                        type="button"
+                        className={`btn-chip !px-2 !py-0.5 text-xs ${testBleProfile === idx ? 'active' : ''}`}
+                        onClick={() => setTestBleProfile(idx)}
+                      >
+                        {idx === 0 ? 'No conn' : `P${idx}`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {activeWidget.id === 'bongo' && (
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs font-semibold text-text-main whitespace-nowrap">Preview Tap:</span>
+                <div className="button-pair">
+                  <button
+                    type="button"
+                    className={`btn-chip ${testBongoState === 1 ? 'active' : ''}`}
+                    onClick={() => setTestBongoState(1)}
+                  >
+                    <span>Left Paw</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn-chip ${testBongoState === 0 ? 'active' : ''}`}
+                    onClick={() => setTestBongoState(0)}
+                  >
+                    <span>Neutral</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn-chip ${testBongoState === 2 ? 'active' : ''}`}
+                    onClick={() => setTestBongoState(2)}
+                  >
+                    <span>Right Paw</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         
         {/* Instances List */}
         <div className="space-y-4">
           {activeInstances.map(inst => (
-            <div key={inst.id} className="widget-config-card p-4">
-              <div className="mb-4 flex items-center justify-between gap-2">
+            <div key={inst.id} className="widget-config-card p-4 group">
+              <div className="mb-4 flex items-center justify-between gap-3">
                 <input 
                   type="text" 
                   value={inst.label} 
                   onChange={e => handleUpdateInstanceLabel(inst.id, e.target.value)} 
-                  className="widget-instance-label-input"
+                  className="widget-instance-label-input flex-1 min-w-0"
                   placeholder="Instance Label..."
                 />
-                <button className="text-red-400 hover:text-red-300 transition-colors flex-shrink-0" onClick={() => handleDeleteInstance(inst.id)}>
-                  <Trash2 size={16} />
-                </button>
+                {activeWidget.id !== 'wpm-chart' && activeWidget.id !== 'branding' && (
+                  <div className="widget-mode-radio-group" role="radiogroup" aria-label="Display Mode">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={inst.config?.mode === 'symbol' || !inst.config?.mode}
+                      className={`widget-mode-radio-btn ${inst.config?.mode === 'symbol' || !inst.config?.mode ? 'active' : ''}`}
+                      onClick={() => handleUpdateInstanceConfig(inst.id, { mode: 'symbol' })}
+                      title="Symbol Mode"
+                    >
+                      <ImageIcon size={13} />
+                      <span>Symbol</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={inst.config?.mode === 'font'}
+                      className={`widget-mode-radio-btn ${inst.config?.mode === 'font' ? 'active' : ''}`}
+                      onClick={() => handleUpdateInstanceConfig(inst.id, { mode: 'font' })}
+                      title="Font Mode"
+                    >
+                      <TypeIcon size={13} />
+                      <span>Font</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
-              {/* Simulation Demo Component */}
-              <div className="widget-interactive-demo mb-4">
-                <div className="demo-canvas-box" style={{ height: `${Math.max(activeWidget.defaultHeight * 4, 28)}px` }}>
-                  <InstancePreview 
-                    widget={activeWidget} 
-                    instance={inst} 
-                    symbolsGrid={symbolsGrid} 
-                    symbolSlices={symbolSlices} 
-                    fontGrid={fontGrid} 
-                    fontGlyphs={fontGlyphs} 
-                    fontMappings={fontMappings} 
-                    customText={customText} 
-                    testBattery={testBattery}
-                    testWpm={testWpm}
-                    testOutputMode={testOutputMode}
-                    testBleProfile={testBleProfile}
-                    testLayer={testLayer}
-                    testSplitConnected={testSplitConnected}
-                    simulateMissingSymbols={simulateMissingSymbols}
-                    testBongoState={testBongoState}
-                  />
+              {/* Side-by-Side: Preview on the side & Config Controls */}
+              <div className="widget-instance-body flex flex-col sm:flex-row gap-4 items-stretch">
+                {/* Side Preview (Vertical OLED) */}
+                <div className="widget-interactive-demo-side shrink-0 flex flex-col items-center justify-center">
+                  <div className="demo-canvas-box">
+                    <InstancePreview 
+                      widget={activeWidget} 
+                      instance={inst} 
+                      symbolsGrid={symbolsGrid} 
+                      symbolSlices={symbolSlices} 
+                      fontGrid={fontGrid} 
+                      fontGlyphs={fontGlyphs} 
+                      fontMappings={fontMappings} 
+                      customText={customText} 
+                      testBattery={testBattery}
+                      testWpm={testWpm}
+                      testOutputMode={testOutputMode}
+                      testBleProfile={testBleProfile}
+                      testLayer={testLayer}
+                      layerNames={effectiveLayerNames}
+                      testSplitConnected={testSplitConnected}
+                      simulateMissingSymbols={simulateMissingSymbols}
+                      testBongoState={testBongoState}
+                    />
+                  </div>
+                  <span className="text-[10px] font-mono text-muted tracking-wider uppercase mt-2 select-none">
+                    Preview
+                  </span>
                 </div>
-              </div>
 
-              <div className="flex flex-col gap-3">
-                <div className="widget-slot-card p-3 rounded-lg border border-border/40 bg-surface/60">
-                  {activeWidget.id !== 'wpm-chart' && activeWidget.id !== 'branding' && (
-                    <div className="control-group mb-4">
-                      <label>Display Mode</label>
-                      <div className="button-pair">
-                        <button
-                          type="button"
-                          className={`btn-toggle ${inst.config?.mode === 'symbol' || !inst.config?.mode ? 'active' : ''}`}
-                          onClick={() => handleUpdateInstanceConfig(inst.id, { mode: 'symbol' })}
-                        >
-                          <ImageIcon size={14} />
-                          <span>Symbol Mode</span>
-                        </button>
-                        <button
-                          type="button"
-                          className={`btn-toggle ${inst.config?.mode === 'font' ? 'active' : ''}`}
-                          onClick={() => handleUpdateInstanceConfig(inst.id, { mode: 'font' })}
-                        >
-                          <TypeIcon size={14} />
-                          <span>Font Mode</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                {/* Config Controls */}
+                <div className="flex-1 min-w-0 flex flex-col">
+                  <div className="widget-slot-card p-3 rounded-lg border border-border/40 bg-surface/60 flex-1">
 
                   {activeWidget.id === 'branding' && (
-                    <div className="flex flex-col gap-2">
-                      <label className="text-xs text-muted mb-1 block">Banner Text</label>
-                      <input
-                        type="text"
-                        maxLength={32}
-                        value={inst.config?.textEntries?.[0] !== undefined ? inst.config.textEntries[0] : (inst.label || 'ZMK')}
-                        onChange={e => handleUpdateInstanceConfig(inst.id, { textEntries: [e.target.value] })}
-                        className="input-text-dark text-xs w-full"
-                        placeholder="e.g. CORNE or {layerName}"
-                      />
-                      <span className="text-[10px] text-muted">
-                        Banner text to render on display. Supports template variables like {'{layerName}'}, {'{customText}'}.
-                      </span>
+                    <div className="flex flex-col gap-3">
+                      <div>
+                        <label className="text-xs text-muted mb-1 block">Banner Text</label>
+                        <input
+                          type="text"
+                          maxLength={32}
+                          value={inst.config?.textEntries?.[0] !== undefined ? inst.config.textEntries[0] : (inst.label || 'ZMK')}
+                          onChange={e => handleUpdateInstanceConfig(inst.id, { textEntries: [e.target.value] })}
+                          className="input-text-dark text-xs w-full"
+                          placeholder="e.g. CORNE or {layerName}"
+                        />
+                        <span className="text-[10px] text-muted">
+                          Banner text to render on display. Supports template variables like {'{layerName}'}, {'{customText}'}.
+                        </span>
+                      </div>
+
+                      <div>
+                        <label className="text-xs text-muted mb-1 block">Font Size</label>
+                        <div className="button-pair">
+                          <button
+                            type="button"
+                            className={`btn-toggle ${inst.config?.fontSize !== 'big' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, { fontSize: 'small' })}
+                          >
+                            <span>Small</span>
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn-toggle ${inst.config?.fontSize === 'big' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, { fontSize: 'big' })}
+                          >
+                            <span>Big</span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )}
                   
@@ -525,20 +594,34 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
 
                       {activeWidget.id === 'layer-banner' && (
                         <div>
-                          <label className="text-xs text-muted mb-1 block">Layer Groups (1 slice each)</label>
-                          {['QWERTY', 'LOWER', 'RAISE', 'ADJUST'].map((label, idx) => (
-                            <div key={idx} className="flex items-center gap-2 mb-1">
-                              <span className="text-[10px] w-16 text-muted">{label}</span>
-                              <select value={inst.config?.groupIds?.[idx] || ''} onChange={e => {
-                                const newIds = [...(inst.config?.groupIds || [])];
-                                newIds[idx] = e.target.value;
-                                handleUpdateInstanceConfig(inst.id, { groupIds: newIds });
-                              }} className="select-dark text-xs flex-1">
-                                <option value="">-- Select Group (1 slice) --</option>
-                                {symbolSlices.filter(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length === 1).map(s => <option key={s.groupId} value={s.groupId}>{s.name || s.id}</option>)}
-                              </select>
-                            </div>
-                          ))}
+                          <label className="text-xs text-muted mb-2 block">Layer Groups (1 slice each)</label>
+                          <div className="flex flex-col gap-2">
+                            {effectiveLayerNames.map((name, idx) => (
+                              <div key={idx} className="flex items-center gap-2">
+                                <span className="text-xs text-text-main font-medium shrink-0 min-w-[130px] truncate" title={formatLayerLabel(idx, name)}>
+                                  {formatLayerLabel(idx, name)}
+                                </span>
+                                <select
+                                  value={inst.config?.groupIds?.[idx] || ''}
+                                  onChange={e => {
+                                    const newIds = [...(inst.config?.groupIds || [])];
+                                    newIds[idx] = e.target.value;
+                                    handleUpdateInstanceConfig(inst.id, { groupIds: newIds });
+                                  }}
+                                  className="select-dark text-xs flex-1"
+                                >
+                                  <option value="">-- Select Group (1 slice) --</option>
+                                  {symbolSlices
+                                    .filter(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length === 1)
+                                    .map(s => (
+                                      <option key={s.groupId} value={s.groupId}>
+                                        {s.name || s.id}
+                                      </option>
+                                    ))}
+                                </select>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
                       
@@ -575,28 +658,76 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                       )}
 
                       {activeWidget.id === 'bongo' && (
-                        <div>
-                          <label className="text-xs text-muted mb-1 block">Bongo Cat Group (3 slices: Neutral, Left Paw, Right Paw)</label>
-                          <select
-                            value={inst.config?.groupId || ''}
-                            onChange={e => handleUpdateInstanceConfig(inst.id, { groupId: e.target.value })}
-                            className="select-dark text-xs w-full"
-                          >
-                            <option value="">-- Select Group (3 slices) --</option>
-                            {symbolSlices
-                              .filter(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length >= 3)
-                              .map(s => {
-                                const count = symbolSlices.filter(m => m.groupId === s.groupId).length;
-                                return (
-                                  <option key={s.groupId} value={s.groupId}>
-                                    {s.name || s.groupId} ({count} slices)
-                                  </option>
-                                );
-                              })}
-                          </select>
-                          <span className="text-[10px] text-muted mt-1 block">
-                            Slice 1: Neutral/Idle pose · Slice 2: Left arm tap · Slice 3: Right arm tap
-                          </span>
+                        <div className="flex flex-col gap-3">
+                          <div>
+                            <label className="text-xs text-muted mb-1 block">Bongo Cat Group (3 slices: Neutral, Left Paw, Right Paw)</label>
+                            <select
+                              value={inst.config?.groupId || ''}
+                              onChange={e => handleUpdateInstanceConfig(inst.id, { groupId: e.target.value })}
+                              className="select-dark text-xs w-full"
+                            >
+                              <option value="">-- Select Group (3 slices) --</option>
+                              {symbolSlices
+                                .filter(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length >= 3)
+                                .map(s => {
+                                  const count = symbolSlices.filter(m => m.groupId === s.groupId).length;
+                                  return (
+                                    <option key={s.groupId} value={s.groupId}>
+                                      {s.name || s.groupId} ({count} slices)
+                                    </option>
+                                  );
+                                })}
+                            </select>
+                            <span className="text-[10px] text-muted mt-1 block">
+                              Slice 1: Neutral/Idle pose · Slice 2: Left arm tap · Slice 3: Right arm tap
+                            </span>
+                          </div>
+
+                          <div>
+                            <label className="text-xs text-muted mb-1 block">
+                              Tap Duration: {inst.config?.bongoTapMs ?? 60}ms
+                            </label>
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="range"
+                                min={30}
+                                max={200}
+                                step={5}
+                                value={inst.config?.bongoTapMs ?? 60}
+                                onChange={e => handleUpdateInstanceConfig(inst.id, { bongoTapMs: parseInt(e.target.value, 10) })}
+                                className="flex-1 accent-accent"
+                              />
+                              <span className="text-xs font-mono text-text-main w-12 text-right">
+                                {inst.config?.bongoTapMs ?? 60}ms
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-muted mt-1 block">
+                              Matches firmware CONFIG_SCYAN_BONGO_TAP_MS (default 60ms). Duration paw holds down.
+                            </span>
+                          </div>
+
+                          <div>
+                            <label className="text-xs text-muted mb-1 block">
+                              Debounce Interval: {inst.config?.bongoDebounceMs ?? 100}ms
+                            </label>
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="range"
+                                min={50}
+                                max={300}
+                                step={10}
+                                value={inst.config?.bongoDebounceMs ?? 100}
+                                onChange={e => handleUpdateInstanceConfig(inst.id, { bongoDebounceMs: parseInt(e.target.value, 10) })}
+                                className="flex-1 accent-accent"
+                              />
+                              <span className="text-xs font-mono text-text-main w-12 text-right">
+                                {inst.config?.bongoDebounceMs ?? 100}ms
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-muted mt-1 block">
+                              Cooldown between taps. Suppresses instant rapid flailing and enforces idle poses.
+                            </span>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -604,7 +735,27 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
 
                   {/* Font Mode Settings */}
                   {inst.config?.mode === 'font' && (
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-3">
+                      <div>
+                        <label className="text-xs text-muted mb-1 block">Font Size</label>
+                        <div className="button-pair">
+                          <button
+                            type="button"
+                            className={`btn-toggle ${inst.config?.fontSize !== 'big' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, { fontSize: 'small' })}
+                          >
+                            <span>Small</span>
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn-toggle ${inst.config?.fontSize === 'big' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, { fontSize: 'big' })}
+                          >
+                            <span>Big</span>
+                          </button>
+                        </div>
+                      </div>
+
                       {activeWidget.id === 'battery' && (
                         <div>
                           <label className="text-xs text-muted mb-1 block">Divisions: {inst.config?.fontDivisionCount || 2}</label>
@@ -674,13 +825,31 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                       )}
 
                       {activeWidget.id === 'layer-banner' && (
-                        <div className="flex flex-col gap-1">
-                          {['QWERTY', 'LOWER', 'RAISE', 'ADJUST'].map((label, idx) => (
-                            <input key={idx} type="text" value={inst.config?.textEntries?.[idx] || label} onChange={e => {
-                              const newTexts = [...(inst.config?.textEntries || [])];
-                              newTexts[idx] = e.target.value;
-                              handleUpdateInstanceConfig(inst.id, { textEntries: newTexts });
-                            }} className="input-text-dark text-xs w-full" placeholder={label} />
+                        <div className="flex flex-col gap-2">
+                          <label className="text-xs text-muted mb-1 block">Layer Text Labels</label>
+                          {effectiveLayerNames.map((name, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                              <span className="text-xs text-text-main font-medium shrink-0 min-w-[130px] truncate" title={formatLayerLabel(idx, name)}>
+                                {formatLayerLabel(idx, name)}
+                              </span>
+                              <input
+                                type="text"
+                                maxLength={16}
+                                value={inst.config?.textEntries?.[idx] !== undefined ? inst.config.textEntries[idx] : name}
+                                onChange={e => {
+                                  const newTexts = [...(inst.config?.textEntries || [])];
+                                  for (let i = 0; i < idx; i++) {
+                                    if (newTexts[i] === undefined) {
+                                      newTexts[i] = effectiveLayerNames[i] || `L${i}`;
+                                    }
+                                  }
+                                  newTexts[idx] = e.target.value;
+                                  handleUpdateInstanceConfig(inst.id, { textEntries: newTexts });
+                                }}
+                                className="input-text-dark text-xs flex-1"
+                                placeholder={name}
+                              />
+                            </div>
                           ))}
                         </div>
                       )}
@@ -730,8 +899,20 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                       )}
                     </div>
                   )}
+                  </div>
                 </div>
               </div>
+
+              {/* Outside bottom corner trash button on hover */}
+              <button
+                type="button"
+                className="widget-card-trash-btn"
+                title="Delete instance"
+                aria-label="Delete instance"
+                onClick={() => handleDeleteInstance(inst.id)}
+              >
+                <Trash2 size={13} />
+              </button>
             </div>
           ))}
           
@@ -739,6 +920,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
             <Plus size={20} />
             <span className="font-semibold text-sm">Create New Instance</span>
           </button>
+        </div>
         </div>
       </div>
     </div>
@@ -759,6 +941,7 @@ interface InstancePreviewProps {
   testOutputMode: 'usb' | 'ble';
   testBleProfile: number;
   testLayer: number;
+  layerNames?: string[];
   testSplitConnected: boolean;
   simulateMissingSymbols: boolean;
   testBongoState?: 0 | 1 | 2;
@@ -766,7 +949,7 @@ interface InstancePreviewProps {
 
 const InstancePreview: React.FC<InstancePreviewProps> = ({
   widget, instance, symbolsGrid, symbolSlices, fontGrid, fontGlyphs, fontMappings,
-  customText, testBattery, testWpm, testOutputMode, testBleProfile, testLayer, testSplitConnected, simulateMissingSymbols,
+  customText, testBattery, testWpm, testOutputMode, testBleProfile, testLayer, layerNames, testSplitConnected, simulateMissingSymbols,
   testBongoState = 0
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -777,7 +960,9 @@ const InstancePreview: React.FC<InstancePreviewProps> = ({
 
     const scale = 3;
     const width = 32;
-    const height = Math.max(widget.defaultHeight, 14);
+    const effectiveSlices = simulateMissingSymbols ? [] : symbolSlices;
+    const naturalSize = getWidgetNaturalSize(widget, effectiveSlices, instance, fontGlyphs, fontMappings);
+    const height = Math.max(naturalSize.height, widget.defaultHeight, 14);
 
     canvas.width = width * scale;
     canvas.height = height * scale;
@@ -788,7 +973,6 @@ const InstancePreview: React.FC<InstancePreviewProps> = ({
     ctx.fillStyle = '#080b10';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const effectiveSlices = simulateMissingSymbols ? [] : symbolSlices;
     const tempGrid = new BwpxGrid(width, height);
     
     // Create an instances map for rendering just this instance
@@ -804,7 +988,7 @@ const InstancePreview: React.FC<InstancePreviewProps> = ({
       outputMode: testOutputMode,
       bleProfileIndex: testBleProfile,
       currentLayer: testLayer,
-      layerNames: ['QWERTY', 'LOWER', 'RAISE', 'ADJUST'],
+      layerNames: layerNames && layerNames.length > 0 ? layerNames : ['DEFAULT', 'LOWER', 'RAISE', 'ADJUST'],
       wpm: testWpm,
       splitConnected: testSplitConnected,
       customText,
@@ -823,7 +1007,7 @@ const InstancePreview: React.FC<InstancePreviewProps> = ({
     }
   }, [
     widget, instance, symbolsGrid, symbolSlices, fontGrid, fontGlyphs, fontMappings,
-    customText, testBattery, testWpm, testOutputMode, testBleProfile, testLayer, testSplitConnected, simulateMissingSymbols,
+    customText, testBattery, testWpm, testOutputMode, testBleProfile, testLayer, layerNames, testSplitConnected, simulateMissingSymbols,
     testBongoState
   ]);
 

@@ -46,7 +46,7 @@ export function renderBwpxCanvas(
     grid,
     zoom,
     pan,
-    pixelColor = '#00d2ff',
+    pixelColor = '#ffffff',
     bgColor = '#0b0d11',
     gridLineColor = 'rgba(255, 255, 255, 0.04)',
     showGridLines = zoom >= 5,
@@ -58,32 +58,40 @@ export function renderBwpxCanvas(
     frameBounds = null,
   } = options;
 
+  ctx.imageSmoothingEnabled = false;
+
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   // Deep studio background
   ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+  const panX = Math.round(pan.x);
+  const panY = Math.round(pan.y);
+
   // Visible viewport grid bounds
-  const startGridX = Math.floor(-pan.x / zoom);
-  const endGridX = Math.ceil((canvas.width - pan.x) / zoom);
-  const startGridY = Math.floor(-pan.y / zoom);
-  const endGridY = Math.ceil((canvas.height - pan.y) / zoom);
+  const startGridX = Math.floor(-panX / zoom);
+  const endGridX = Math.ceil((canvas.width - panX) / zoom);
+  const startGridY = Math.floor(-panY / zoom);
+  const endGridY = Math.ceil((canvas.height - panY) / zoom);
 
   // 1. Subtle infinite grid lines
   if (showGridLines) {
     ctx.save();
-    ctx.translate(pan.x, pan.y);
+    // 0.5 offset aligns 1px strokes directly with physical pixels to prevent 2px blur
+    ctx.translate(panX + 0.5, panY + 0.5);
     ctx.strokeStyle = gridLineColor;
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let x = startGridX; x <= endGridX; x++) {
-      ctx.moveTo(x * zoom, startGridY * zoom);
-      ctx.lineTo(x * zoom, endGridY * zoom);
+      const lx = Math.round(x * zoom);
+      ctx.moveTo(lx, Math.round(startGridY * zoom));
+      ctx.lineTo(lx, Math.round(endGridY * zoom));
     }
     for (let y = startGridY; y <= endGridY; y++) {
-      ctx.moveTo(startGridX * zoom, y * zoom);
-      ctx.lineTo(endGridX * zoom, y * zoom);
+      const ly = Math.round(y * zoom);
+      ctx.moveTo(Math.round(startGridX * zoom), ly);
+      ctx.lineTo(Math.round(endGridX * zoom), ly);
     }
     ctx.stroke();
     ctx.restore();
@@ -91,19 +99,19 @@ export function renderBwpxCanvas(
 
   // 2. Coordinate Axes (X axis and Y axis crossing at 0, 0)
   if (showAxes) {
-    const originX = pan.x;
-    const originY = pan.y;
+    const originX = panX;
+    const originY = panY;
 
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(0, originY);
-    ctx.lineTo(canvas.width, originY);
+    ctx.moveTo(0, originY + 0.5);
+    ctx.lineTo(canvas.width, originY + 0.5);
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.moveTo(originX, 0);
-    ctx.lineTo(originX, canvas.height);
+    ctx.moveTo(originX + 0.5, 0);
+    ctx.lineTo(originX + 0.5, canvas.height);
     ctx.stroke();
 
     ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
@@ -119,27 +127,30 @@ export function renderBwpxCanvas(
   }
 
   ctx.save();
-  ctx.translate(pan.x, pan.y);
+  ctx.translate(panX, panY);
 
   // Frame boundary (if a defined frame or image rect is specified)
   if (frameBounds) {
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(
-      frameBounds.x * zoom,
-      frameBounds.y * zoom,
-      frameBounds.w * zoom,
-      frameBounds.h * zoom
-    );
+    const fx = Math.round(frameBounds.x * zoom);
+    const fy = Math.round(frameBounds.y * zoom);
+    const fw = Math.round((frameBounds.x + frameBounds.w) * zoom) - fx;
+    const fh = Math.round((frameBounds.y + frameBounds.h) * zoom) - fy;
+    ctx.strokeRect(fx + 0.5, fy + 0.5, fw, fh);
   }
 
-  // 3. Active pixels
+  // 3. Active pixels - drawn on exact pixel boundaries to eliminate subpixel blur
   ctx.fillStyle = pixelColor;
   const allPixels = grid.getAllPixels();
   for (let i = 0; i < allPixels.length; i++) {
     const [x, y] = allPixels[i];
     if (x >= startGridX && x <= endGridX && y >= startGridY && y <= endGridY) {
-      ctx.fillRect(x * zoom, y * zoom, zoom, zoom);
+      const px = Math.round(x * zoom);
+      const py = Math.round(y * zoom);
+      const pw = Math.round((x + 1) * zoom) - px;
+      const ph = Math.round((y + 1) * zoom) - py;
+      ctx.fillRect(px, py, pw, ph);
     }
   }
 
@@ -152,17 +163,29 @@ export function renderBwpxCanvas(
     ctx.fillStyle = bgColor;
     if (ghost.rects && ghost.rects.length > 0) {
       ghost.rects.forEach(r => {
-        ctx.fillRect(r.x * zoom, r.y * zoom, r.w * zoom, r.h * zoom);
+        const rx = Math.round(r.x * zoom);
+        const ry = Math.round(r.y * zoom);
+        const rw = Math.round((r.x + r.w) * zoom) - rx;
+        const rh = Math.round((r.y + r.h) * zoom) - ry;
+        ctx.fillRect(rx, ry, rw, rh);
       });
     } else {
-      ctx.fillRect(targetX * zoom, targetY * zoom, ghost.w * zoom, ghost.h * zoom);
+      const gx = Math.round(targetX * zoom);
+      const gy = Math.round(targetY * zoom);
+      const gw = Math.round((targetX + ghost.w) * zoom) - gx;
+      const gh = Math.round((targetY + ghost.h) * zoom) - gy;
+      ctx.fillRect(gx, gy, gw, gh);
     }
 
     ctx.fillStyle = 'rgba(192, 132, 252, 0.7)';
     ctx.shadowColor = '#c084fc';
     ctx.shadowBlur = 10;
     ghost.pixels.forEach(([relX, relY]) => {
-      ctx.fillRect((targetX + relX) * zoom, (targetY + relY) * zoom, zoom, zoom);
+      const gpx = Math.round((targetX + relX) * zoom);
+      const gpy = Math.round((targetY + relY) * zoom);
+      const gpw = Math.round((targetX + relX + 1) * zoom) - gpx;
+      const gph = Math.round((targetY + relY + 1) * zoom) - gpy;
+      ctx.fillRect(gpx, gpy, gpw, gph);
     });
     ctx.shadowBlur = 0;
 
@@ -173,12 +196,20 @@ export function renderBwpxCanvas(
     ctx.setLineDash([4, 4]);
     if (ghost.rects && ghost.rects.length > 0) {
       ghost.rects.forEach(r => {
-        ctx.strokeRect(r.x * zoom, r.y * zoom, r.w * zoom, r.h * zoom);
-        ctx.fillRect(r.x * zoom, r.y * zoom, r.w * zoom, r.h * zoom);
+        const rx = Math.round(r.x * zoom);
+        const ry = Math.round(r.y * zoom);
+        const rw = Math.round((r.x + r.w) * zoom) - rx;
+        const rh = Math.round((r.y + r.h) * zoom) - ry;
+        ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh);
+        ctx.fillRect(rx, ry, rw, rh);
       });
     } else {
-      ctx.strokeRect(targetX * zoom, targetY * zoom, ghost.w * zoom, ghost.h * zoom);
-      ctx.fillRect(targetX * zoom, targetY * zoom, ghost.w * zoom, ghost.h * zoom);
+      const gx = Math.round(targetX * zoom);
+      const gy = Math.round(targetY * zoom);
+      const gw = Math.round((targetX + ghost.w) * zoom) - gx;
+      const gh = Math.round((targetY + ghost.h) * zoom) - gy;
+      ctx.strokeRect(gx + 0.5, gy + 0.5, gw, gh);
+      ctx.fillRect(gx, gy, gw, gh);
     }
     ctx.setLineDash([]);
   }
@@ -187,10 +218,10 @@ export function renderBwpxCanvas(
   if (slices && slices.length > 0) {
     slices.forEach(s => {
       const isSelected = selectedSliceId === s.id;
-      const sx = s.x * zoom;
-      const sy = s.y * zoom;
-      const sw = s.width * zoom;
-      const sh = s.height * zoom;
+      const sx = Math.round(s.x * zoom);
+      const sy = Math.round(s.y * zoom);
+      const sw = Math.round((s.x + s.width) * zoom) - sx;
+      const sh = Math.round((s.y + s.height) * zoom) - sy;
 
       ctx.strokeStyle = isSelected ? '#c084fc' : (s.color || 'rgba(168, 85, 247, 0.45)');
       ctx.lineWidth = isSelected ? 2 : 1;
@@ -201,7 +232,7 @@ export function renderBwpxCanvas(
         ctx.shadowColor = '#c084fc';
         ctx.shadowBlur = 8;
       }
-      ctx.strokeRect(sx, sy, sw, sh);
+      ctx.strokeRect(sx + 0.5, sy + 0.5, sw, sh);
       ctx.shadowBlur = 0;
       ctx.setLineDash([]);
 
@@ -220,12 +251,17 @@ export function renderBwpxCanvas(
 
   // 6. Selection Marquee
   if (selection && selection.active) {
+    const mx = Math.round(selection.x * zoom);
+    const my = Math.round(selection.y * zoom);
+    const mw = Math.round((selection.x + selection.w) * zoom) - mx;
+    const mh = Math.round((selection.y + selection.h) * zoom) - my;
+
     ctx.strokeStyle = '#38bdf8';
     ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
-    ctx.strokeRect(selection.x * zoom, selection.y * zoom, selection.w * zoom, selection.h * zoom);
-    ctx.fillRect(selection.x * zoom, selection.y * zoom, selection.w * zoom, selection.h * zoom);
+    ctx.strokeRect(mx + 0.5, my + 0.5, mw, mh);
+    ctx.fillRect(mx, my, mw, mh);
     ctx.setLineDash([]);
   }
 

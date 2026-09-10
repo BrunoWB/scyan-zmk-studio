@@ -19,6 +19,12 @@ import {
   type HeaderMetadata,
   type ParsedAssets,
 } from './services/cHeaderParser';
+import {
+  type ParsedKeymapLayout,
+  DEFAULT_EMPTY_5X3_LAYOUT,
+  fetchRepoKeymap,
+  parseZmkKeymap,
+} from './services/keymapService';
 import type {
   GitHubRepoConfig,
   GitHubConnectionState,
@@ -40,38 +46,65 @@ import { SymbolsAtlasTab } from './tabs/SymbolsAtlasTab';
 import { FontAtlasTab } from './tabs/FontAtlasTab';
 import { WidgetsTab } from './tabs/WidgetsTab';
 import { BlocksTab } from './tabs/BlocksTab';
-import { ScreenSizePopover } from './components/ScreenSizePopover';
+import ElementReferencePage from './reference/ElementReferencePage';
+import CommandPalette from './reference/components/layout/CommandPalette';
 import {
-  Monitor,
+  MonitorPlay,
   Shapes,
   Type,
-  Sliders,
-  LayoutGrid,
+  Component,
+  Columns2,
   CheckCircle2,
   AlertCircle,
   RefreshCw,
-  Settings,
   Unplug,
+  Palette,
 } from 'lucide-react';
 import './App.css';
 
-const VALID_TABS = ['preview', 'symbols', 'font', 'widgets', 'blocks'] as const;
+const VALID_TABS = ['preview', 'symbols', 'font', 'widgets', 'layout', 'blocks', 'reference', 'ui-elements', 'ui-elements-hero'] as const;
 type TabType = typeof VALID_TABS[number];
 
 const getTabFromHash = (): TabType => {
+  const path = window.location.pathname.replace(/^\//, '').toLowerCase().trim();
+  if (import.meta.env.DEV && (path === 'ui-elements' || path === 'elements' || path === 'reference' || path === 'hero' || path === 'heroui')) {
+    return 'reference';
+  }
   const hash = window.location.hash.replace(/^#/, '').toLowerCase().trim();
+  if (hash === 'reference' && !import.meta.env.DEV) {
+    return 'preview';
+  }
+  if (hash === 'blocks') {
+    return 'layout';
+  }
   if (VALID_TABS.includes(hash as TabType)) {
     return hash as TabType;
+  }
+  if (import.meta.env.DEV && (hash === 'ui-elements-hero' || hash === 'hero' || hash === 'heroui' || hash === 'elements' || hash === 'ui-elements')) {
+    return 'reference';
   }
   return 'preview';
 };
 
+const cloneParsedAssets = (assets: ParsedAssets): ParsedAssets => ({
+  symbolsGrid: assets.symbolsGrid.clone(),
+  symbolSlices: JSON.parse(JSON.stringify(assets.symbolSlices)),
+  fontGrid: assets.fontGrid.clone(),
+  fontGlyphs: JSON.parse(JSON.stringify(assets.fontGlyphs)),
+  fontMappings: JSON.parse(JSON.stringify(assets.fontMappings || [])),
+  metadata: assets.metadata ? JSON.parse(JSON.stringify(assets.metadata)) : undefined,
+});
+
 export function App() {
   // Navigation Tab: initialized and tracked via URL hash (#preview, #symbols, etc.)
   const [activeTab, setActiveTab] = useState<TabType>(() => getTabFromHash());
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
   // Loading overlay state: keep true until repository data (or defaults fallback) is loaded
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
+
+  // Snapshot of initially loaded assets (for Restore to Initial Values)
+  const initialAssetsRef = useRef<ParsedAssets | null>(null);
 
   // Core Bitmaps & Descriptors (initialized directly from canonical scyan_assets.install.h)
   const [symbolsGrid, setSymbolsGrid] = useState<BwpxGrid>(() => getDefaultAssets().symbolsGrid);
@@ -124,6 +157,84 @@ export function App() {
     return def.metadata?.screenDimensions || { width: 32, height: 128 };
   });
 
+  const [idleScreensEnabled, setIdleScreensEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-idle-screens-enabled');
+      if (saved !== null) return JSON.parse(saved);
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.idleScreensEnabled ?? true;
+  });
+
+  const [idleTimeoutSec, setIdleTimeoutSec] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-idle-timeout-sec');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.idleTimeoutSec ?? 30;
+  });
+
+  const [screenOffTimeoutSec, setScreenOffTimeoutSec] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-screen-off-timeout-sec');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.screenOffTimeoutSec ?? 60;
+  });
+
+  const [symmetricSettings, setSymmetricSettings] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-symmetric-settings');
+      if (saved !== null) return JSON.parse(saved);
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.symmetricSettings ?? true;
+  });
+
+  const [rightScreenDimensions, setRightScreenDimensions] = useState<{ width: number; height: number }>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-right-screen-dimensions');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.rightScreenDimensions || def.metadata?.screenDimensions || { width: 32, height: 128 };
+  });
+
+  const [rightIdleScreensEnabled, setRightIdleScreensEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-right-idle-screens-enabled');
+      if (saved !== null) return JSON.parse(saved);
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.rightIdleScreensEnabled ?? def.metadata?.idleScreensEnabled ?? true;
+  });
+
+  const [rightIdleTimeoutSec, setRightIdleTimeoutSec] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-right-idle-timeout-sec');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.rightIdleTimeoutSec ?? def.metadata?.idleTimeoutSec ?? 30;
+  });
+
+  const [rightScreenOffTimeoutSec, setRightScreenOffTimeoutSec] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-right-screen-off-timeout-sec');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.rightScreenOffTimeoutSec ?? def.metadata?.screenOffTimeoutSec ?? 60;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-idle-screens-enabled', JSON.stringify(idleScreensEnabled));
+    } catch {}
+  }, [idleScreensEnabled]);
+
   useEffect(() => {
     try {
       localStorage.setItem('zmk-left-blocks', JSON.stringify(leftBlocks));
@@ -153,6 +264,48 @@ export function App() {
       localStorage.setItem('zmk-screen-dimensions', JSON.stringify(screenDimensions));
     } catch {}
   }, [screenDimensions]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-idle-timeout-sec', JSON.stringify(idleTimeoutSec));
+    } catch {}
+  }, [idleTimeoutSec]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-screen-off-timeout-sec', JSON.stringify(screenOffTimeoutSec));
+    } catch {}
+  }, [screenOffTimeoutSec]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-symmetric-settings', JSON.stringify(symmetricSettings));
+    } catch {}
+  }, [symmetricSettings]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-right-screen-dimensions', JSON.stringify(rightScreenDimensions));
+    } catch {}
+  }, [rightScreenDimensions]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-right-idle-screens-enabled', JSON.stringify(rightIdleScreensEnabled));
+    } catch {}
+  }, [rightIdleScreensEnabled]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-right-idle-timeout-sec', JSON.stringify(rightIdleTimeoutSec));
+    } catch {}
+  }, [rightIdleTimeoutSec]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-right-screen-off-timeout-sec', JSON.stringify(rightScreenOffTimeoutSec));
+    } catch {}
+  }, [rightScreenOffTimeoutSec]);
 
   const [customText, setCustomText] = useState<string>('BRUNOWB');
   const [_clearedTemplates, setClearedTemplates] = useState<string[]>(() => {
@@ -197,6 +350,19 @@ export function App() {
               'SYMBOL_BLUETOOTH',
             ],
             textEntries: ['USB', 'No conn', 'P1', 'P2', 'P3', 'P4', 'P5'],
+          };
+        } else if (w.id === 'bongo') {
+          const bongoSlice = (symbolSlices || []).find(s =>
+            s.id.toUpperCase().includes('BONGO') ||
+            s.groupId.toUpperCase().includes('BONGO') ||
+            s.id.startsWith('SYMBOL_SLICE_40_4046')
+          );
+          initialConfig = {
+            mode: 'symbol',
+            groupId: bongoSlice?.groupId || 'SYMBOL_SLICE_40_4046',
+            textEntries: ['(=^.^=)'],
+            bongoTapMs: 60,
+            bongoDebounceMs: 100,
           };
         }
 
@@ -278,12 +444,86 @@ export function App() {
       if (parsed.metadata.widgetInstances) {
         setWidgetInstances(parsed.metadata.widgetInstances);
       }
+      if (parsed.metadata.idleTimeoutSec !== undefined) {
+        setIdleTimeoutSec(parsed.metadata.idleTimeoutSec);
+      }
+      if (parsed.metadata.screenOffTimeoutSec !== undefined) {
+        setScreenOffTimeoutSec(parsed.metadata.screenOffTimeoutSec);
+      }
+      if (parsed.metadata.idleScreensEnabled !== undefined) {
+        setIdleScreensEnabled(parsed.metadata.idleScreensEnabled);
+      }
+      if (parsed.metadata.symmetricSettings !== undefined) {
+        setSymmetricSettings(parsed.metadata.symmetricSettings);
+      }
+      if (parsed.metadata.rightScreenDimensions) {
+        setRightScreenDimensions(parsed.metadata.rightScreenDimensions);
+      }
+      if (parsed.metadata.rightIdleScreensEnabled !== undefined) {
+        setRightIdleScreensEnabled(parsed.metadata.rightIdleScreensEnabled);
+      }
+      if (parsed.metadata.rightIdleTimeoutSec !== undefined) {
+        setRightIdleTimeoutSec(parsed.metadata.rightIdleTimeoutSec);
+      }
+      if (parsed.metadata.rightScreenOffTimeoutSec !== undefined) {
+        setRightScreenOffTimeoutSec(parsed.metadata.rightScreenOffTimeoutSec);
+      }
     }
   }, []);
 
+
   const applyDefaults = useCallback(() => {
+    const keysToRemove = [
+      'zmk-left-blocks',
+      'zmk-right-blocks',
+      'zmk-idle-left-blocks',
+      'zmk-idle-right-blocks',
+      'zmk-screen-dimensions',
+      'zmk-idle-screens-enabled',
+      'zmk-idle-timeout-sec',
+      'zmk-screen-off-timeout-sec',
+      'zmk-symmetric-settings',
+      'zmk-right-screen-dimensions',
+      'zmk-right-idle-screens-enabled',
+      'zmk-right-idle-timeout-sec',
+      'zmk-right-screen-off-timeout-sec',
+      'zmk-widget-instances',
+      'zmk-cleared-templates',
+      'zmk_builder_cached_header',
+    ];
+    keysToRemove.forEach(k => {
+      try {
+        localStorage.removeItem(k);
+      } catch {}
+    });
     applyParsedAssets(getDefaultAssets());
+    setCustomText('BRUNOWB');
   }, [applyParsedAssets]);
+
+  // Notification Toast
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const showToast = useCallback((type: 'success' | 'error', message: string) => {
+    setToast({ type, message });
+    setTimeout(() => {
+      setToast(null);
+    }, 4000);
+  }, []);
+
+  const handleRestoreInitialValues = useCallback(() => {
+    if (initialAssetsRef.current) {
+      applyParsedAssets(cloneParsedAssets(initialAssetsRef.current));
+      showToast('success', 'Workspace restored to initial values.');
+    } else {
+      applyDefaults();
+      showToast('success', 'Workspace restored to initial values.');
+    }
+  }, [applyParsedAssets, applyDefaults, showToast]);
+
+  const handleRestoreDefaults = useCallback(() => {
+    applyDefaults();
+    showToast('success', 'Workspace restored to base factory defaults.');
+  }, [applyDefaults, showToast]);
 
   // GitHub integration & Connection State
   const [config, setConfig] = useState<GitHubRepoConfig>(getStoredGitHubConfig());
@@ -297,7 +537,6 @@ export function App() {
     resolvedRepo: null,
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
-  const [isScreenSettingsOpen, setIsScreenSettingsOpen] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(() => localStorage.getItem('zmk_builder_last_saved_at'));
@@ -308,15 +547,42 @@ export function App() {
   const [syncTrigger, setSyncTrigger] = useState<number>(0);
   const autoSyncedRepoRef = useRef<string | null>(null);
 
-  // Notification Toast
-  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // Keymap Layout: dynamic from GitHub ZMK repository, cached in localStorage
+  const [keymapLayout, setKeymapLayout] = useState<ParsedKeymapLayout>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-keymap-layout');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return DEFAULT_EMPTY_5X3_LAYOUT;
+  });
 
-  const showToast = useCallback((type: 'success' | 'error', message: string) => {
-    setToast({ type, message });
-    setTimeout(() => {
-      setToast(null);
-    }, 4000);
-  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-keymap-layout', JSON.stringify(keymapLayout));
+    } catch {}
+  }, [keymapLayout]);
+
+  // Automatically fetch keymap from GitHub when repository is configured or synced
+  useEffect(() => {
+    if (config?.owner && config?.repo) {
+      let isMounted = true;
+      fetchRepoKeymap(config)
+        .then(result => {
+          if (!isMounted) return;
+          if (result && result.content) {
+            const parsed = parseZmkKeymap(result.content, result.filename);
+            setKeymapLayout(parsed);
+          }
+        })
+        .catch(err => {
+          console.warn('Error fetching keymap from repo in App:', err);
+        });
+
+      return () => {
+        isMounted = false;
+      };
+    }
+  }, [config?.token, config?.owner, config?.repo, config?.branch, connection?.status, syncTrigger]);
 
   // Check and verify GitHub connection on mount and config updates
   const testConnection = useCallback(async (cfg: GitHubRepoConfig) => {
@@ -364,6 +630,7 @@ export function App() {
       // Check if credentials exist
       if (!config.token || !config.owner || !config.repo) {
         applyDefaults();
+        initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
         setConnection({
           status: 'disconnected',
           user: null,
@@ -403,6 +670,7 @@ export function App() {
               if (fileData.content) {
                 const parsed = parseCHeader(fileData.content);
                 applyParsedAssets(parsed);
+                initialAssetsRef.current = cloneParsedAssets(parsed);
                 setCurrentSha(fileData.sha);
                 if (fileData.resolvedPath) {
                   setCurrentHeaderPath(fileData.resolvedPath);
@@ -411,16 +679,20 @@ export function App() {
                 showToast('success', `Loaded display assets from ${activeOwner}/${activeRepo}!`);
               } else {
                 applyDefaults();
+                initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
               }
             } else {
               applyDefaults();
+              initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
             }
           } catch {
             console.info('No scyan_assets.h in repo (first time setup). Loading defaults.');
             applyDefaults();
+            initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
           }
         } else {
           applyDefaults();
+          initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
         }
       } catch (err) {
         console.warn('Initial workspace loading error:', err);
@@ -467,6 +739,7 @@ export function App() {
           if (fileData.content) {
             const parsed = parseCHeader(fileData.content);
             applyParsedAssets(parsed);
+            initialAssetsRef.current = cloneParsedAssets(parsed);
             setCurrentSha(fileData.sha);
             if (fileData.resolvedPath) {
               setCurrentHeaderPath(fileData.resolvedPath);
@@ -475,9 +748,11 @@ export function App() {
             showToast('success', `Loaded display assets from ${config.owner}/${config.repo}!`);
           } else {
             applyDefaults();
+            initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
           }
         } else {
           applyDefaults();
+          initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
         }
       } catch (err: any) {
         console.info('Repository does not contain scyan_assets.h yet. Keeping defaults.', err);
@@ -580,6 +855,7 @@ export function App() {
           const fileData = await fetchFileFromRepo(config, 'config/scyan_assets.h');
           const parsed = parseCHeader(fileData.content);
           applyParsedAssets(parsed);
+          initialAssetsRef.current = cloneParsedAssets(parsed);
           setCurrentSha(fileData.sha);
           if (fileData.resolvedPath) {
             setCurrentHeaderPath(fileData.resolvedPath);
@@ -588,6 +864,17 @@ export function App() {
           showToast('success', `Synced display assets from ${config.owner}/${config.repo}!`);
         } else {
           showToast('success', `Synced repository from ${config.owner}/${config.repo}! (Display assets not installed yet)`);
+        }
+
+        // Also fetch and update keymap layout from repository
+        try {
+          const keymapResult = await fetchRepoKeymap(config);
+          if (keymapResult && keymapResult.content) {
+            const parsedKm = parseZmkKeymap(keymapResult.content, keymapResult.filename);
+            setKeymapLayout(parsedKm);
+          }
+        } catch (kmErr) {
+          console.warn('Failed to fetch keymap during repo sync:', kmErr);
         }
       } catch (assetErr: any) {
         console.warn('Sync failed:', assetErr);
@@ -619,7 +906,17 @@ export function App() {
         idleRightBlocks,
         screenDimensions,
         widgetInstances,
+        idleTimeoutSec,
+        screenOffTimeoutSec,
+        idleScreensEnabled,
+        symmetricSettings,
+        rightScreenDimensions: symmetricSettings ? undefined : rightScreenDimensions,
+        rightIdleScreensEnabled: symmetricSettings ? undefined : rightIdleScreensEnabled,
+        rightIdleTimeoutSec: symmetricSettings ? undefined : rightIdleTimeoutSec,
+        rightScreenOffTimeoutSec: symmetricSettings ? undefined : rightScreenOffTimeoutSec,
+        layerNames: keymapLayout.layerNames,
       };
+
       const defaultC = generateCHeader(symbolsGrid, symbolSlices, fontGrid, fontMappings, metadata);
       const res = await installScyanStudioToRepo(config, defaultC);
 
@@ -671,6 +968,15 @@ export function App() {
         idleRightBlocks,
         screenDimensions,
         widgetInstances,
+        idleTimeoutSec,
+        screenOffTimeoutSec,
+        idleScreensEnabled,
+        symmetricSettings,
+        rightScreenDimensions: symmetricSettings ? undefined : rightScreenDimensions,
+        rightIdleScreensEnabled: symmetricSettings ? undefined : rightIdleScreensEnabled,
+        rightIdleTimeoutSec: symmetricSettings ? undefined : rightIdleTimeoutSec,
+        rightScreenOffTimeoutSec: symmetricSettings ? undefined : rightScreenOffTimeoutSec,
+        layerNames: keymapLayout.layerNames,
       };
       const generatedC = generateCHeader(symbolsGrid, symbolSlices, fontGrid, fontMappings, metadata);
       const targetPath = currentHeaderPath || 'config/scyan_assets.h';
@@ -684,6 +990,8 @@ export function App() {
       setCurrentSha(commitRes.sha);
       setCurrentHeaderPath(targetPath);
       localStorage.setItem('zmk_builder_cached_header', generatedC);
+      const savedParsed = parseCHeader(generatedC);
+      initialAssetsRef.current = cloneParsedAssets(savedParsed);
       const nowStr = new Date().toLocaleTimeString();
       setLastSavedAt(nowStr);
       localStorage.setItem('zmk_builder_last_saved_at', nowStr);
@@ -704,7 +1012,7 @@ export function App() {
   };
 
   return (
-    <div className="builder-root">
+    <div className="flex flex-col h-screen w-screen bg-[#0b0d13] text-[#f1f5f9] overflow-hidden">
       {/* Top Header Bar with Live Git Status */}
       <HeaderBar
         config={config}
@@ -723,104 +1031,120 @@ export function App() {
         repoPrereqs={repoPrereqs}
         isInstallingStudio={isInstallingStudio}
         onInstallStudio={handleInstallStudio}
+        onSearchClick={import.meta.env.DEV ? () => setIsCommandPaletteOpen(true) : undefined}
+        onRestoreInitialValues={handleRestoreInitialValues}
+        onRestoreDefaults={handleRestoreDefaults}
       />
 
-      {/* Main Tab Navigation Bar with Locked State indicator */}
-      <div className="tabs-nav-bar">
-        <div className="tabs-group">
+      {/* Main Tab Navigation Bar with Quick Navigation Scroll Bar */}
+      <div className="border-b border-[#1e2538] bg-[#0b0d13] px-6 py-2.5 flex items-center justify-between gap-4 overflow-x-auto no-scrollbar shrink-0">
+        <div className="flex items-center gap-1.5">
           {/* Tab 1: Preview */}
           <button
-            className={`tab-btn ${activeTab === 'preview' ? 'active' : ''}`}
             onClick={() => handleTabClick('preview')}
+            className={`text-xs font-mono px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
+              activeTab === 'preview'
+                ? 'bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/40 font-semibold shadow-[0_0_8px_rgba(0,240,255,0.2)]'
+                : 'text-[#94a3b8] hover:text-white hover:bg-[#131722] border border-transparent'
+            }`}
             title="OLED Preview & Corne Simulator"
           >
-            <Monitor size={15} />
+            <MonitorPlay className="size-3.5" />
             <span>Preview</span>
-            {isPlaygroundMode && <Unplug size={12} className="tab-disconnect-icon" />}
+            {isPlaygroundMode && <Unplug className="size-3 text-[#f2741d]" />}
           </button>
 
           {/* Tab 2: Symbols Atlas */}
           <button
-            className={`tab-btn ${activeTab === 'symbols' ? 'active' : ''}`}
             onClick={() => handleTabClick('symbols')}
+            className={`text-xs font-mono px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
+              activeTab === 'symbols'
+                ? 'bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/40 font-semibold shadow-[0_0_8px_rgba(0,240,255,0.2)]'
+                : 'text-[#94a3b8] hover:text-white hover:bg-[#131722] border border-transparent'
+            }`}
             title="Edit 1bpp Symbols & Icons Atlas"
           >
-            <Shapes size={15} />
+            <Shapes className="size-3.5" />
             <span>Symbols Atlas</span>
-            {isPlaygroundMode && <Unplug size={12} className="tab-disconnect-icon" />}
+            {isPlaygroundMode && <Unplug className="size-3 text-[#f2741d]" />}
           </button>
 
           {/* Tab 3: Font Atlas */}
           <button
-            className={`tab-btn ${activeTab === 'font' ? 'active' : ''}`}
             onClick={() => handleTabClick('font')}
+            className={`text-xs font-mono px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
+              activeTab === 'font'
+                ? 'bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/40 font-semibold shadow-[0_0_8px_rgba(0,240,255,0.2)]'
+                : 'text-[#94a3b8] hover:text-white hover:bg-[#131722] border border-transparent'
+            }`}
             title="Edit 1bpp Font & Glyphs Atlas"
           >
-            <Type size={15} />
+            <Type className="size-3.5" />
             <span>Font Atlas</span>
-            {isPlaygroundMode && <Unplug size={12} className="tab-disconnect-icon" />}
+            {isPlaygroundMode && <Unplug className="size-3 text-[#f2741d]" />}
           </button>
 
           {/* Tab 4: Widgets */}
           <button
-            className={`tab-btn ${activeTab === 'widgets' ? 'active' : ''}`}
             onClick={() => handleTabClick('widgets')}
+            className={`text-xs font-mono px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
+              activeTab === 'widgets'
+                ? 'bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/40 font-semibold shadow-[0_0_8px_rgba(0,240,255,0.2)]'
+                : 'text-[#94a3b8] hover:text-white hover:bg-[#131722] border border-transparent'
+            }`}
             title="Configure and arrange display Widgets"
           >
-            <Sliders size={15} />
+            <Component className="size-3.5" />
             <span>Widgets</span>
-            {isPlaygroundMode && <Unplug size={12} className="tab-disconnect-icon" />}
+            {isPlaygroundMode && <Unplug className="size-3 text-[#f2741d]" />}
           </button>
 
-          {/* Tab 5: Blocks */}
-          <div className="tab-blocks-wrapper">
-            <button
-              className={`tab-btn ${activeTab === 'blocks' ? 'active' : ''}`}
-              onClick={() => handleTabClick('blocks')}
-              title="Drag & drop screen layout blocks"
-            >
-              <LayoutGrid size={15} />
-              <span>Blocks</span>
-              {isPlaygroundMode && <Unplug size={12} className="tab-disconnect-icon" />}
-            </button>
-            <button
-              className={`tab-blocks-gear-btn ${isScreenSettingsOpen ? 'active' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (activeTab !== 'blocks') {
-                  handleTabClick('blocks');
-                }
-                setIsScreenSettingsOpen(prev => !prev);
-              }}
-              title="Screen Dimensions Settings"
-            >
-              <Settings size={13} />
-            </button>
+          {/* Tab 5: Layout */}
+          <button
+            onClick={() => handleTabClick('layout')}
+            className={`text-xs font-mono px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
+              activeTab === 'layout' || activeTab === 'blocks'
+                ? 'bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/40 font-semibold shadow-[0_0_8px_rgba(0,240,255,0.2)]'
+                : 'text-[#94a3b8] hover:text-white hover:bg-[#131722] border border-transparent'
+            }`}
+            title="Arrange screen layout & split OLED blocks"
+          >
+            <Columns2 className="size-3.5" />
+            <span>Layout</span>
+            {isPlaygroundMode && <Unplug className="size-3 text-[#f2741d]" />}
+          </button>
 
-            {isScreenSettingsOpen && (
-              <ScreenSizePopover
-                screenDimensions={screenDimensions}
-                onScreenDimensionsChange={setScreenDimensions}
-                onClose={() => setIsScreenSettingsOpen(false)}
-              />
-            )}
-          </div>
+          {/* Tab 6: Design System (Dev-only) */}
+          {import.meta.env.DEV && (
+            <button
+              onClick={() => handleTabClick('reference')}
+              className={`text-xs font-mono px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
+                activeTab === 'reference' || activeTab === 'ui-elements' || activeTab === 'ui-elements-hero'
+                  ? 'bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/40 font-semibold shadow-[0_0_8px_rgba(0,240,255,0.2)]'
+                  : 'text-[#94a3b8] hover:text-white hover:bg-[#131722] border border-transparent'
+              }`}
+              title="Design System & Element Reference (HeroUI v3)"
+            >
+              <Palette className="size-3.5 text-[#00f0ff]" />
+              <span>Design System</span>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Main Tab Content */}
-      <main className="tab-content-area">
+      <main className="flex-1 flex flex-col overflow-hidden relative bg-[#0b0d13]">
         {isInitialLoading ? (
-          <div className="assets-loading-overlay">
-            <div className="assets-loading-card">
-              <div className="assets-loading-spinner">
-                <RefreshCw size={24} className="spin" />
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0b0d13]/85 backdrop-blur-md">
+            <div className="bg-[#131722] border border-[#1e2538] rounded-2xl p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
+              <div className="size-12 rounded-xl bg-[#00f0ff]/10 border border-[#00f0ff]/30 text-[#00f0ff] mx-auto flex items-center justify-center shadow-[0_0_16px_rgba(0,240,255,0.2)]">
+                <RefreshCw size={24} className="animate-spin" />
               </div>
-              <div className="assets-loading-title">Loading ZMK Display Assets</div>
-              <div className="assets-loading-subtitle">
+              <div className="text-base font-bold text-white tracking-tight">Loading ZMK Display Assets</div>
+              <div className="text-xs text-[#94a3b8] leading-relaxed">
                 {config.token && config.owner && config.repo ? (
                   <>
-                    Connecting to <strong className="text-cyan-300">{config.owner}/{config.repo}</strong> and retrieving display assets...
+                    Connecting to <strong className="text-[#00f0ff]">{config.owner}/{config.repo}</strong> and retrieving display assets...
                   </>
                 ) : (
                   'Initializing display workspace...'
@@ -840,6 +1164,15 @@ export function App() {
                 leftBlocks={leftBlocks}
                 rightBlocks={rightBlocks}
                 layoutBlocks={leftBlocks}
+                idleLeftBlocks={idleLeftBlocks}
+                idleRightBlocks={idleRightBlocks}
+                onLeftBlocksChange={setLeftBlocks}
+                onRightBlocksChange={setRightBlocks}
+                onIdleLeftBlocksChange={setIdleLeftBlocks}
+                onIdleRightBlocksChange={setIdleRightBlocks}
+                screenDimensions={screenDimensions}
+                rightScreenDimensions={rightScreenDimensions}
+                symmetricSettings={symmetricSettings}
                 customText={customText}
                 onCustomTextChange={setCustomText}
                 instances={widgetInstances}
@@ -848,6 +1181,8 @@ export function App() {
                 onShowToast={showToast}
                 onOpenSettings={() => setIsSettingsOpen(true)}
                 syncTrigger={syncTrigger}
+                keymapLayout={keymapLayout}
+                onKeymapLayoutChange={setKeymapLayout}
               />
             )}
 
@@ -884,10 +1219,11 @@ export function App() {
                 rightBlocks={rightBlocks}
                 onLeftBlocksChange={setLeftBlocks}
                 onRightBlocksChange={setRightBlocks}
+                layerNames={keymapLayout.layerNames}
               />
             )}
 
-            {activeTab === 'blocks' && (
+            {(activeTab === 'layout' || activeTab === 'blocks') && (
               <BlocksTab
                 leftBlocks={leftBlocks}
                 rightBlocks={rightBlocks}
@@ -895,14 +1231,27 @@ export function App() {
                 onRightBlocksChange={setRightBlocks}
                 idleLeftBlocks={idleLeftBlocks}
                 idleRightBlocks={idleRightBlocks}
+                layerNames={keymapLayout.layerNames}
                 onIdleLeftBlocksChange={setIdleLeftBlocks}
                 onIdleRightBlocksChange={setIdleRightBlocks}
                 screenDimensions={screenDimensions}
                 onScreenDimensionsChange={setScreenDimensions}
-                onResetDefaults={() => {
-                  setLeftBlocks([...DEFAULT_LEFT_LAYOUT_BLOCKS]);
-                  setRightBlocks([...DEFAULT_RIGHT_LAYOUT_BLOCKS]);
-                }}
+                idleScreensEnabled={idleScreensEnabled}
+                onIdleScreensEnabledChange={setIdleScreensEnabled}
+                idleTimeoutSec={idleTimeoutSec}
+                onIdleTimeoutSecChange={setIdleTimeoutSec}
+                screenOffTimeoutSec={screenOffTimeoutSec}
+                onScreenOffTimeoutSecChange={setScreenOffTimeoutSec}
+                symmetricSettings={symmetricSettings}
+                onSymmetricSettingsChange={setSymmetricSettings}
+                rightScreenDimensions={rightScreenDimensions}
+                onRightScreenDimensionsChange={setRightScreenDimensions}
+                rightIdleScreensEnabled={rightIdleScreensEnabled}
+                onRightIdleScreensEnabledChange={setRightIdleScreensEnabled}
+                rightIdleTimeoutSec={rightIdleTimeoutSec}
+                onRightIdleTimeoutSecChange={setRightIdleTimeoutSec}
+                rightScreenOffTimeoutSec={rightScreenOffTimeoutSec}
+                onRightScreenOffTimeoutSecChange={setRightScreenOffTimeoutSec}
                 symbolsGrid={symbolsGrid}
                 symbolSlices={symbolSlices}
                 fontGrid={fontGrid}
@@ -915,20 +1264,64 @@ export function App() {
                 onLayoutBlocksChange={setLeftBlocks}
               />
             )}
+
+            {import.meta.env.DEV && (activeTab === 'reference' || activeTab === 'ui-elements' || activeTab === 'ui-elements-hero') && (
+              <div className="flex-1 overflow-y-auto">
+                <ElementReferencePage onOpenCommandPalette={() => setIsCommandPaletteOpen(true)} />
+              </div>
+            )}
           </>
         )}
       </main>
 
-      {/* Toast notification */}
+      {/* Floating Toast notification */}
       {toast && (
-        <div className={`toast-notification ${toast.type}`}>
-          {toast.type === 'success' ? (
-            <CheckCircle2 size={16} className="text-emerald-400" />
-          ) : (
-            <AlertCircle size={16} className="text-red-400" />
-          )}
-          <span>{toast.message}</span>
+        <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none">
+          <div
+            className={`pointer-events-auto p-4 rounded-xl border shadow-2xl backdrop-blur-lg flex items-start gap-3 transition-all ${
+              toast.type === 'success'
+                ? 'bg-[#0b0d13]/95 border-[#00f0ff]/50 text-white shadow-[0_0_24px_rgba(0,240,255,0.2)]'
+                : 'bg-[#0b0d13]/95 border-[#f2741d]/50 text-white shadow-[0_0_24px_rgba(242,116,29,0.2)]'
+            }`}
+          >
+            {toast.type === 'success' ? (
+              <CheckCircle2 size={16} className="text-[#00f0ff] shrink-0 mt-0.5" />
+            ) : (
+              <AlertCircle size={16} className="text-[#f2741d] shrink-0 mt-0.5" />
+            )}
+            <div className="flex-1 min-w-0">
+              <h4 className="text-xs font-bold">{toast.type === 'success' ? 'Success' : 'Error'}</h4>
+              <p className="text-xs text-[#94a3b8] mt-0.5 leading-relaxed">{toast.message}</p>
+            </div>
+            <button
+              onClick={() => setToast(null)}
+              className="text-[#94a3b8] hover:text-white transition-colors cursor-pointer p-0.5"
+            >
+              ✕
+            </button>
+          </div>
         </div>
+      )}
+
+      {/* Command Palette Modal (Ctrl+K) - Dev Only */}
+      {import.meta.env.DEV && (
+        <CommandPalette
+          isOpen={isCommandPaletteOpen}
+          onClose={setIsCommandPaletteOpen}
+          onSelectSection={(sectionId) => {
+            if (['preview', 'symbols', 'font', 'widgets', 'layout', 'blocks'].includes(sectionId)) {
+              handleTabClick((sectionId === 'blocks' ? 'layout' : sectionId) as TabType);
+            } else {
+              handleTabClick('reference');
+              setTimeout(() => {
+                const el = document.getElementById(sectionId);
+                if (el) {
+                  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+              }, 100);
+            }
+          }}
+        />
       )}
     </div>
   );

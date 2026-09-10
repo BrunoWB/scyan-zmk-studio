@@ -10,6 +10,7 @@ import {
   Moon,
   Sun,
   Sliders,
+  Shuffle,
 } from 'lucide-react';
 import type { GitHubRepoConfig, GitHubConnectionState } from '../services/githubService';
 import {
@@ -18,15 +19,54 @@ import {
   fetchRepoKeymap,
   parseZmkKeymap,
   getMatchingKeyCoords,
+  formatLayerLabel,
 } from '../services/keymapService';
 import {
   renderBlocksToGrid,
-  renderWidgetById,
+  normalizeWidgetType,
+  getWidgetDefinition,
+  getWidgetNaturalSize,
 } from '../services/widgetRegistry';
 import {
   DEFAULT_LEFT_LAYOUT_BLOCKS,
   DEFAULT_RIGHT_LAYOUT_BLOCKS,
+  DEFAULT_IDLE_LEFT_BLOCKS,
+  DEFAULT_IDLE_RIGHT_BLOCKS,
 } from '../types/zmk';
+
+const BLOCK_COLORS: Record<string, string> = {
+  'status-bar': '#38bdf8',
+  'battery': '#4ade80',
+  'connection': '#60a5fa',
+  'split': '#2dd4bf',
+  'layer-banner': '#c084fc',
+  'layer-art': '#34d399',
+  'wpm': '#fbbf24',
+  'branding': '#f472b6',
+  'screensaver': '#38bdf8',
+  'bongo': '#f472b6',
+  'caps-lock': '#fb7185',
+};
+
+function getOledDisplayDimensions(width: number, height: number): { displayW: number; displayH: number } {
+  const w = width || 32;
+  const h = height || 128;
+  const aspect = w / h;
+
+  if (aspect <= 1) {
+    // Portrait: anchor height to ~192px (fits the 3-row + thumb Corne profile)
+    const displayH = 192;
+    const displayW = Math.max(36, Math.min(180, Math.round(displayH * aspect)));
+    return { displayW, displayH };
+  } else {
+    // Landscape: anchor width to ~180px
+    const displayW = 180;
+    const displayH = Math.max(36, Math.min(192, Math.round(displayW / aspect)));
+    return { displayW, displayH };
+  }
+}
+
+const OLED_BORDER_UNITS = 5;
 
 export interface OledPreviewTabProps {
   symbolsGrid: BwpxGrid;
@@ -37,6 +77,15 @@ export interface OledPreviewTabProps {
   leftBlocks?: LayoutBlock[];
   rightBlocks?: LayoutBlock[];
   layoutBlocks?: LayoutBlock[];
+  idleLeftBlocks?: LayoutBlock[];
+  idleRightBlocks?: LayoutBlock[];
+  onLeftBlocksChange?: (blocks: LayoutBlock[]) => void;
+  onRightBlocksChange?: (blocks: LayoutBlock[]) => void;
+  onIdleLeftBlocksChange?: (blocks: LayoutBlock[]) => void;
+  onIdleRightBlocksChange?: (blocks: LayoutBlock[]) => void;
+  screenDimensions?: { width: number; height: number };
+  rightScreenDimensions?: { width: number; height: number };
+  symmetricSettings?: boolean;
   customText: string;
   onCustomTextChange: (text: string) => void;
   instances?: import('../types/widget').WidgetInstanceMap;
@@ -46,6 +95,8 @@ export interface OledPreviewTabProps {
   onShowToast?: (type: 'success' | 'error', message: string) => void;
   onOpenSettings?: () => void;
   syncTrigger?: number;
+  keymapLayout?: ParsedKeymapLayout;
+  onKeymapLayoutChange?: (layout: ParsedKeymapLayout) => void;
 }
 
 export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
@@ -57,6 +108,15 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   leftBlocks,
   rightBlocks,
   layoutBlocks,
+  idleLeftBlocks,
+  idleRightBlocks,
+  onLeftBlocksChange,
+  onRightBlocksChange,
+  onIdleLeftBlocksChange,
+  onIdleRightBlocksChange,
+  screenDimensions,
+  rightScreenDimensions,
+  symmetricSettings,
   customText,
   onCustomTextChange: _onCustomTextChange,
   instances,
@@ -66,12 +126,144 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   onShowToast,
   onOpenSettings,
   syncTrigger,
+  keymapLayout: propKeymapLayout,
+  onKeymapLayoutChange,
 }) => {
   const activeLeftBlocks = leftBlocks ?? layoutBlocks ?? DEFAULT_LEFT_LAYOUT_BLOCKS;
   const activeRightBlocks = rightBlocks ?? DEFAULT_RIGHT_LAYOUT_BLOCKS;
 
+  // Virtual screen dimensions per side
+  const leftVWidth = screenDimensions?.width || 32;
+  const leftVHeight = screenDimensions?.height || 128;
+  const effectiveSymmetric = symmetricSettings !== undefined ? symmetricSettings : true;
+  const rightVWidth = (effectiveSymmetric ? leftVWidth : rightScreenDimensions?.width) || 32;
+  const rightVHeight = (effectiveSymmetric ? leftVHeight : rightScreenDimensions?.height) || 128;
+
+  // Proportional display dimensions in px for housing and canvas
+  const leftDisplayDim = useMemo(() => getOledDisplayDimensions(leftVWidth, leftVHeight), [leftVWidth, leftVHeight]);
+  const rightDisplayDim = useMemo(() => getOledDisplayDimensions(rightVWidth, rightVHeight), [rightVWidth, rightVHeight]);
+
   // Simulator states
   const [isIdle, setIsIdle] = useState<boolean>(false);
+
+  // Active blocks according to idle/active mode
+  const leftDisplayBlocks = isIdle
+    ? (idleLeftBlocks && idleLeftBlocks.length > 0 ? idleLeftBlocks : DEFAULT_IDLE_LEFT_BLOCKS)
+    : activeLeftBlocks;
+
+  const rightDisplayBlocks = isIdle
+    ? (idleRightBlocks && idleRightBlocks.length > 0 ? idleRightBlocks : DEFAULT_IDLE_RIGHT_BLOCKS)
+    : activeRightBlocks;
+
+  // Direct widget manipulation state
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  const [internalDraggingBlockId, setInternalDraggingBlockId] = useState<string | null>(null);
+  const [hoveredSide, setHoveredSide] = useState<'left' | 'right' | null>(null);
+  const dragStartXRef = useRef<number>(0);
+  const dragStartYRef = useRef<number>(0);
+  const blockInitialXRef = useRef<number>(0);
+  const blockInitialYRef = useRef<number>(0);
+  const draggingSideRef = useRef<'left' | 'right'>('left');
+  const leftScreenContainerRef = useRef<HTMLDivElement | null>(null);
+  const rightScreenContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const handleStartMoveBlock = (e: React.PointerEvent, block: LayoutBlock, side: 'left' | 'right') => {
+    e.stopPropagation();
+    setSelectedBlockId(block.id);
+    setInternalDraggingBlockId(block.id);
+    draggingSideRef.current = side;
+    dragStartXRef.current = e.clientX;
+    dragStartYRef.current = e.clientY;
+    const def = getWidgetDefinition(block.widgetType || block.id);
+    blockInitialXRef.current = block.x ?? def?.defaultPlacement.defaultX ?? 0;
+    blockInitialYRef.current = block.y;
+  };
+
+  // Window listeners for moving widgets
+  useEffect(() => {
+    if (!internalDraggingBlockId) return;
+
+    const side = draggingSideRef.current;
+    const isLeft = side === 'left';
+    const container = isLeft ? leftScreenContainerRef.current : rightScreenContainerRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const screenWidthPx = rect.width || 48;
+    const screenHeightPx = rect.height || 192;
+    const vWidth = isLeft ? leftVWidth : rightVWidth;
+    const vHeight = isLeft ? leftVHeight : rightVHeight;
+    const pxToGridX = vWidth / screenWidthPx;
+    const pxToGridY = vHeight / screenHeightPx;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      const deltaScreenX = e.clientX - dragStartXRef.current;
+      const deltaScreenY = e.clientY - dragStartYRef.current;
+      const deltaGridX = Math.round(deltaScreenX * pxToGridX);
+      const deltaGridY = Math.round(deltaScreenY * pxToGridY);
+
+      const blockList = isLeft ? leftDisplayBlocks : rightDisplayBlocks;
+      const currentBlock = blockList.find(b => b.id === internalDraggingBlockId);
+      if (!currentBlock) return;
+
+      const normType = normalizeWidgetType(currentBlock.widgetType || currentBlock.id);
+      const def = getWidgetDefinition(normType);
+      const activeInstance = instances?.[normType]?.find(i => i.id === currentBlock.instanceId) || instances?.[normType]?.[0];
+      const naturalSize = def ? getWidgetNaturalSize(def, symbolSlices, activeInstance, fontGlyphs, fontMappings) : null;
+      const blockW = naturalSize ? naturalSize.width : (currentBlock.width ?? def?.defaultWidth ?? vWidth);
+      const blockH = naturalSize ? naturalSize.height : currentBlock.height;
+
+      const newX = Math.max(0, Math.min(vWidth - blockW, blockInitialXRef.current + deltaGridX));
+      const newY = Math.max(0, Math.min(vHeight - blockH, blockInitialYRef.current + deltaGridY));
+
+      if (newX !== currentBlock.x || newY !== currentBlock.y) {
+        const updated = blockList.map(b => b.id === internalDraggingBlockId ? { ...b, x: newX, y: newY } : b);
+        if (isLeft) {
+          if (isIdle) {
+            onIdleLeftBlocksChange?.(updated);
+          } else {
+            onLeftBlocksChange?.(updated);
+          }
+        } else {
+          if (isIdle) {
+            onIdleRightBlocksChange?.(updated);
+          } else {
+            onRightBlocksChange?.(updated);
+          }
+        }
+      }
+    };
+
+    const handlePointerUp = () => {
+      setInternalDraggingBlockId(null);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [
+    internalDraggingBlockId,
+    isIdle,
+    leftVWidth,
+    leftVHeight,
+    rightVWidth,
+    rightVHeight,
+    leftDisplayBlocks,
+    rightDisplayBlocks,
+    onLeftBlocksChange,
+    onRightBlocksChange,
+    onIdleLeftBlocksChange,
+    onIdleRightBlocksChange,
+    instances,
+    symbolSlices,
+    fontGlyphs,
+    fontMappings,
+  ]);
   const [outputMode, setOutputMode] = useState<'usb' | 'ble'>('usb');
   const [bleProfileIndex, setBleProfileIndex] = useState<number>(1);
   const [battery, setBattery] = useState<number>(88);
@@ -79,6 +271,49 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   const [wpm, setWpm] = useState<number>(68);
   const [wpmHistory, setWpmHistory] = useState<number[]>(() => Array(128).fill(0));
   const [splitConnected, setSplitConnected] = useState<boolean>(true);
+  const [capsLock, setCapsLock] = useState<boolean>(false);
+  const [randomClickerEnabled, setRandomClickerEnabled] = useState<boolean>(false);
+  // Configured Bongo Cat tap duration & debounce cooldown (matching firmware CONFIG_SCYAN_BONGO_TAP_MS)
+  const activeBongoInstance = instances?.['bongo']?.[0];
+  const bongoTapMs = activeBongoInstance?.config?.bongoTapMs ?? 60;
+  const bongoDebounceMs = activeBongoInstance?.config?.bongoDebounceMs ?? Math.max(bongoTapMs + 30, 100);
+
+  const bongoTapMsRef = useRef(bongoTapMs);
+  bongoTapMsRef.current = bongoTapMs;
+  const bongoDebounceMsRef = useRef(bongoDebounceMs);
+  bongoDebounceMsRef.current = bongoDebounceMs;
+
+  const [bongoState, setBongoState] = useState<0 | 1 | 2>(0);
+  const bongoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTapTimeRef = useRef<number>(0);
+
+  const triggerBongoTap = useCallback((isLeft: boolean) => {
+    const now = Date.now();
+    // Debounce check: suppress rapid re-triggering within the debounce window
+    if (now - lastTapTimeRef.current < bongoDebounceMsRef.current) {
+      return;
+    }
+    lastTapTimeRef.current = now;
+
+    setBongoState(isLeft ? 1 : 2);
+
+    if (bongoTimerRef.current) {
+      clearTimeout(bongoTimerRef.current);
+    }
+
+    bongoTimerRef.current = setTimeout(() => {
+      setBongoState(0);
+      bongoTimerRef.current = null;
+    }, bongoTapMsRef.current);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (bongoTimerRef.current) {
+        clearTimeout(bongoTimerRef.current);
+      }
+    };
+  }, []);
 
   // Time-progressing WPM history ticker (continuous 1Hz sampling using ref to avoid reset on keypress/decay)
   const wpmRef = useRef(wpm);
@@ -92,7 +327,12 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   }, []);
 
   // Keymap Layout: dynamic from GitHub, defaults to empty 5x3 blank layout
-  const [keymapLayout, setKeymapLayout] = useState<ParsedKeymapLayout>(DEFAULT_EMPTY_5X3_LAYOUT);
+  const [internalKeymapLayout, setInternalKeymapLayout] = useState<ParsedKeymapLayout>(DEFAULT_EMPTY_5X3_LAYOUT);
+  const keymapLayout = propKeymapLayout || internalKeymapLayout;
+  const setKeymapLayout = useCallback((layout: ParsedKeymapLayout) => {
+    setInternalKeymapLayout(layout);
+    onKeymapLayoutChange?.(layout);
+  }, [onKeymapLayoutChange]);
 
   // Currently pressed keycaps set (supports key label or coordinate for empty keys)
   const [pressedKeys, setPressedKeys] = useState<Set<string>>(new Set());
@@ -222,21 +462,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     return baseStagger5[idx] ?? 0;
   };
 
-  // Helper to find slice
-  const getSlice = (id: string): SpriteSlice | undefined => {
-    return symbolSlices.find(s => s.id === id);
-  };
 
-  // Helper to find glyph
-  const getGlyph = (codepoint: number): FontGlyph | undefined => {
-    return fontGlyphs.find(g => g.codepoint === codepoint);
-  };
-
-  // Block helpers
-  const getBlockY = (blockId: string, defaultY: number): number => {
-    const b = activeLeftBlocks.find((item: LayoutBlock) => item.id === blockId || item.widgetType === blockId);
-    return b && b.enabled ? b.y : defaultY;
-  };
 
   // Record timestamp for live WPM calculation
   const recordKeystroke = useCallback(() => {
@@ -267,6 +493,17 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
 
     recordKeystroke();
 
+    // Trigger reactive bongo paw animation based on key half
+    const hasLeft = keysToAdd.some(k => k.startsWith('L_') || k.startsWith('LT_'));
+    const hasRight = keysToAdd.some(k => k.startsWith('R_') || k.startsWith('RT_'));
+    if (hasLeft && !hasRight) {
+      triggerBongoTap(true);
+    } else if (hasRight && !hasLeft) {
+      triggerBongoTap(false);
+    } else if (hasLeft && hasRight) {
+      triggerBongoTap(true);
+    }
+
     setTimeout(() => {
       setPressedKeys(prev => {
         const next = new Set(prev);
@@ -274,7 +511,47 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
         return next;
       });
     }, 140);
-  }, [recordKeystroke]);
+  }, [recordKeystroke, triggerBongoTap]);
+
+  // Random key clicker: clicks 1 key per 2 seconds (2000ms)
+  useEffect(() => {
+    if (!randomClickerEnabled) return;
+
+    const clickRandomKey = () => {
+      const allCoords: string[] = [];
+      const cols = keymapLayout.columns || 5;
+      const rows = keymapLayout.rows || 3;
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          allCoords.push(`L_${r}_${c}`);
+          allCoords.push(`R_${r}_${c}`);
+        }
+      }
+      for (let i = 0; i < currentLeftThumbs.length; i++) {
+        allCoords.push(`LT_${i}`);
+      }
+      for (let i = 0; i < currentRightThumbs.length; i++) {
+        allCoords.push(`RT_${i}`);
+      }
+
+      if (allCoords.length > 0) {
+        const picked = allCoords[Math.floor(Math.random() * allCoords.length)];
+        triggerKeyPress(picked);
+      }
+    };
+
+    clickRandomKey();
+    const interval = setInterval(clickRandomKey, 2000);
+    return () => clearInterval(interval);
+  }, [
+    randomClickerEnabled,
+    keymapLayout.columns,
+    keymapLayout.rows,
+    currentLeftThumbs.length,
+    currentRightThumbs.length,
+    triggerKeyPress,
+  ]);
 
   // Listen to physical keyboard events anywhere on window
   useEffect(() => {
@@ -288,6 +565,15 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
         target?.isContentEditable
       ) {
         return;
+      }
+
+      // Ignore OS key-repeat events to mirror hardware switch events (no rapid flailing on key hold)
+      if (e.repeat) {
+        return;
+      }
+
+      if (e.code === 'CapsLock' || e.key === 'CapsLock') {
+        setCapsLock(prev => !prev);
       }
 
       recordKeystroke();
@@ -306,6 +592,17 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
 
       if (matchingCoords.length > 0) {
         triggerKeyPress(matchingCoords);
+      } else {
+        // Fallback for keys not bound in current keymap layer:
+        // Use physical scan codes to determine left vs right half
+        const LEFT_CODES = new Set([
+          'KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyT',
+          'KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG',
+          'KeyZ', 'KeyX', 'KeyC', 'KeyV', 'KeyB',
+          'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Backquote',
+          'Tab', 'CapsLock', 'ShiftLeft', 'ControlLeft', 'AltLeft', 'MetaLeft',
+        ]);
+        triggerBongoTap(LEFT_CODES.has(e.code));
       }
     };
 
@@ -314,6 +611,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   }, [
     triggerKeyPress,
     recordKeystroke,
+    triggerBongoTap,
     currentLeftMatrix,
     currentRightMatrix,
     currentLeftThumbs,
@@ -336,283 +634,97 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
 
   // Render both Left (Master) and Right (Peripheral) OLED displays
   useEffect(() => {
-    const V_WIDTH = 32;
-    const V_HEIGHT = 128;
     const PIXEL_PITCH = 2; // Crisp dot simulation
     const DOT_SIZE = 1.6;
     const onColor = '#e2f1ff';
-    const offColor = '#0b0e13';
 
-    // -------------------------------------------------------------
     // 1. RENDER LEFT (MASTER) DISPLAY
-    // -------------------------------------------------------------
     const leftCanvas = leftCanvasRef.current;
     if (leftCanvas) {
       const ctx = leftCanvas.getContext('2d');
       if (ctx) {
-        const vbuf = new BwpxGrid(V_WIDTH, V_HEIGHT);
+        const vbuf = new BwpxGrid(leftVWidth, leftVHeight);
+        renderBlocksToGrid(leftDisplayBlocks, vbuf, {
+          symbolsGrid,
+          symbolSlices,
+          fontGrid,
+          fontGlyphs,
+          fontMappings,
+          battery,
+          outputMode,
+          bleProfileIndex,
+          currentLayer,
+          layerNames,
+          wpm,
+          wpmHistory,
+          splitConnected,
+          capsLock,
+          customText,
+          instances,
+          side: 'left',
+          isIdle,
+          customizations,
+          bongoState,
+        });
 
-
-        const drawText = (str: string, startX: number, startY: number, size: 'small' | 'big' = 'small'): number => {
-          if (!str) return startX;
-          let curX = startX;
-          for (let i = 0; i < str.length; i++) {
-            const char = str[i];
-            if (char === ' ') {
-              curX += size === 'big' ? 6 : 4;
-              continue;
-            }
-            if (fontMappings.length > 0) {
-              let m = fontMappings.find(item => item.chars.includes(char));
-              if (!m) {
-                m = fontMappings.find(item => item.chars.toUpperCase().includes(char.toUpperCase()));
-              }
-              const slot = m ? (size === 'big' ? (m.big || m.small) : (m.small || m.big)) : null;
-              if (slot) {
-                for (let gy = 0; gy < slot.height; gy++) {
-                  for (let gx = 0; gx < slot.width; gx++) {
-                    if (fontGrid.get(slot.x + gx, slot.y + gy)) {
-                      vbuf.set(curX + gx, startY + gy, 1);
-                    }
-                  }
-                }
-                curX += (slot.advanceX ?? (slot.width + 1));
-                continue;
-              }
-            }
-            const cp = char.toUpperCase().codePointAt(0) || 0;
-            const glyph = getGlyph(cp);
-            if (glyph) {
-              for (let gy = 0; gy < glyph.height; gy++) {
-                for (let gx = 0; gx < glyph.width; gx++) {
-                  if (fontGrid.get(glyph.x + gx, glyph.y + gy)) {
-                    vbuf.set(curX + gx, startY + gy, 1);
-                  }
-                }
-              }
-              curX += glyph.advanceX;
-            } else {
-              curX += size === 'big' ? 6 : 4;
-            }
-          }
-          return curX;
-        };
-
-        if (!isIdle) {
-          renderBlocksToGrid(activeLeftBlocks, vbuf, {
-            symbolsGrid,
-            symbolSlices,
-            fontGrid,
-            fontGlyphs,
-            fontMappings,
-            battery,
-            outputMode,
-            bleProfileIndex,
-            currentLayer,
-            layerNames,
-            wpm,
-            wpmHistory,
-            splitConnected,
-            customText,
-            instances,
-            side: 'left',
-            isIdle: false,
-            customizations,
-          });
-        } else {
-          // IDLE SCREEN: render screensaver widget with customization support
-          renderWidgetById('screensaver', vbuf, 35, {
-            symbolsGrid,
-            symbolSlices,
-            fontGrid,
-            fontGlyphs,
-            fontMappings,
-            customText,
-            instances,
-            customizations,
-            side: 'left',
-            isIdle: true,
-          });
-          const brandY = getBlockY('block-branding', 73);
-          const brandText = (customText || 'ZMK DISPLAY').toUpperCase();
-          const startX = Math.max(1, Math.floor((32 - brandText.length * 4) / 2));
-          drawText(brandText, startX, brandY);
-
-          // Sleep dots
-          vbuf.set(24, 25, 1);
-          vbuf.set(26, 23, 1);
-          vbuf.set(28, 20, 1);
-        }
-
-        const finalGrid = vbuf;
-        leftCanvas.width = V_WIDTH * PIXEL_PITCH;
-        leftCanvas.height = V_HEIGHT * PIXEL_PITCH;
+        leftCanvas.width = leftVWidth * PIXEL_PITCH;
+        leftCanvas.height = leftVHeight * PIXEL_PITCH;
 
         ctx.fillStyle = '#05070a';
         ctx.fillRect(0, 0, leftCanvas.width, leftCanvas.height);
 
-        for (let y = 0; y < V_HEIGHT; y++) {
-          for (let x = 0; x < V_WIDTH; x++) {
-            ctx.fillStyle = finalGrid.get(x, y) ? onColor : offColor;
-            ctx.fillRect(x * PIXEL_PITCH, y * PIXEL_PITCH, DOT_SIZE, DOT_SIZE);
+        ctx.fillStyle = onColor;
+        for (let y = 0; y < leftVHeight; y++) {
+          for (let x = 0; x < leftVWidth; x++) {
+            if (vbuf.get(x, y)) {
+              ctx.fillRect(x * PIXEL_PITCH, y * PIXEL_PITCH, DOT_SIZE, DOT_SIZE);
+            }
           }
         }
       }
     }
 
-    // -------------------------------------------------------------
     // 2. RENDER RIGHT (PERIPHERAL) DISPLAY
-    // -------------------------------------------------------------
     const rightCanvas = rightCanvasRef.current;
     if (rightCanvas) {
       const ctx = rightCanvas.getContext('2d');
       if (ctx) {
-        const vbuf = new BwpxGrid(V_WIDTH, V_HEIGHT);
+        const vbuf = new BwpxGrid(rightVWidth, rightVHeight);
+        renderBlocksToGrid(rightDisplayBlocks, vbuf, {
+          symbolsGrid,
+          symbolSlices,
+          fontGrid,
+          fontGlyphs,
+          fontMappings,
+          battery,
+          outputMode,
+          bleProfileIndex,
+          currentLayer,
+          layerNames,
+          wpm,
+          wpmHistory,
+          splitConnected,
+          capsLock,
+          customText,
+          instances,
+          side: 'right',
+          isIdle,
+          customizations,
+          bongoState,
+        });
 
-        const blitSlice = (sliceId: string, destX: number, destY: number) => {
-          const slice = getSlice(sliceId);
-          if (!slice) return;
-          for (let sy = 0; sy < slice.height; sy++) {
-            for (let sx = 0; sx < slice.width; sx++) {
-              if (symbolsGrid.get(slice.x + sx, slice.y + sy)) {
-                vbuf.set(destX + sx, destY + sy, 1);
-              }
-            }
-          }
-        };
-
-        const drawText = (str: string, startX: number, startY: number, size: 'small' | 'big' = 'small'): number => {
-          if (!str) return startX;
-          let curX = startX;
-          for (let i = 0; i < str.length; i++) {
-            const char = str[i];
-            if (char === ' ') {
-              curX += size === 'big' ? 6 : 4;
-              continue;
-            }
-            if (fontMappings.length > 0) {
-              let m = fontMappings.find(item => item.chars.includes(char));
-              if (!m) {
-                m = fontMappings.find(item => item.chars.toUpperCase().includes(char.toUpperCase()));
-              }
-              const slot = m ? (size === 'big' ? (m.big || m.small) : (m.small || m.big)) : null;
-              if (slot) {
-                for (let gy = 0; gy < slot.height; gy++) {
-                  for (let gx = 0; gx < slot.width; gx++) {
-                    if (fontGrid.get(slot.x + gx, slot.y + gy)) {
-                      vbuf.set(curX + gx, startY + gy, 1);
-                    }
-                  }
-                }
-                curX += (slot.advanceX ?? (slot.width + 1));
-                continue;
-              }
-            }
-            const cp = char.toUpperCase().codePointAt(0) || 0;
-            const glyph = getGlyph(cp);
-            if (glyph) {
-              for (let gy = 0; gy < glyph.height; gy++) {
-                for (let gx = 0; gx < glyph.width; gx++) {
-                  if (fontGrid.get(glyph.x + gx, glyph.y + gy)) {
-                    vbuf.set(curX + gx, startY + gy, 1);
-                  }
-                }
-              }
-              curX += glyph.advanceX;
-            } else {
-              curX += size === 'big' ? 6 : 4;
-            }
-          }
-          return curX;
-        };
-
-        if (isIdle) {
-          // Peripheral Idle Screen: render screensaver widget with customization support
-          renderWidgetById('screensaver', vbuf, 35, {
-            symbolsGrid,
-            symbolSlices,
-            fontGrid,
-            fontGlyphs,
-            fontMappings,
-            customText,
-            instances,
-            customizations,
-            side: 'right',
-            isIdle: true,
-          });
-          const brandText = (customText || 'ZMK DISPLAY').toUpperCase();
-          const startX = Math.max(1, Math.floor((32 - brandText.length * 4) / 2));
-          drawText(brandText, startX, 73);
-
-          // Sleep dots
-          vbuf.set(24, 25, 1);
-          vbuf.set(26, 23, 1);
-          vbuf.set(28, 20, 1);
-        } else if (activeRightBlocks && activeRightBlocks.length > 0) {
-          renderBlocksToGrid(activeRightBlocks, vbuf, {
-            symbolsGrid,
-            symbolSlices,
-            fontGrid,
-            fontGlyphs,
-            fontMappings,
-            battery,
-            outputMode,
-            bleProfileIndex,
-            currentLayer,
-            layerNames,
-            wpm,
-            wpmHistory,
-            splitConnected,
-            customText,
-            instances,
-            side: 'right',
-            isIdle: false,
-            customizations,
-          });
-        } else {
-          // Peripheral Battery Frame & bars
-          blitSlice('SYMBOL_BATTERY_FRAME', 8, 8);
-          const numBars = Math.min(4, Math.floor((battery + 12) / 25));
-          for (let b = 0; b < numBars; b++) {
-            const bx = 10 + b * 3;
-            for (let by = 10; by <= 14; by++) {
-              vbuf.set(bx, by, 1);
-              vbuf.set(bx + 1, by, 1);
-            }
-          }
-
-          // Split Wireless Link Status
-          blitSlice(
-            splitConnected ? 'SYMBOL_SPLIT_CONNECTED' : 'SYMBOL_SPLIT_DISCONNECTED',
-            10,
-            26
-          );
-
-          // Center Art (mirrored/matching layer art or skull)
-          blitSlice(`SYMBOL_SKULL_LAYER_${currentLayer % 4}`, 3, 48);
-
-          // Peripheral Label & Layer name
-          const sideModel = keymapLayout.columns === 6 ? 'CORNE 6X3' : keymapLayout.columns === 5 ? 'CORNE 5X3' : 'ZMK 5X3';
-          const modelParts = sideModel.split(' ');
-          drawText(modelParts[0], 6, 82);
-          if (modelParts[1]) {
-            drawText(modelParts[1], 10, 92);
-          }
-          const curLayerName = layerNames[currentLayer] || layerNames[0] || 'DEFAULT';
-          drawText(curLayerName, 4, 108);
-        }
-
-        const finalGrid = vbuf;
-        rightCanvas.width = V_WIDTH * PIXEL_PITCH;
-        rightCanvas.height = V_HEIGHT * PIXEL_PITCH;
+        rightCanvas.width = rightVWidth * PIXEL_PITCH;
+        rightCanvas.height = rightVHeight * PIXEL_PITCH;
 
         ctx.fillStyle = '#05070a';
         ctx.fillRect(0, 0, rightCanvas.width, rightCanvas.height);
 
-        for (let y = 0; y < V_HEIGHT; y++) {
-          for (let x = 0; x < V_WIDTH; x++) {
-            ctx.fillStyle = finalGrid.get(x, y) ? onColor : offColor;
-            ctx.fillRect(x * PIXEL_PITCH, y * PIXEL_PITCH, DOT_SIZE, DOT_SIZE);
+        ctx.fillStyle = onColor;
+        for (let y = 0; y < rightVHeight; y++) {
+          for (let x = 0; x < rightVWidth; x++) {
+            if (vbuf.get(x, y)) {
+              ctx.fillRect(x * PIXEL_PITCH, y * PIXEL_PITCH, DOT_SIZE, DOT_SIZE);
+            }
           }
         }
       }
@@ -623,8 +735,12 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     fontGrid,
     fontGlyphs,
     fontMappings,
-    activeLeftBlocks,
-    activeRightBlocks,
+    leftDisplayBlocks,
+    rightDisplayBlocks,
+    leftVWidth,
+    leftVHeight,
+    rightVWidth,
+    rightVHeight,
     isIdle,
     outputMode,
     bleProfileIndex,
@@ -634,19 +750,76 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     wpmHistory,
     instances,
     splitConnected,
+    capsLock,
     customText,
     layerNames,
-    keymapLayout,
     customizations,
+    bongoState,
   ]);
+
+  const renderBlockOverlay = (
+    block: LayoutBlock,
+    side: 'left' | 'right',
+    vWidth: number,
+    vHeight: number
+  ) => {
+    const normType = normalizeWidgetType(block.widgetType || block.id);
+    const def = getWidgetDefinition(normType);
+    const color = BLOCK_COLORS[normType] || '#00d2ff';
+    const isSelected = selectedBlockId === block.id;
+    const isDragging = internalDraggingBlockId === block.id;
+    const isScreenHovered = hoveredSide === side || internalDraggingBlockId !== null;
+    if (!block.enabled) return null;
+
+    const activeInstance = instances?.[normType]?.find(i => i.id === block.instanceId) || instances?.[normType]?.[0];
+    const naturalSize = def ? getWidgetNaturalSize(def, symbolSlices, activeInstance, fontGlyphs, fontMappings) : null;
+
+    const blockX = block.x ?? def?.defaultPlacement.defaultX ?? 0;
+    const blockW = naturalSize ? naturalSize.width : (block.width ?? def?.defaultWidth ?? vWidth);
+    const blockH = naturalSize ? naturalSize.height : block.height;
+
+    const leftPct = (blockX / vWidth) * 100;
+    const topPct = (block.y / vHeight) * 100;
+    const widthPct = (blockW / vWidth) * 100;
+    const heightPct = (blockH / vHeight) * 100;
+
+    return (
+      <div
+        key={block.id}
+        className={`oled-block-overlay ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''}`}
+        style={{
+          position: 'absolute',
+          left: `${leftPct}%`,
+          top: `${topPct}%`,
+          width: `${widthPct}%`,
+          height: `${heightPct}%`,
+          '--block-color': color,
+          opacity: isScreenHovered ? 1 : 0,
+          pointerEvents: 'auto',
+          transition: 'opacity 0.15s ease',
+        } as React.CSSProperties}
+        onPointerDown={e => handleStartMoveBlock(e, block, side)}
+        onClick={e => {
+          e.stopPropagation();
+          setSelectedBlockId(block.id);
+        }}
+        title={`${block.name || def?.name || 'Widget'} — Drag to reposition (x:${blockX}, y:${block.y})`}
+      >
+        {isSelected && isScreenHovered && (
+          <span className="block-overlay-label" style={{ color }}>
+            {block.name || def?.name}
+          </span>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="oled-preview-fullscreen">
       {/* =========================================================================
           TOP: CUTE MINIMALIST CORNE 5X3 SPLIT VISUALIZATION WITH DUAL DISPLAYS
           ========================================================================= */}
-      <div className="corne-stage-container">
-        <div className="corne-keyboard-split">
+      <div className="corne-keyboard-split">
           {/* LEFT HALF (MASTER) */}
           <div className="corne-half-case left-half">
             <div className="half-inner-layout">
@@ -703,11 +876,43 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
               {/* OLED Display (Inner Side) */}
               <div className="corne-mcu-bay">
                 <div className="mcu-pcb-socket">
-                  <div className="oled-glass-housing">
-                    <canvas
-                      ref={leftCanvasRef}
-                      className="corne-oled-canvas"
-                    />
+                  <div className="flex items-center justify-between w-full mb-1 px-0.5">
+                    <span className="side-badge left">MASTER</span>
+                    <span className="text-[8px] font-mono text-[#64748b]">{`${leftVWidth}×${leftVHeight}`}</span>
+                  </div>
+                  <div
+                    className="oled-glass-housing"
+                    style={{
+                      width: `${leftDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
+                      height: `${leftDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
+                    }}
+                    onMouseEnter={() => setHoveredSide('left')}
+                    onMouseLeave={() => setHoveredSide(null)}
+                    onClick={() => setSelectedBlockId(null)}
+                  >
+                    <div
+                      ref={leftScreenContainerRef}
+                      style={{
+                        position: 'relative',
+                        width: `${leftDisplayDim.displayW}px`,
+                        height: `${leftDisplayDim.displayH}px`,
+                      }}
+                    >
+                      <canvas
+                        ref={leftCanvasRef}
+                        className="corne-oled-canvas"
+                        style={{
+                          width: `${leftDisplayDim.displayW}px`,
+                          height: `${leftDisplayDim.displayH}px`,
+                          display: 'block',
+                        }}
+                      />
+                      <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
+                        {leftDisplayBlocks.map(block =>
+                          renderBlockOverlay(block, 'left', leftVWidth, leftVHeight)
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -720,11 +925,43 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
               {/* OLED Display (Inner Side) */}
               <div className="corne-mcu-bay">
                 <div className="mcu-pcb-socket">
-                  <div className="oled-glass-housing">
-                    <canvas
-                      ref={rightCanvasRef}
-                      className="corne-oled-canvas"
-                    />
+                  <div className="flex items-center justify-between w-full mb-1 px-0.5">
+                    <span className="side-badge right">PERIPHERAL</span>
+                    <span className="text-[8px] font-mono text-[#64748b]">{`${rightVWidth}×${rightVHeight}`}</span>
+                  </div>
+                  <div
+                    className="oled-glass-housing"
+                    style={{
+                      width: `${rightDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
+                      height: `${rightDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
+                    }}
+                    onMouseEnter={() => setHoveredSide('right')}
+                    onMouseLeave={() => setHoveredSide(null)}
+                    onClick={() => setSelectedBlockId(null)}
+                  >
+                    <div
+                      ref={rightScreenContainerRef}
+                      style={{
+                        position: 'relative',
+                        width: `${rightDisplayDim.displayW}px`,
+                        height: `${rightDisplayDim.displayH}px`,
+                      }}
+                    >
+                      <canvas
+                        ref={rightCanvasRef}
+                        className="corne-oled-canvas"
+                        style={{
+                          width: `${rightDisplayDim.displayW}px`,
+                          height: `${rightDisplayDim.displayH}px`,
+                          display: 'block',
+                        }}
+                      />
+                      <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
+                        {rightDisplayBlocks.map(block =>
+                          renderBlockOverlay(block, 'right', rightVWidth, rightVHeight)
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -781,7 +1018,6 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
             </div>
           </div>
         </div>
-      </div>
 
       {/* =========================================================================
           BOTTOM: REACTIVE FIRMWARE SIMULATOR CONTROLS
@@ -797,40 +1033,52 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
           </div>
 
           <div className="controls-grid">
-            {/* Screen Mode */}
+            {/* Screen State */}
             <div className="control-group">
               <label>Screen State</label>
-              <div className="mode-toggle-group">
+              <div className="widget-mode-radio-group w-fit" role="radiogroup" aria-label="Screen State">
                 <button
-                  className={`btn-toggle ${!isIdle ? 'active' : ''}`}
+                  type="button"
+                  role="radio"
+                  aria-checked={!isIdle}
+                  className={`widget-mode-radio-btn ${!isIdle ? 'active' : ''}`}
                   onClick={() => setIsIdle(false)}
                 >
-                  <Sun size={14} />
+                  <Sun size={13} />
                   <span>Active Mode</span>
                 </button>
                 <button
-                  className={`btn-toggle ${isIdle ? 'active' : ''}`}
+                  type="button"
+                  role="radio"
+                  aria-checked={isIdle}
+                  className={`widget-mode-radio-btn ${isIdle ? 'active' : ''}`}
                   onClick={() => setIsIdle(true)}
                 >
-                  <Moon size={14} />
+                  <Moon size={13} />
                   <span>Idle Sleep</span>
                 </button>
               </div>
             </div>
 
-            {/* Connection Mode */}
+            {/* Output Protocol */}
             <div className="control-group">
               <label>Output Protocol</label>
-              <div className="button-pair">
+              <div className="widget-mode-radio-group w-fit" role="radiogroup" aria-label="Output Protocol">
                 <button
-                  className={`btn-chip ${outputMode === 'usb' ? 'active' : ''}`}
+                  type="button"
+                  role="radio"
+                  aria-checked={outputMode === 'usb'}
+                  className={`widget-mode-radio-btn ${outputMode === 'usb' ? 'active' : ''}`}
                   onClick={() => setOutputMode('usb')}
                 >
                   <Usb size={13} />
                   <span>USB</span>
                 </button>
                 <button
-                  className={`btn-chip ${outputMode === 'ble' ? 'active' : ''}`}
+                  type="button"
+                  role="radio"
+                  aria-checked={outputMode === 'ble'}
+                  className={`widget-mode-radio-btn ${outputMode === 'ble' ? 'active' : ''}`}
                   onClick={() => setOutputMode('ble')}
                 >
                   <Bluetooth size={13} />
@@ -838,38 +1086,84 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
                 </button>
               </div>
               {outputMode === 'ble' && (
-                <div className="flex items-center gap-1 mt-2">
-                  <span className="text-xs text-muted mr-1">Profile:</span>
-                  {[0, 1, 2, 3, 4, 5].map(idx => (
-                    <button
-                      key={idx}
-                      className={`btn-chip !px-2 !py-0.5 text-xs ${bleProfileIndex === idx ? 'active' : ''}`}
-                      onClick={() => setBleProfileIndex(idx)}
-                    >
-                      {idx === 0 ? 'No conn' : `P${idx}`}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-2 mt-1.5">
+                  <span className="text-xs text-muted">Profile:</span>
+                  <div className="widget-mode-radio-group flex-wrap w-fit" role="radiogroup" aria-label="Output Protocol Profiles">
+                    {[0, 1, 2, 3, 4, 5].map(idx => (
+                      <button
+                        key={idx}
+                        type="button"
+                        role="radio"
+                        aria-checked={bleProfileIndex === idx}
+                        className={`widget-mode-radio-btn !px-2 !py-0.5 text-xs ${bleProfileIndex === idx ? 'active' : ''}`}
+                        onClick={() => setBleProfileIndex(idx)}
+                      >
+                        <span>{idx === 0 ? 'No conn' : `P${idx}`}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Active Layer Buttons */}
+            {/* Active Keyboard Layer */}
             <div className="control-group full-width">
               <label className="flex items-center gap-1">
                 <Layers size={14} className="text-accent" />
                 <span>Active Keyboard Layer</span>
               </label>
-              <div className="layer-button-row">
+              <div className="widget-mode-radio-group flex-wrap w-fit" role="radiogroup" aria-label="Active Keyboard Layer">
                 {layerNames.map((name, idx) => (
                   <button
-                    key={name}
-                    className={`btn-layer ${currentLayer === idx ? 'active' : ''}`}
+                    key={`${name}-${idx}`}
+                    type="button"
+                    role="radio"
+                    aria-checked={currentLayer === idx}
+                    className={`widget-mode-radio-btn ${currentLayer === idx ? 'active' : ''}`}
                     onClick={() => setCurrentLayer(idx)}
                   >
-                    <span className="layer-idx">{idx}</span>
-                    <span className="layer-name">{name}</span>
+                    <span>{formatLayerLabel(idx, name)}</span>
                   </button>
                 ))}
+              </div>
+            </div>
+
+            {/* Wireless Link, Caps Lock & Character Clicker Row */}
+            <div className="full-width">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Split Wireless Link */}
+                <div className="control-group">
+                  <label>Split Wireless Link</label>
+                  <button
+                    className={`btn-toggle-subtle flex items-center justify-center gap-2 h-9 ${splitConnected ? 'active-accent' : 'inactive'}`}
+                    onClick={() => setSplitConnected(!splitConnected)}
+                  >
+                    <span>{splitConnected ? 'Linked (Connected)' : 'Disconnected (Unlinked)'}</span>
+                  </button>
+                </div>
+
+                {/* Caps Lock State */}
+                <div className="control-group">
+                  <label>Caps Lock State</label>
+                  <button
+                    className={`btn-toggle-subtle flex items-center justify-center gap-2 h-9 ${capsLock ? 'active-accent' : 'inactive'}`}
+                    onClick={() => setCapsLock(!capsLock)}
+                  >
+                    <span>{capsLock ? 'Caps Lock: ON' : 'Caps Lock: OFF'}</span>
+                  </button>
+                </div>
+
+                {/* Character Clicker */}
+                <div className="control-group">
+                  <label>Character Clicker</label>
+                  <button
+                    className={`btn-toggle-subtle flex items-center justify-center gap-2 h-9 ${randomClickerEnabled ? 'active-accent' : 'inactive'}`}
+                    onClick={() => setRandomClickerEnabled(!randomClickerEnabled)}
+                  >
+                    <Shuffle size={13} />
+                    <span>{randomClickerEnabled ? 'Clicker: ON (2s)' : 'Clicker: OFF'}</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -892,19 +1186,8 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
               />
             </div>
 
-            {/* Split Wireless Link */}
+            {/* Typing Speed (WPM) (Single Slider) */}
             <div className="control-group">
-              <label>Split Wireless Link</label>
-              <button
-                className={`btn-toggle-subtle ${splitConnected ? 'active-accent' : 'inactive'}`}
-                onClick={() => setSplitConnected(!splitConnected)}
-              >
-                <span>{splitConnected ? 'Linked (Connected)' : 'Disconnected (Unlinked)'}</span>
-              </button>
-            </div>
-
-            {/* WPM Speed Gauge */}
-            <div className="control-group full-width">
               <div className="label-with-value">
                 <label className="flex items-center gap-1">
                   <Gauge size={14} className="text-accent" />
@@ -920,17 +1203,6 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
                 onChange={e => setWpm(parseInt(e.target.value, 10))}
                 className="slider-range"
               />
-              <div className="wpm-arrow-preview">
-                {[1, 10, 25, 40, 60, 80, 100].map((th, idx) => (
-                  <span
-                    key={idx}
-                    className={`gauge-pip ${wpm >= th ? 'lit' : ''}`}
-                    title={`Stage ${idx + 1}: ${th}+ WPM`}
-                  >
-                    ▲
-                  </span>
-                ))}
-              </div>
             </div>
           </div>
         </div>

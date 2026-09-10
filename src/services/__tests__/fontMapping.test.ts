@@ -5,20 +5,55 @@ import { DEFAULT_FONT_MAPPINGS } from '../../types/zmk';
 import { generateCHeader, parseCHeader } from '../cHeaderParser';
 
 describe('Font Character Mapping & Dual-Slot Architecture', () => {
-  it('DEFAULT_FONT_MAPPINGS contains digits in Big slot and letters in Small slot', () => {
+  it('DEFAULT_FONT_MAPPINGS contains both Big and Small slots for digits and letters, plus Kana and Kanji', () => {
     const digit0 = DEFAULT_FONT_MAPPINGS.find(m => m.chars === '0');
     expect(digit0).toBeDefined();
     expect(digit0?.big).toBeDefined();
     expect(digit0?.big?.width).toBe(8);
     expect(digit0?.big?.height).toBe(10);
-    expect(digit0?.small).toBeNull();
+    expect(digit0?.small).toBeDefined();
+    expect(digit0?.small?.width).toBe(3);
+    expect(digit0?.small?.height).toBe(5);
 
     const charA = DEFAULT_FONT_MAPPINGS.find(m => m.chars.includes('A'));
     expect(charA).toBeDefined();
     expect(charA?.small).toBeDefined();
-    expect(charA?.small?.width).toBe(4);
+    expect(charA?.small?.width).toBe(3);
     expect(charA?.small?.height).toBe(5);
-    expect(charA?.big).toBeNull();
+    expect(charA?.big).toBeDefined();
+    expect(charA?.big?.width).toBe(5);
+    expect(charA?.big?.height).toBe(10);
+
+    const acuteA = DEFAULT_FONT_MAPPINGS.find(m => m.chars.includes('Á'));
+    expect(acuteA).toBeDefined();
+    expect(acuteA?.small?.height).toBe(6);
+    expect(acuteA?.big?.height).toBe(12);
+
+    const hiraA = DEFAULT_FONT_MAPPINGS.find(m => m.chars === 'あ');
+    expect(hiraA).toBeDefined();
+    expect(hiraA?.small?.width).toBe(8);
+    expect(hiraA?.small?.height).toBe(8);
+    expect(hiraA?.big?.width).toBe(10);
+    expect(hiraA?.big?.height).toBe(10);
+
+    const kataA = DEFAULT_FONT_MAPPINGS.find(m => m.chars === 'ア');
+    expect(kataA).toBeDefined();
+    expect(kataA?.small?.width).toBe(8);
+    expect(kataA?.small?.height).toBe(8);
+    expect(kataA?.big?.width).toBe(10);
+    expect(kataA?.big?.height).toBe(10);
+
+    const symExcl = DEFAULT_FONT_MAPPINGS.find(m => m.chars === '!');
+    expect(symExcl).toBeDefined();
+    expect(symExcl?.small?.height).toBe(5);
+    expect(symExcl?.big?.height).toBe(10);
+
+    const kanjiWolf = DEFAULT_FONT_MAPPINGS.find(m => m.chars === '狼');
+    expect(kanjiWolf).toBeDefined();
+    expect(kanjiWolf?.small?.width).toBe(8);
+    expect(kanjiWolf?.small?.height).toBe(8);
+    expect(kanjiWolf?.big?.width).toBe(10);
+    expect(kanjiWolf?.big?.height).toBe(10);
   });
 
   it('supports multi-character aliases (e.g. aAÁ)', () => {
@@ -129,5 +164,24 @@ describe('Font Character Mapping & Dual-Slot Architecture', () => {
     expect(parsedA?.small?.width).toBe(4);
     expect(parsedA?.big).toBeDefined();
     expect(parsedA?.big?.width).toBe(8);
+  });
+
+  it('provides proportional modern pixel big font for alphabet (e.g. A is 5px, E is 4px, I is 3px, M is 7px)', () => {
+    const a = DEFAULT_FONT_MAPPINGS.find(m => m.id === 'FONT_CHAR_A');
+    const i = DEFAULT_FONT_MAPPINGS.find(m => m.id === 'FONT_CHAR_I');
+    const m = DEFAULT_FONT_MAPPINGS.find(m => m.id === 'FONT_CHAR_M');
+    const e = DEFAULT_FONT_MAPPINGS.find(m => m.id === 'FONT_CHAR_E');
+
+    expect(a?.big?.width).toBe(5);
+    expect(a?.big?.advanceX).toBe(6);
+
+    expect(i?.big?.width).toBe(3);
+    expect(i?.big?.advanceX).toBe(4);
+
+    expect(m?.big?.width).toBe(7);
+    expect(m?.big?.advanceX).toBe(8);
+
+    expect(e?.big?.width).toBe(4);
+    expect(e?.big?.advanceX).toBe(5);
   });
 });

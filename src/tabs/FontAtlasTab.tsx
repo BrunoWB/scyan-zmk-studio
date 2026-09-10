@@ -10,6 +10,7 @@ import {
   Crosshair,
   X,
   Search,
+  Sparkles,
 } from 'lucide-react';
 
 export interface FontAtlasTabProps {
@@ -19,6 +20,19 @@ export interface FontAtlasTabProps {
   onFontMappingsChange: (mappings: FontCharMapping[]) => void;
 }
 
+export const GHOST_SENTENCES = [
+  'Hello World',
+  'Lorem Ipsum',
+  'Scyan Studio',
+  'Corne 5x3 Split',
+  '120 WPM Speedy',
+  'Quick Brown Fox',
+  'Cyberpunk OLED',
+  'あいうえお 狼',
+  'ZMK Firmware Active',
+  'Click Clack Thock!',
+];
+
 export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
   fontGrid,
   onFontGridChange,
@@ -26,9 +40,14 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
   onFontMappingsChange,
 }) => {
   const [selectedMappingId, setSelectedMappingId] = useState<string>(fontMappings[0]?.id || '');
+  const [selectedMappingIds, setSelectedMappingIds] = useState<Set<string>>(
+    new Set(fontMappings[0]?.id ? [fontMappings[0].id] : [])
+  );
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [newCharsInput, setNewCharsInput] = useState<string>('');
-  const [previewString, setPreviewString] = useState<string>('QWERTY 120 WPM ÁÉÍÓÚ 漢');
+  const [userInput, setUserInput] = useState<string>('');
+  const [ghostText, setGhostText] = useState<string>('');
+  const sentenceIdxRef = useRef<number>(0);
   const [previewFontSize, setPreviewFontSize] = useState<'small' | 'big'>('small');
 
   const [assigningSlot, setAssigningSlot] = useState<{
@@ -153,6 +172,69 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
     else return match.big || match.small || null;
   };
 
+  // Ghost typing animated demo effect
+  useEffect(() => {
+    // If user has typed anything, stop ghost typing
+    if (userInput !== '') {
+      return;
+    }
+
+    let isMounted = true;
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    let charIdx = 0;
+    let phase: 'typing' | 'pausing' | 'deleting' = 'typing';
+
+    const step = () => {
+      if (!isMounted) return;
+
+      const sentence = GHOST_SENTENCES[sentenceIdxRef.current];
+
+      if (phase === 'typing') {
+        if (charIdx < sentence.length) {
+          charIdx++;
+          setGhostText(sentence.slice(0, charIdx));
+          // Fast typing: 75ms to 140ms per char
+          const delay = Math.floor(75 + Math.random() * 65);
+          timeoutId = setTimeout(step, delay);
+        } else {
+          // Fully typed, hold to read for 2-3 seconds
+          phase = 'pausing';
+          const delay = Math.floor(2000 + Math.random() * 1000);
+          timeoutId = setTimeout(step, delay);
+        }
+      } else if (phase === 'pausing') {
+        phase = 'deleting';
+        // start deleting fast
+        timeoutId = setTimeout(step, 40);
+      } else if (phase === 'deleting') {
+        if (charIdx > 0) {
+          charIdx--;
+          setGhostText(sentence.slice(0, charIdx));
+          // Fast backspacing: 40ms per character
+          timeoutId = setTimeout(step, 40);
+        } else {
+          // Finished deleting, advance to next word/sentence and loop
+          sentenceIdxRef.current = (sentenceIdxRef.current + 1) % GHOST_SENTENCES.length;
+          phase = 'typing';
+          charIdx = 0;
+          setGhostText('');
+          timeoutId = setTimeout(step, 300);
+        }
+      }
+    };
+
+    // Initial kick-off
+    timeoutId = setTimeout(step, 300);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+    };
+  }, [userInput]);
+
+  const activeDisplayString = userInput || ghostText;
+
   useEffect(() => {
     const canvas = previewCanvasRef.current;
     if (!canvas) return;
@@ -163,22 +245,26 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
     const baseHeight = previewFontSize === 'big' ? 18 : 12;
     let totalWidth = 6;
 
-    for (let i = 0; i < previewString.length; i++) {
-      const char = previewString[i];
+    for (let i = 0; i < activeDisplayString.length; i++) {
+      const char = activeDisplayString[i];
       if (char === ' ') { totalWidth += previewFontSize === 'big' ? 6 : 4; continue; }
       const slot = findGlyphForChar(char, previewFontSize);
       totalWidth += slot ? (slot.advanceX ?? (slot.width + 1)) : (previewFontSize === 'big' ? 6 : 4);
     }
 
-    canvas.width = Math.max(120, totalWidth * scale);
-    canvas.height = baseHeight * scale;
+    if (!userInput) {
+      totalWidth += 6; // Space for ghost typing cursor
+    }
+
+    canvas.width = Math.max(120, Math.ceil(totalWidth * scale));
+    canvas.height = Math.ceil(baseHeight * scale);
     ctx.fillStyle = '#0f1217';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = previewFontSize === 'big' ? '#c084fc' : '#00d2ff';
     let curX = 3;
 
-    for (let i = 0; i < previewString.length; i++) {
-      const char = previewString[i];
+    for (let i = 0; i < activeDisplayString.length; i++) {
+      const char = activeDisplayString[i];
       if (char === ' ') { curX += previewFontSize === 'big' ? 6 : 4; continue; }
       const slot = findGlyphForChar(char, previewFontSize);
       if (slot) {
@@ -195,7 +281,14 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
         curX += previewFontSize === 'big' ? 6 : 4;
       }
     }
-  }, [previewString, previewFontSize, fontGrid, fontMappings]);
+
+    // Ghost typing cursor
+    if (!userInput) {
+      const cursorY = Math.max(1, Math.floor((baseHeight - 8) / 2));
+      ctx.fillStyle = previewFontSize === 'big' ? '#c084fc' : '#00d2ff';
+      ctx.fillRect((curX + 1) * scale, cursorY * scale, Math.max(2, scale * 0.7), 8 * scale);
+    }
+  }, [activeDisplayString, previewFontSize, fontGrid, fontMappings, userInput]);
 
   const renderSlotThumb = (slot: GlyphSlot, isBig: boolean, scale = 2) => (
     <canvas
@@ -224,36 +317,22 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
 
   return (
     <div className="atlas-tab-container">
-      {/* Left/Center: Canvas editor + String Renderer below */}
+      {/* Left/Center: Top String Renderer + Canvas editor below */}
       <div className="atlas-editor-pane font-atlas-editor-pane">
-        <div className="font-canvas-flex">
-          <BwpxEditor
-            initialWidth={128}
-            initialHeight={22}
-            initialGrid={fontGrid}
-            onGridChange={onFontGridChange}
-            title="FONT & CHARACTER ATLAS (1BPP)"
-            showPresets={false}
-            slices={glyphSlices}
-            selectedSliceId={selectedSliceId}
-            externalTool={assigningSlot ? 'select' : undefined}
-            onSelectSlice={id => {
-              const [mappingId] = id.split('__');
-              if (mappingId) setSelectedMappingId(mappingId);
-            }}
-            onNewSelection={handleNewSelection}
-            onSliceMove={handleSliceMove}
-          />
-        </div>
-
-        {/* Interactive String Renderer */}
-        <div className="font-preview-bottom-bar">
-          <div className="font-preview-bottom-inner">
+        {/* Interactive String Renderer (Top) */}
+        <div className="font-preview-top-bar">
+          <div className="font-preview-top-inner">
             <div className="flex items-center gap-3 mb-2">
               <label className="text-xs text-muted flex items-center gap-1 whitespace-nowrap">
                 <Play size={11} className="text-accent" />
                 <span>String Renderer</span>
               </label>
+              {!userInput && (
+                <span className="flex items-center gap-1 text-[10px] font-mono text-accent/80 bg-accent/10 px-1.5 py-0.5 rounded border border-accent/20 animate-pulse">
+                  <Sparkles size={10} />
+                  <span>ghost typing</span>
+                </span>
+              )}
               <div className="font-size-toggle-group ml-auto">
                 <button
                   className={`btn-toggle-subtle text-[10px] px-2 py-0.5 ${previewFontSize === 'small' ? 'active font-bold' : ''}`}
@@ -274,14 +353,89 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
             <div className="font-preview-canvas-wrapper mb-2">
               <canvas ref={previewCanvasRef} className="font-preview-canvas" />
             </div>
-            <input
-              type="text"
-              value={previewString}
-              onChange={e => setPreviewString(e.target.value)}
-              className="input-text-dark text-xs font-mono"
-              placeholder="Type text or kanji to test font..."
-            />
+            <div className="relative flex items-center">
+              <input
+                type="text"
+                value={userInput}
+                onChange={e => setUserInput(e.target.value)}
+                className="input-text-dark text-xs font-mono w-full pr-8"
+                placeholder={ghostText || "Type text, hiragana, katakana, or 狼 to test font..."}
+              />
+              {userInput && (
+                <button
+                  type="button"
+                  onClick={() => setUserInput('')}
+                  className="absolute right-2 text-muted hover:text-white text-xs transition-colors px-1"
+                  title="Clear text (resume ghost typing)"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
+        </div>
+
+        <div className="font-canvas-flex">
+          <BwpxEditor
+            initialWidth={fontGrid.width}
+            initialHeight={fontGrid.height}
+            initialGrid={fontGrid}
+            onGridChange={onFontGridChange}
+            title="FONT & CHARACTER ATLAS (1BPP)"
+            showPresets={false}
+            slices={glyphSlices}
+            selectedSliceId={selectedSliceId}
+            selectedSliceIds={Array.from(selectedMappingIds).flatMap(mid => {
+              const m = fontMappings.find(fm => fm.id === mid);
+              if (!m) return [];
+              const ids: string[] = [];
+              if (m.small) ids.push(`${mid}__small`);
+              if (m.big) ids.push(`${mid}__big`);
+              return ids;
+            })}
+            externalTool={assigningSlot ? 'select' : undefined}
+            onSelectSlice={(id, isMulti) => {
+              if (!id) {
+                setSelectedMappingIds(new Set());
+                setSelectedMappingId('');
+                return;
+              }
+              const [mappingId] = id.split('__');
+              if (!mappingId) return;
+              if (isMulti) {
+                setSelectedMappingIds(prev => {
+                  const next = new Set(prev);
+                  if (next.has(mappingId)) next.delete(mappingId);
+                  else next.add(mappingId);
+                  return next;
+                });
+              } else {
+                setSelectedMappingIds(new Set([mappingId]));
+                setSelectedMappingId(mappingId);
+              }
+            }}
+            onSelectSlices={(ids) => {
+              const mappingIds = new Set(ids.map(id => id.split('__')[0]).filter(Boolean));
+              setSelectedMappingIds(mappingIds);
+              const firstId = Array.from(mappingIds)[0];
+              if (firstId) setSelectedMappingId(firstId);
+            }}
+            onNewSelection={handleNewSelection}
+            onSliceMove={handleSliceMove}
+            onSlicesMove={(updates) => {
+              const next = fontMappings.map(m => {
+                const allUpdates = updates.filter(upd => upd.id.startsWith(m.id + '__'));
+                if (allUpdates.length === 0) return m;
+                const dx = allUpdates[0].dx;
+                const dy = allUpdates[0].dy;
+                let updated = { ...m };
+                if (m.small) updated = { ...updated, small: { ...m.small, x: m.small.x + dx, y: m.small.y + dy } };
+                if (m.big) updated = { ...updated, big: { ...m.big, x: m.big.x + dx, y: m.big.y + dy } };
+                return updated;
+              });
+              onFontMappingsChange(next);
+            }}
+          />
         </div>
       </div>
 
@@ -429,42 +583,63 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
         {/* Compact Scrollable List */}
         <div className="slices-list-scroll mt-2">
           {filteredMappings.map(mapping => {
-            const isSelected = mapping.id === selectedMappingId;
+            const isSelected = selectedMappingIds.has(mapping.id) || mapping.id === selectedMappingId;
             const isAssigningThis = assigningSlot?.mappingId === mapping.id;
             return (
               <div
                 key={mapping.id}
-                className={`font-mapping-row ${isSelected ? 'active' : ''} ${isAssigningThis ? 'assigning' : ''}`}
-                onClick={() => setSelectedMappingId(mapping.id)}
+                onClick={() => {
+                  setSelectedMappingId(mapping.id);
+                  setSelectedMappingIds(new Set([mapping.id]));
+                }}
+                className="relative mb-2 rounded-xl p-2 px-3 flex items-center justify-between border transition-all cursor-pointer"
+                style={{
+                  background: isAssigningThis ? 'rgba(169,83,246,0.08)' : '#131722',
+                  borderColor: isSelected
+                    ? '#00f0ff'
+                    : isAssigningThis
+                    ? 'rgba(169,83,246,0.5)'
+                    : '#1e2538',
+                  boxShadow: isSelected ? '0 0 12px rgba(0,240,255,0.25)' : undefined,
+                }}
               >
-                <div className="font-mapping-row-left">
-                  <span className="font-mapping-char-badge">{mapping.chars || '?'}</span>
-                  <div className="font-mapping-slot-badges">
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className="font-mono text-sm font-bold w-7 text-center"
+                    style={{ color: isSelected ? '#00f0ff' : '#e2e8f0' }}
+                  >
+                    {mapping.chars || '?'}
+                  </span>
+                  <div className="flex items-center gap-1.5">
                     {mapping.small ? (
-                      <span className="font-slot-badge small">{mapping.small.width}x{mapping.small.height}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/30">
+                        S {mapping.small.width}×{mapping.small.height}
+                      </span>
                     ) : (
-                      <span className="font-slot-badge empty">S -</span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono text-[#555e6e] border border-[#1e2538]">S —</span>
                     )}
                     {mapping.big ? (
-                      <span className="font-slot-badge big">{mapping.big.width}x{mapping.big.height}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[#a953f6]/15 text-[#a953f6] border border-[#a953f6]/30">
+                        B {mapping.big.width}×{mapping.big.height}
+                      </span>
                     ) : (
-                      <span className="font-slot-badge empty">B -</span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono text-[#555e6e] border border-[#1e2538]">B —</span>
                     )}
                   </div>
                 </div>
-                <div className="font-mapping-row-right">
+                <div className="flex items-center gap-1.5">
                   {mapping.small && (
-                    <div className="font-slot-thumb-wrapper">
+                    <div className="bg-[#0b0d13] border border-[#1e2538] rounded-lg p-0.5 flex items-center justify-center">
                       {renderSlotThumb(mapping.small, false, 1.5)}
                     </div>
                   )}
                   {mapping.big && (
-                    <div className="font-slot-thumb-wrapper">
+                    <div className="bg-[#0b0d13] border border-[#1e2538] rounded-lg p-0.5 flex items-center justify-center">
                       {renderSlotThumb(mapping.big, true, 1.5)}
                     </div>
                   )}
                   <button
-                    className="btn-slice-delete"
+                    className="text-[#555e6e] hover:text-[#f2741d] p-1 rounded transition-colors cursor-pointer"
                     onClick={e => { e.stopPropagation(); handleDeleteMapping(mapping.id); }}
                     title="Delete mapping"
                   >

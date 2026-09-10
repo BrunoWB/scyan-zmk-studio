@@ -25,6 +25,7 @@ import {
   getKeyAliases,
   getCoordForPhysicalScanCode,
   getMatchingKeyCoords,
+  formatLayerLabel,
 } from '../keymapService';
 import type { GitHubRepoConfig } from '../githubService';
 
@@ -815,6 +816,31 @@ describe('User Repository Test Set (BrunoWB/zmk-config)', () => {
       // Pressing 'z' on a numpad layer should NOT light up L_2_0
       const matches = getMatchingKeyCoords({ key: 'z', code: 'KeyZ' }, numpadLayout);
       expect(matches).toEqual([]);
+    });
+  });
+
+  describe('formatLayerLabel - Numerical layers with GitHub name in parentheses', () => {
+    it('formats layer with numerical index and human-readable name', () => {
+      expect(formatLayerLabel(0, 'DEFAULT')).toBe('Layer 0 (DEFAULT)');
+      expect(formatLayerLabel(0, 'QWERTY')).toBe('Layer 0 (QWERTY)');
+      expect(formatLayerLabel(1, 'LOWER')).toBe('Layer 1 (LOWER)');
+      expect(formatLayerLabel(2, 'RAISE')).toBe('Layer 2 (RAISE)');
+      expect(formatLayerLabel(3, 'ADJUST')).toBe('Layer 3 (ADJUST)');
+      expect(formatLayerLabel(4, 'NAV')).toBe('Layer 4 (NAV)');
+    });
+
+    it('formats numerical or absent names cleanly as Layer N', () => {
+      expect(formatLayerLabel(0, '')).toBe('Layer 0');
+      expect(formatLayerLabel(0, undefined)).toBe('Layer 0');
+      expect(formatLayerLabel(0, '0')).toBe('Layer 0');
+      expect(formatLayerLabel(1, '1')).toBe('Layer 1');
+      expect(formatLayerLabel(2, 'LAYER_2')).toBe('Layer 2');
+      expect(formatLayerLabel(3, 'Layer 3')).toBe('Layer 3');
+      expect(formatLayerLabel(4, 'L4')).toBe('Layer 4');
+    });
+
+    it('trims whitespace and formats cleanly', () => {
+      expect(formatLayerLabel(2, '  NUMPAD  ')).toBe('Layer 2 (NUMPAD)');
     });
   });
 });

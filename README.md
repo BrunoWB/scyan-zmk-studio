@@ -1,73 +1,61 @@
 # Scyan ZMK Studio
 
-> **Interactive 2-Atlas display layout, widget design, and sprite editor for ZMK keyboards.**
+A visual display editor and C header generator for ZMK keyboards (built for Corne split OLEDs, but adaptable to other SSD1306 setups).
 
-[![Live Web App](https://img.shields.io/badge/Live%20App-brunowb.github.io%2Fscyan--zmk--studio-blue?style=flat-square)](https://brunowb.github.io/scyan-zmk-studio)
-[![Built with React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react)](https://react.dev/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
-[![Vite](https://img.shields.io/badge/Vite-6.x-646CFF?style=flat-square&logo=vite)](https://vite.dev/)
+👉 **[Try the web app](https://brunowb.github.io/scyan-zmk-studio)**
 
 ---
 
-## 🚀 Live App
+## What is this?
 
-Access the studio directly in your browser:  
-👉 **[https://brunowb.github.io/scyan-zmk-studio](https://brunowb.github.io/scyan-zmk-studio)**
+Configuring OLED displays in ZMK usually means messing with raw C byte arrays, guessing pixel offsets, and re-flashing firmware just to see if an icon moved 2 pixels to the left.
 
----
+This tool gives you a visual workspace to:
+- Draw icons, screensavers, and fonts in a built-in 1-bit pixel editor (with image import and dithering).
+- Drag and drop widgets (battery, layer, WPM, bongo cat, etc.) onto your left and right displays for both active and idle states.
+- Preview everything in an interactive OLED simulator (type on the virtual keyboard, watch WPM graphs update, simulate battery discharge and layer hops).
+- Commit `config/scyan_assets.h` directly to your `zmk-config` repository to trigger a fresh firmware build via GitHub Actions.
 
-## ✨ Features
-
-* **🎨 2-Atlas Sprite & Font Architecture**:
-  * Dual-atlas canvas system (`SYMBOLS_ATLAS` and `FONT_ATLAS`) configured with dynamic strides and dimensions.
-  * Direct 1bpp monochrome drawing tools: Pencil, Line, Rectangle, Fill, and Erase.
-* **🔤 Font & Glyph Mapping**:
-  * Visual glyph slicing with support for small and large font variants.
-  * Custom character mappings linking ASCII/Unicode characters directly to atlas coordinates.
-* **📱 Interactive Widget Layout Studio**:
-  * Visual layout canvas supporting custom screen dimensions (e.g., Corne OLED 32×128, 128×32, Nice!View, etc.).
-  * Dedicated layout blocks for Battery, Output Status (USB/BLE), Layer indicators, WPM counters & graphs, Branding, Screensavers, and custom text.
-  * Independent **Active** and **Idle** screen configurations.
-* **🔄 Round-Trip State Preservation**:
-  * Generates zero-flash-overhead C headers (`scyan_assets.h`) for ZMK.
-  * Embeds metadata into safe C comment blocks (`ZMK_DISPLAY_STUDIO_METADATA`) allowing you to re-import existing headers without losing studio state.
-* **🐙 GitHub Direct Sync**:
-  * Connect your GitHub Personal Access Token (PAT) to directly pull from and commit updates to your `zmk-config` or `zmk-display-core` repository.
-  * Automated firmware build triggers upon committing to your config repository.
+The generated header includes embedded metadata comments, so you can load your `scyan_assets.h` back into the editor anytime to keep tweaking where you left off.
 
 ---
 
-## 🛠️ Local Development
+## How it fits together
 
-### Prerequisites
-* [Node.js](https://nodejs.org/) (v20+)
-* npm (v10+)
+```
+[bwpx-editor] ──> [scyan-zmk-studio] ──(GitHub commit)──> [zmk-config]
+  (pixel core)         (this IDE)                              │
+                                                          [west build]
+                                                               │
+                                                      [scyan-zmk-module]
+                                                       (firmware driver)
+```
 
-### Setup
+- **`scyan-zmk-studio`** (here): The web UI where you design layouts, edit sprites, and export the C header.
+- **[`scyan-zmk-module`](https://github.com/BrunoWB/scyan-zmk-module)**: The companion ZMK module that handles 1bpp blitting, 90° rotation, and widget rendering on your microcontroller.
+- **[`bwpx-editor`](https://github.com/BrunoWB/bwpx-editor)**: The upstream 1-bit pixel editor and raster core used inside this app.
+- **[`zmk-config`](https://github.com/BrunoWB/zmk-config)**: Your keyboard configuration repository where GitHub Actions compiles your `.uf2` firmware.
+
+---
+
+## Development
+
 ```bash
-# Clone repository
 git clone https://github.com/BrunoWB/scyan-zmk-studio.git
 cd scyan-zmk-studio
-
-# Install dependencies
 npm install
-
-# Start development server
 npm run dev
 ```
 
-### Testing & Verification
-```bash
-# Run unit tests
-npm test
+### Scripts
 
-# Production build
-npm run build
-```
+- `npm run dev`: Start local Vite dev server
+- `npm test`: Run test suite (Vitest)
+- `npm run lint`: Run linter (Oxlint)
+- `npm run build`: Type-check and build production assets
 
 ---
 
-## 🔗 Related Repositories
+## License
 
-* [BrunoWB/zmk-config](https://github.com/BrunoWB/zmk-config) — Custom ZMK keyboard configuration.
-* [BrunoWB/zmk-display-core](https://github.com/BrunoWB/zmk-display-core) — Core display runtime module for custom ZMK widgets.
+Personal and non-commercial use only. See [LICENSE](LICENSE) for details.

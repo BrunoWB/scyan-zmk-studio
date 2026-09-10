@@ -13,6 +13,28 @@ export interface HeaderMetadata {
   idleRightBlocks?: LayoutBlock[];
   screenDimensions?: { width: number; height: number };
   widgetInstances?: WidgetInstanceMap;
+  /** Seconds of inactivity before switching to the idle layout (default 30) */
+  idleTimeoutSec?: number;
+  /** Seconds after going idle before the OLED turns off completely (default 60) */
+  screenOffTimeoutSec?: number;
+  /** Whether idle screens are enabled (default true) */
+  idleScreensEnabled?: boolean;
+  /** Whether left and right halves share the same display & power settings (default true) */
+  symmetricSettings?: boolean;
+  /** Right screen dimensions when asymmetric */
+  rightScreenDimensions?: { width: number; height: number };
+  /** Right idle screens toggle when asymmetric */
+  rightIdleScreensEnabled?: boolean;
+  /** Right idle timeout in seconds when asymmetric */
+  rightIdleTimeoutSec?: number;
+  /** Right screen off timeout in seconds when asymmetric */
+  rightScreenOffTimeoutSec?: number;
+  /** Bongo Cat tap animation duration in milliseconds (default 60, matches CONFIG_SCYAN_BONGO_TAP_MS) */
+  bongoTapMs?: number;
+  /** Bongo Cat debounce interval in milliseconds (default 100) */
+  bongoDebounceMs?: number;
+  /** Active keyboard layer names loaded from ZMK keymap */
+  layerNames?: string[];
 }
 
 export interface ParsedAssets {
@@ -315,6 +337,30 @@ export function parseCHeader(cCode: string): ParsedAssets {
       ? { width: parseInt(virtWidthMatch[1], 10), height: parseInt(virtHeightMatch[1], 10) }
       : undefined;
 
+    // 6b. Parse display power-management timer defines & idle screens configuration
+    const idleTimeoutMsMatch = cCode.match(/#define\s+(?:ZMK_DISPLAY_IDLE_TIMEOUT_MS|CONFIG_SCYAN_IDLE_TIMEOUT_MS|SCYAN_IDLE_TIMEOUT_MS)\s+(\d+)/);
+    const sleepTimeoutMsMatch = cCode.match(/#define\s+(?:ZMK_DISPLAY_SLEEP_TIMEOUT_MS|CONFIG_ZMK_IDLE_TIMEOUT|SCYAN_SLEEP_TIMEOUT_MS)\s+(\d+)/);
+    const idleScreensMatch = cCode.match(/#define\s+(?:ZMK_DISPLAY_IDLE_SCREENS_ENABLED|SCYAN_IDLE_SCREENS_ENABLED)\s+(\d+)/);
+    const parsedIdleTimeoutSec = idleTimeoutMsMatch ? Math.round(parseInt(idleTimeoutMsMatch[1], 10) / 1000) : undefined;
+    const parsedScreenOffTimeoutSec = sleepTimeoutMsMatch ? Math.round(parseInt(sleepTimeoutMsMatch[1], 10) / 1000) : undefined;
+    const parsedIdleScreensEnabled = idleScreensMatch ? (parseInt(idleScreensMatch[1], 10) !== 0) : undefined;
+
+    // 6c. Parse right-specific dimensions & power timers (if defined for asymmetric hardware)
+    const rightVirtWidthMatch = cCode.match(/#define\s+DISPLAY_VIRTUAL_WIDTH_RIGHT\s+(\d+)/);
+    const rightVirtHeightMatch = cCode.match(/#define\s+DISPLAY_VIRTUAL_HEIGHT_RIGHT\s+(\d+)/);
+    const rightScreenDims = (rightVirtWidthMatch && rightVirtHeightMatch)
+      ? { width: parseInt(rightVirtWidthMatch[1], 10), height: parseInt(rightVirtHeightMatch[1], 10) }
+      : undefined;
+
+    const rightIdleTimeoutMsMatch = cCode.match(/#define\s+(?:SCYAN_IDLE_TIMEOUT_MS_RIGHT|CONFIG_SCYAN_IDLE_TIMEOUT_MS_RIGHT)\s+(\d+)/);
+    const rightSleepTimeoutMsMatch = cCode.match(/#define\s+(?:SCYAN_SLEEP_TIMEOUT_MS_RIGHT|CONFIG_SCYAN_SLEEP_TIMEOUT_MS_RIGHT)\s+(\d+)/);
+    const rightIdleScreensMatch = cCode.match(/#define\s+SCYAN_IDLE_SCREENS_ENABLED_RIGHT\s+(\d+)/);
+    const parsedRightIdleTimeoutSec = rightIdleTimeoutMsMatch ? Math.round(parseInt(rightIdleTimeoutMsMatch[1], 10) / 1000) : undefined;
+    const parsedRightScreenOffTimeoutSec = rightSleepTimeoutMsMatch ? Math.round(parseInt(rightSleepTimeoutMsMatch[1], 10) / 1000) : undefined;
+    const parsedRightIdleScreensEnabled = rightIdleScreensMatch ? (parseInt(rightIdleScreensMatch[1], 10) !== 0) : undefined;
+
+    const isAsymmetricC = !!(rightScreenDims || parsedRightIdleTimeoutSec !== undefined || parsedRightScreenOffTimeoutSec !== undefined || parsedRightIdleScreensEnabled !== undefined);
+
     // 7. If metadata JSON was missing or incomplete, reconstruct from C layout block arrays
     if (!metadata || (!metadata.leftBlocks && !metadata.rightBlocks)) {
       const parseCBlocks = (arrayName: string, side: 'left' | 'right') => {
@@ -447,6 +493,36 @@ export function parseCHeader(cCode: string): ParsedAssets {
                       }
                     }
                   }
+                } else if (widgetType === 'bongo') {
+                  if (!metadata) metadata = { version: 1 };
+                  if (!metadata.widgetInstances) metadata.widgetInstances = {};
+                  if (!metadata.widgetInstances['bongo'] || metadata.widgetInstances['bongo'].length === 0) {
+                    const symIdMatch = body.match(/\.symbol_id\s*=\s*([A-Za-z0-9_]+)/);
+                    const symIdsMatch = body.match(/\.symbol_ids\s*=\s*\{([^}]+)\}/);
+                    let resolvedGroupId = 'SYMBOL_SLICE_40_4046';
+                    if (symIdsMatch && symIdsMatch[1]) {
+                      const firstSym = symIdsMatch[1].split(',')[0].trim();
+                      const sliceMatch = symbolSlices.find(s => s.id === firstSym);
+                      resolvedGroupId = sliceMatch?.groupId || firstSym;
+                    } else if (symIdMatch && symIdMatch[1]) {
+                      const sliceMatch = symbolSlices.find(s => s.id === symIdMatch[1]);
+                      resolvedGroupId = sliceMatch?.groupId || symIdMatch[1];
+                    }
+
+                    metadata.widgetInstances['bongo'] = [{
+                      id: parsedBlock.instanceId!,
+                      widgetTypeId: 'bongo',
+                      label: 'Bongo Cat',
+                      config: {
+                        mode: 'symbol',
+                        groupId: resolvedGroupId,
+                        textEntries: [customText || '(=^.^=)'],
+                        bongoTapMs: 60,
+                        bongoDebounceMs: 100,
+                      },
+                      slots: {},
+                    }];
+                  }
                 }
               }
               start = -1;
@@ -470,11 +546,51 @@ export function parseCHeader(cCode: string): ParsedAssets {
           idleRightBlocks: idleRightBlocks || metadata?.idleRightBlocks,
           screenDimensions: screenDims || metadata?.screenDimensions,
           widgetInstances: metadata?.widgetInstances,
+          idleTimeoutSec: metadata?.idleTimeoutSec ?? parsedIdleTimeoutSec,
+          screenOffTimeoutSec: metadata?.screenOffTimeoutSec ?? parsedScreenOffTimeoutSec,
+          idleScreensEnabled: metadata?.idleScreensEnabled ?? parsedIdleScreensEnabled,
+          symmetricSettings: metadata?.symmetricSettings ?? (!isAsymmetricC),
+          rightScreenDimensions: rightScreenDims || metadata?.rightScreenDimensions,
+          rightIdleTimeoutSec: metadata?.rightIdleTimeoutSec ?? parsedRightIdleTimeoutSec,
+          rightScreenOffTimeoutSec: metadata?.rightScreenOffTimeoutSec ?? parsedRightScreenOffTimeoutSec,
+          rightIdleScreensEnabled: metadata?.rightIdleScreensEnabled ?? parsedRightIdleScreensEnabled,
         };
       }
     } else if (screenDims && !metadata.screenDimensions) {
       metadata.screenDimensions = screenDims;
     }
+    // Merge parsed timer values into existing metadata if not already present
+    if (metadata) {
+      if (parsedIdleTimeoutSec !== undefined && metadata.idleTimeoutSec === undefined) {
+        metadata.idleTimeoutSec = parsedIdleTimeoutSec;
+      }
+      if (parsedScreenOffTimeoutSec !== undefined && metadata.screenOffTimeoutSec === undefined) {
+        metadata.screenOffTimeoutSec = parsedScreenOffTimeoutSec;
+      }
+      if (parsedIdleScreensEnabled !== undefined && metadata.idleScreensEnabled === undefined) {
+        metadata.idleScreensEnabled = parsedIdleScreensEnabled;
+      }
+      if (metadata.symmetricSettings === undefined) {
+        if (metadata.rightScreenDimensions || isAsymmetricC) {
+          metadata.symmetricSettings = false;
+        } else {
+          metadata.symmetricSettings = true;
+        }
+      }
+      if (rightScreenDims && !metadata.rightScreenDimensions) {
+        metadata.rightScreenDimensions = rightScreenDims;
+      }
+      if (parsedRightIdleTimeoutSec !== undefined && metadata.rightIdleTimeoutSec === undefined) {
+        metadata.rightIdleTimeoutSec = parsedRightIdleTimeoutSec;
+      }
+      if (parsedRightScreenOffTimeoutSec !== undefined && metadata.rightScreenOffTimeoutSec === undefined) {
+        metadata.rightScreenOffTimeoutSec = parsedRightScreenOffTimeoutSec;
+      }
+      if (parsedRightIdleScreensEnabled !== undefined && metadata.rightIdleScreensEnabled === undefined) {
+        metadata.rightIdleScreensEnabled = parsedRightIdleScreensEnabled;
+      }
+    }
+
   } catch (err) {
     console.warn('Error parsing C header, falling back to defaults:', err);
   }
@@ -564,7 +680,12 @@ export function generateCHeader(
       seenBig.add(g.codepoint);
       return true;
     });
-    allGlyphs = [...smallGlyphs, ...bigGlyphs];
+    const seenAll = new Set<number>();
+    allGlyphs = [...smallGlyphs, ...bigGlyphs].filter(g => {
+      if (seenAll.has(g.codepoint)) return false;
+      seenAll.add(g.codepoint);
+      return true;
+    });
   } else {
     const glyphs = fontInput as FontGlyph[];
     bigGlyphs = glyphs.filter(g => g.codepoint >= 48 && g.codepoint <= 57);
@@ -595,13 +716,37 @@ export function generateCHeader(
   const fontBytes = fontGrid.to1bppBytes(fontStride, -fontOffsetX, -fontOffsetY, fontAtlasWidth, fontAtlasHeight);
 
   // Digits and text tables for backward compatibility
-  const digitsGlyphs = bigGlyphs.length > 0 ? bigGlyphs : allGlyphs.filter(g => g.codepoint >= 48 && g.codepoint <= 57);
-  const textGlyphs = smallGlyphs.length > 0 ? smallGlyphs : allGlyphs.filter(g => g.codepoint < 48 || g.codepoint > 57);
+  const digitsGlyphs = bigGlyphs.filter(g => g.codepoint >= 48 && g.codepoint <= 57).length > 0
+    ? bigGlyphs.filter(g => g.codepoint >= 48 && g.codepoint <= 57)
+    : allGlyphs.filter(g => g.codepoint >= 48 && g.codepoint <= 57);
+  const textGlyphs = smallGlyphs.filter(g => g.codepoint < 48 || g.codepoint > 57).length > 0
+    ? smallGlyphs.filter(g => g.codepoint < 48 || g.codepoint > 57)
+    : allGlyphs.filter(g => g.codepoint < 48 || g.codepoint > 57);
 
   const virtWidth = metadata?.screenDimensions?.width ?? 32;
   const virtHeight = metadata?.screenDimensions?.height ?? 128;
   const hwWidth = virtHeight;
   const hwHeight = virtWidth;
+
+  const isSymmetric = metadata?.symmetricSettings !== false;
+  const rightVirtWidth = (!isSymmetric && metadata?.rightScreenDimensions?.width) ? metadata.rightScreenDimensions.width : virtWidth;
+  const rightVirtHeight = (!isSymmetric && metadata?.rightScreenDimensions?.height) ? metadata.rightScreenDimensions.height : virtHeight;
+  const rightHwWidth = rightVirtHeight;
+  const rightHwHeight = rightVirtWidth;
+
+  const idleTimeoutMs = (metadata?.idleTimeoutSec ?? 30) * 1000;
+  const screenOffTimeoutMs = (metadata?.screenOffTimeoutSec ?? 60) * 1000;
+  const idleScreensEnabled = metadata?.idleScreensEnabled ?? true;
+
+  const rightIdleTimeoutMs = (!isSymmetric && metadata?.rightIdleTimeoutSec !== undefined)
+    ? metadata.rightIdleTimeoutSec * 1000
+    : idleTimeoutMs;
+  const rightScreenOffTimeoutMs = (!isSymmetric && metadata?.rightScreenOffTimeoutSec !== undefined)
+    ? metadata.rightScreenOffTimeoutSec * 1000
+    : screenOffTimeoutMs;
+  const rightIdleScreensEnabled = (!isSymmetric && metadata?.rightIdleScreensEnabled !== undefined)
+    ? metadata.rightIdleScreensEnabled
+    : idleScreensEnabled;
 
   let c = `/* Auto-generated 2-Atlas spritesheet architecture for Corne vertical OLED display */
 /* Generated by ZMK Display Studio */
@@ -615,6 +760,25 @@ export function generateCHeader(
 #define DISPLAY_VIRTUAL_HEIGHT ${virtHeight}
 #define DISPLAY_HW_WIDTH       ${hwWidth}
 #define DISPLAY_HW_HEIGHT      ${hwHeight}
+${!isSymmetric ? `#define DISPLAY_VIRTUAL_WIDTH_RIGHT  ${rightVirtWidth}
+#define DISPLAY_VIRTUAL_HEIGHT_RIGHT ${rightVirtHeight}
+#define DISPLAY_HW_WIDTH_RIGHT       ${rightHwWidth}
+#define DISPLAY_HW_HEIGHT_RIGHT      ${rightHwHeight}
+` : ''}
+/* Display power-management timers & idle configuration */
+#define ZMK_DISPLAY_IDLE_SCREENS_ENABLED ${idleScreensEnabled ? 1 : 0}
+#define SCYAN_IDLE_SCREENS_ENABLED       ${idleScreensEnabled ? 1 : 0}
+#define ZMK_DISPLAY_IDLE_TIMEOUT_MS  ${idleTimeoutMs}
+#define SCYAN_IDLE_TIMEOUT_MS        ${idleTimeoutMs}
+#ifndef CONFIG_SCYAN_IDLE_TIMEOUT_MS
+#define CONFIG_SCYAN_IDLE_TIMEOUT_MS ${idleTimeoutMs}
+#endif
+#define ZMK_DISPLAY_SLEEP_TIMEOUT_MS ${screenOffTimeoutMs}
+#define SCYAN_SLEEP_TIMEOUT_MS       ${screenOffTimeoutMs}
+${!isSymmetric ? `#define SCYAN_IDLE_SCREENS_ENABLED_RIGHT ${rightIdleScreensEnabled ? 1 : 0}
+#define SCYAN_IDLE_TIMEOUT_MS_RIGHT        ${rightIdleTimeoutMs}
+#define SCYAN_SLEEP_TIMEOUT_MS_RIGHT       ${rightScreenOffTimeoutMs}
+` : ''}
 
 /* Sprite slice descriptor */
 struct sprite_slice {
@@ -890,10 +1054,15 @@ static const struct display_font font_default = {
         param1 = instance?.config?.wpmChart?.gridSize ?? 4;
         param2 = instance?.config?.wpmChart?.targetSpeed ?? 100;
         param3 = instance?.config?.wpmChart?.timeWindow ?? 30;
-      } else if (enumType === 'WIDGET_TYPE_WPM') {
-        param2 = instance?.config?.targetValue ?? 100;
-      } else if (enumType === 'WIDGET_TYPE_BATTERY') {
-        param1 = (mode === 1) ? (instance?.config?.fontDivisionCount ?? 2) : 0;
+      } else {
+        if (instance?.config?.fontSize === 'big') {
+          param3 = 1;
+        }
+        if (enumType === 'WIDGET_TYPE_WPM') {
+          param2 = instance?.config?.targetValue ?? 100;
+        } else if (enumType === 'WIDGET_TYPE_BATTERY') {
+          param1 = (mode === 1) ? (instance?.config?.fontDivisionCount ?? 2) : 0;
+        }
       }
 
       const symbolIds: string[] = [];
@@ -965,6 +1134,12 @@ static const struct display_font font_default = {
             textEntries.push(JSON.stringify(t));
           }
         }
+      } else if (enumType === 'WIDGET_TYPE_LAYER' && metadata?.layerNames && metadata.layerNames.length > 0) {
+        for (const name of metadata.layerNames) {
+          if (textEntries.length < 16) {
+            textEntries.push(JSON.stringify(name));
+          }
+        }
       }
       const textCount = textEntries.length;
       const textEntriesStr = textEntries.length > 0 ? `{ ${textEntries.join(', ')} }` : `{ NULL }`;
@@ -987,8 +1162,9 @@ static const struct display_font font_default = {
           ? instance.config.textEntries[0]
           : (customText !== 'NULL' ? JSON.parse(customText) : 'ZMK')) || 'ZMK';
         const mappings = (fontInput.length > 0 && 'chars' in fontInput[0]) ? (fontInput as FontCharMapping[]) : undefined;
-        bw = Math.min(32, Math.max(measureTextWidth(textToMeasure.toUpperCase(), smallGlyphs, mappings, 'small'), 4));
-        bh = 5;
+        const fontSize = instance?.config?.fontSize || 'small';
+        bw = Math.min(32, Math.max(measureTextWidth(textToMeasure.toUpperCase(), smallGlyphs, mappings, fontSize), 4));
+        bh = fontSize === 'big' ? 10 : 5;
       }
 
       if (enumType === 'WIDGET_TYPE_WPM') {
@@ -1007,8 +1183,9 @@ static const struct display_font font_default = {
             bh = 5;
           }
         } else {
-          // Font mode: 6px height for text entries, 10px for digits
-          bh = (textCount >= 2) ? 6 : 10;
+          // Font mode: 6px height for text entries, 10px for digits or big font
+          const isBig = instance?.config?.fontSize === 'big';
+          bh = isBig ? 10 : ((textCount >= 2) ? 6 : 10);
           bw = 24;
         }
       }

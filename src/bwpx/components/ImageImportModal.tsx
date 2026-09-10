@@ -209,7 +209,7 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
       grid: convertedGrid,
       zoom: previewZoom,
       pan: previewPan,
-      pixelColor: '#00d2ff',
+      pixelColor: '#ffffff',
       bgColor: '#0b0d11',
       showAxes: false,
       showGridLines: previewZoom >= 4,

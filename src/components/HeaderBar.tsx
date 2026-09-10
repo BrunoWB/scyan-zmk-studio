@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   GitBranch,
   Save,
   RefreshCw,
-  Trash2,
   Settings,
   CheckCircle2,
   XCircle,
@@ -20,7 +20,9 @@ import {
   Globe,
   Info,
   Unplug,
+  RotateCcw,
 } from 'lucide-react';
+import { Chip, Button, Kbd } from '@heroui/react';
 import type {
   GitHubRepoConfig,
   WorkflowRunInfo,
@@ -34,6 +36,7 @@ import {
   fetchUserRepositories,
   fetchRepoBranches,
 } from '../services/githubService';
+import { BrandIdentityLogo } from './brand/BrandIdentityLogo';
 
 export interface HeaderBarProps {
   config: GitHubRepoConfig;
@@ -52,6 +55,10 @@ export interface HeaderBarProps {
   repoPrereqs?: RepoPrerequisites | null;
   isInstallingStudio?: boolean;
   onInstallStudio?: () => void;
+  onSearchClick?: () => void;
+  onRestoreInitialValues?: () => void;
+  onRestoreDefaults?: () => void;
+  initialWorkflowRun?: WorkflowRunInfo | null;
 }
 
 const GithubIcon = ({ size = 16, className = '' }: { size?: number; className?: string }) => (
@@ -70,17 +77,17 @@ const GithubIcon = ({ size = 16, className = '' }: { size?: number; className?: 
   </svg>
 );
 
-export const WolfLogo = ({ size = 22, className = '' }: { size?: number; className?: string }) => (
+export const WolfLogo = ({ size = 40, className = '' }: { size?: number; className?: string }) => (
   <svg
-    viewBox="0 0 26 23"
+    viewBox="0 0 31 29"
     width={size}
-    height={Math.round((size * 23) / 26)}
+    height={Math.round((size * 29) / 31)}
     fill="currentColor"
     className={className}
     style={{ imageRendering: 'pixelated' }}
     aria-hidden="true"
   >
-    <path d="M3,0h2v1h-2zM21,0h2v1h-2zM2,1h4v1h-4zM20,1h4v1h-4zM1,2h2v1h-2zM4,2h3v1h-3zM9,2h1v1h-1zM13,2h1v1h-1zM19,2h3v1h-3zM23,2h2v1h-2zM1,3h2v1h-2zM5,3h3v1h-3zM9,3h2v1h-2zM12,3h5v1h-5zM18,3h3v1h-3zM23,3h2v1h-2zM1,4h2v1h-2zM6,4h3v1h-3zM10,4h5v1h-5zM16,4h4v1h-4zM23,4h2v1h-2zM1,5h2v1h-2zM7,5h1v1h-1zM9,5h7v1h-7zM17,5h2v1h-2zM23,5h2v1h-2zM2,6h2v1h-2zM5,6h4v1h-4zM10,6h3v1h-3zM14,6h2v1h-2zM17,6h4v1h-4zM22,6h2v1h-2zM3,7h11v1h-11zM16,7h7v1h-7zM1,8h24v1h-24zM2,9h4v1h-4zM8,9h2v1h-2zM11,9h4v1h-4zM16,9h2v1h-2zM20,9h4v1h-4zM3,10h1v1h-1zM5,10h1v1h-1zM10,10h1v1h-1zM12,10h2v1h-2zM15,10h1v1h-1zM20,10h1v1h-1zM22,10h1v1h-1zM1,11h6v1h-6zM8,11h2v1h-2zM11,11h4v1h-4zM16,11h2v1h-2zM19,11h6v1h-6zM0,12h5v1h-5zM6,12h2v1h-2zM11,12h4v1h-4zM18,12h2v1h-2zM21,12h5v1h-5zM2,13h1v1h-1zM4,13h1v1h-1zM7,13h3v1h-3zM11,13h4v1h-4zM16,13h3v1h-3zM21,13h1v1h-1zM23,13h1v1h-1zM1,14h2v1h-2zM4,14h2v1h-2zM9,14h8v1h-8zM20,14h2v1h-2zM23,14h2v1h-2zM0,15h4v1h-4zM5,15h16v1h-16zM22,15h4v1h-4zM1,16h20v1h-20zM22,16h2v1h-2zM3,17h2v1h-2zM6,17h5v1h-5zM15,17h5v1h-5zM21,17h3v1h-3zM3,18h5v1h-5zM9,18h2v1h-2zM15,18h2v1h-2zM18,18h5v1h-5zM3,19h1v1h-1zM5,19h3v1h-3zM9,19h3v1h-3zM14,19h3v1h-3zM18,19h3v1h-3zM22,19h1v1h-1zM7,20h2v1h-2zM10,20h3v1h-3zM14,20h2v1h-2zM17,20h2v1h-2zM9,21h1v1h-1zM16,21h1v1h-1zM10,22h6v1h-6z" />
+    <path d="M6,0h2v1h-2zM25,0h2v1h-2zM5,1h4v1h-4zM24,1h4v1h-4zM4,2h5v1h-5zM24,2h5v1h-5zM4,3h2v1h-2zM7,3h3v1h-3zM12,3h1v1h-1zM17,3h1v1h-1zM23,3h3v1h-3zM27,3h2v1h-2zM3,4h2v1h-2zM8,4h3v1h-3zM13,4h1v1h-1zM17,4h2v1h-2zM22,4h3v1h-3zM28,4h2v1h-2zM3,5h2v1h-2zM8,5h3v1h-3zM12,5h9v1h-9zM22,5h3v1h-3zM28,5h2v1h-2zM3,6h2v1h-2zM9,6h9v1h-9zM20,6h4v1h-4zM28,6h2v1h-2zM3,7h2v1h-2zM10,7h1v1h-1zM12,7h8v1h-8zM21,7h2v1h-2zM28,7h2v1h-2zM3,8h2v1h-2zM10,8h1v1h-1zM13,8h7v1h-7zM21,8h2v1h-2zM28,8h2v1h-2zM4,9h2v1h-2zM7,9h4v1h-4zM12,9h4v1h-4zM17,9h2v1h-2zM21,9h5v1h-5zM27,9h2v1h-2zM5,10h12v1h-12zM19,10h9v1h-9zM2,11h5v1h-5zM8,11h4v1h-4zM13,11h1v1h-1zM15,11h5v1h-5zM21,11h4v1h-4zM26,11h5v1h-5zM3,12h3v1h-3zM7,12h6v1h-6zM15,12h3v1h-3zM20,12h6v1h-6zM27,12h3v1h-3zM5,13h1v1h-1zM7,13h1v1h-1zM13,13h7v1h-7zM25,13h1v1h-1zM27,13h1v1h-1zM3,14h6v1h-6zM12,14h1v1h-1zM14,14h5v1h-5zM20,14h1v1h-1zM24,14h6v1h-6zM2,15h6v1h-6zM9,15h1v1h-1zM12,15h1v1h-1zM14,15h5v1h-5zM20,15h1v1h-1zM23,15h1v1h-1zM25,15h6v1h-6zM1,16h3v1h-3zM5,16h2v1h-2zM9,16h2v1h-2zM14,16h5v1h-5zM22,16h2v1h-2zM26,16h2v1h-2zM29,16h2v1h-2zM3,17h2v1h-2zM6,17h2v1h-2zM10,17h3v1h-3zM14,17h5v1h-5zM20,17h3v1h-3zM25,17h2v1h-2zM28,17h2v1h-2zM2,18h2v1h-2zM6,18h3v1h-3zM12,18h9v1h-9zM24,18h3v1h-3zM29,18h2v1h-2zM2,19h5v1h-5zM8,19h17v1h-17zM26,19h5v1h-5zM1,20h5v1h-5zM7,20h2v1h-2zM10,20h16v1h-16zM27,20h4v1h-4zM3,21h3v1h-3zM7,21h3v1h-3zM11,21h9v1h-9zM21,21h5v1h-5zM27,21h3v1h-3zM5,22h2v1h-2zM8,22h6v1h-6zM19,22h2v1h-2zM22,22h3v1h-3zM26,22h2v1h-2zM5,23h6v1h-6zM12,23h2v1h-2zM19,23h2v1h-2zM22,23h6v1h-6zM5,24h1v1h-1zM9,24h2v1h-2zM12,24h3v1h-3zM18,24h3v1h-3zM22,24h2v1h-2zM27,24h1v1h-1zM10,25h2v1h-2zM13,25h3v1h-3zM17,25h3v1h-3zM21,25h2v1h-2zM12,26h1v1h-1zM20,26h1v1h-1zM13,27h7v1h-7zM13,28h7v1h-7z" />
   </svg>
 );
 
@@ -101,9 +108,14 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   repoPrereqs,
   isInstallingStudio,
   onInstallStudio,
+  onSearchClick,
+  onRestoreInitialValues,
+  onRestoreDefaults,
+  initialWorkflowRun,
 }) => {
   const [tempConfig, setTempConfig] = useState<GitHubRepoConfig>(config);
-  const [workflowRun, setWorkflowRun] = useState<WorkflowRunInfo | null>(null);
+  const [workflowRun, setWorkflowRun] = useState<WorkflowRunInfo | null>(initialWorkflowRun ?? null);
+  const [isHeaderHovered, setIsHeaderHovered] = useState(false);
 
   // Repositories and Branches for interactive selection
   const [repositories, setRepositories] = useState<GitHubRepositoryItem[]>([]);
@@ -115,6 +127,53 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   const [isAuthorizing, setIsAuthorizing] = useState<boolean>(false);
   const [authFeedback, setAuthFeedback] = useState<{ status: 'success' | 'failed'; message: string } | null>(null);
   const quickKeyInputRef = useRef<HTMLInputElement>(null);
+
+  const renderWorkspaceRestoration = () => (
+    <div className="bg-[#19202f] border border-[#2d3748] rounded-xl p-4 flex flex-col gap-3">
+      <div>
+        <div className="text-xs font-bold text-white uppercase tracking-wider font-mono flex items-center gap-2">
+          <RotateCcw size={13} className="text-[#00f0ff]" />
+          <span>Workspace Restoration</span>
+        </div>
+        <p className="text-xs text-[#94a3b8] mt-1">
+          Revert current edits by reloading from GitHub, or reset everything to factory defaults.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <Button
+          size="sm"
+          type="button"
+          onClick={() => {
+            if (isConnected) {
+              onSync();
+            } else {
+              onRestoreInitialValues?.();
+            }
+            setIsSettingsOpen(false);
+          }}
+          isDisabled={isSyncing}
+          className="bg-[#131722] hover:bg-[#1e2538] border border-[#2d3748] hover:border-[#00f0ff]/50 text-white hover:text-[#00f0ff] text-xs font-medium px-3 h-8 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer"
+          aria-label="Reload display assets directly from your GitHub repository"
+        >
+          <RotateCcw size={12} className={isSyncing ? "animate-spin text-[#00f0ff]" : "text-[#00f0ff]"} />
+          <span>Reload from GitHub</span>
+        </Button>
+        <Button
+          size="sm"
+          type="button"
+          onClick={() => {
+            onRestoreDefaults?.();
+            setIsSettingsOpen(false);
+          }}
+          className="bg-[#131722] hover:bg-[#f2741d]/15 border border-[#2d3748] hover:border-[#f2741d]/40 text-[#94a3b8] hover:text-[#f2741d] text-xs font-medium px-3 h-8 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer"
+          aria-label="Reset entire workspace back to clean base factory defaults"
+        >
+          <RotateCcw size={12} />
+          <span>Restore Defaults</span>
+        </Button>
+      </div>
+    </div>
+  );
 
   // Sync tempConfig when modal opens or config changes
   useEffect(() => {
@@ -411,169 +470,199 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   const isDisconnected = connection.status === 'disconnected' || connection.status === 'error';
 
   return (
-    <header className={`builder-header ${isDisconnected ? 'disconnected-expanded' : ''}`}>
+    <>
+      <header
+      onMouseEnter={() => setIsHeaderHovered(true)}
+      onMouseLeave={() => setIsHeaderHovered(false)}
+      className={`builder-header sticky top-0 z-40 w-full transition-all duration-[350ms] ease-[cubic-bezier(0.16,1,0.3,1)] flex items-center justify-between gap-4 shrink-0 px-6 ${
+        isDisconnected
+          ? 'disconnected-expanded h-[130px] bg-gradient-to-b from-[#161920] to-[#121419] border-b border-[#f2741d]/35 shadow-[0_4px_20px_rgba(242,116,29,0.08)]'
+          : 'h-[54px] bg-[#0b0d13]/90 backdrop-blur-md border-b border-[#1e2538]'
+      }`}
+    >
       {/* Brand & Live Git Connection Info */}
-      <div className="header-left">
-        <div className="brand">
-          <WolfLogo size={24} className="brand-icon text-cyan-400" />
-          <div className="brand-text">
-            <span className="brand-title">Scyan ZMK Studio</span>
-            <span className="brand-badge">2-Atlas Core</span>
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          {/* Logo rendered at Display High-Res (48px) then CSS-scaled to Card Hero (38px) in
+              compact mode. Scale transitions in sync with the header's own cubic-bezier so
+              the size change flows naturally as the header expands/collapses. */}
+          <div
+            style={{
+              transform: isDisconnected ? 'scale(1)' : 'scale(0.7917)',
+              transformOrigin: 'left center',
+              transition: 'transform 350ms cubic-bezier(0.16,1,0.3,1)',
+            }}
+          >
+            <BrandIdentityLogo
+              size={48}
+              isHovered={isHeaderHovered}
+              onClick={() => setIsSettingsOpen(false)}
+            />
           </div>
         </div>
+      </div>
 
-        {/* Live GitHub Connection Status Widget */}
-        <div className="git-status-wrapper">
-          {connection.status === 'connected' ? (
-            repoPrereqs && !repoPrereqs.isInstalled ? (
-              <div
-                className="git-status-chip connected install-needed"
-                title={`Connected to ${config.owner}/${config.repo}. Scyan Studio setup is required to save.`}
-              >
-                <div className="status-chip-left" onClick={() => setIsSettingsOpen(true)}>
-                  <span className="status-ping orange"></span>
-                  {connection.user?.avatarUrl ? (
-                    <img
-                      src={connection.user.avatarUrl}
-                      alt={connection.user.login}
-                      className="git-user-avatar"
-                    />
-                  ) : (
-                    <GithubIcon size={13} className="text-cyan-400" />
-                  )}
-                  <span className="git-repo-name">{config.owner}/{config.repo}</span>
-                  <span className="git-status-text text-amber-400 text-xs">Setup Required</span>
-                </div>
-                <button
-                  type="button"
-                  className="git-install-header-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onInstallStudio?.();
-                  }}
-                  disabled={isInstallingStudio}
-                  title="Install Scyan Studio module, config & assets into this repository"
-                >
-                  {isInstallingStudio ? (
-                    <>
-                      <RefreshCw size={11} className="spin" />
-                      <span>Installing...</span>
-                    </>
-                  ) : (
-                    <>
-                      <WolfLogo size={12} />
-                      <span>Install Studio</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            ) : (
-              <button
-                className="git-status-chip connected"
-                onClick={() => setIsSettingsOpen(true)}
-                title={`Connected as @${connection.user?.login} to ${config.owner}/${config.repo} (${config.branch}). Click to switch repository.`}
-              >
-                <span className="status-ping cyan"></span>
-                {connection.user?.avatarUrl ? (
-                  <img
-                    src={connection.user.avatarUrl}
-                    alt={connection.user.login}
-                    className="git-user-avatar"
-                  />
-                ) : (
-                  <GithubIcon size={13} className="text-cyan-400" />
-                )}
-                <span className="git-repo-name">{config.owner}/{config.repo}</span>
-                <span className="git-branch-tag">
-                  <GitBranch size={11} />
-                  {config.branch}
-                </span>
-                {connection.repo?.hasPushAccess ? (
-                  <span className="git-access-badge write" title="Push permission verified">
-                    Push OK
-                  </span>
-                ) : (
-                  <span className="git-access-badge read" title="Read only: commit requires write permissions">
-                    Read Only
-                  </span>
-                )}
-              </button>
-            )
-          ) : connection.status === 'connecting' ? (
-            <div className="git-status-chip connecting">
-              <RefreshCw size={12} className="spin text-amber-400" />
-              <span className="git-status-text">Connecting Git...</span>
-            </div>
-          ) : connection.status === 'error' ? (
+      {/* Center: Live GitHub Connection Status Widget */}
+      {isDisconnected ? (
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 flex items-center pointer-events-auto">
+          {connection.status === 'error' ? (
             <button
-              className="git-status-chip error"
+              type="button"
               onClick={() => setIsSettingsOpen(true)}
+              className="w-[440px] max-w-[calc(100vw-32px)] sm:min-w-[400px] h-11 px-4 flex items-center justify-between text-xs font-semibold rounded-xl border border-[#f2741d]/55 bg-[#f2741d]/10 hover:border-[#f2741d]/85 hover:bg-[#f2741d]/18 shadow-[0_0_20px_rgba(242,116,29,0.15),_inset_0_0_12px_rgba(242,116,29,0.05)] hover:shadow-[0_0_24px_rgba(242,116,29,0.3)] transition-all duration-300 group cursor-pointer"
               title={connection.errorMessage || 'Connection failed. Click to reconfigure.'}
             >
-              <span className="status-ping orange"></span>
-              <AlertCircle size={13} className="text-orange-400" />
-              <span className="git-status-text">Git Error</span>
-              <span className="git-action-hint">Fix</span>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="size-2.5 rounded-full bg-[#f2741d] shadow-[0_0_8px_#f2741d] animate-pulse shrink-0"></span>
+                <AlertCircle size={15} className="text-[#f2741d] shrink-0" />
+                <span className="text-[#fed7aa] font-semibold text-sm truncate">Git Connection Error</span>
+              </div>
+              <span className="bg-[#f2741d] group-hover:bg-[#ea580c] text-white text-[11px] font-bold px-3.5 py-1 rounded-md tracking-wider transition-colors shadow-sm shrink-0 ml-2">
+                Fix
+              </span>
             </button>
           ) : (
             <button
-              className="git-status-chip disconnected"
+              type="button"
               onClick={() => setIsSettingsOpen(true)}
+              className="w-[440px] max-w-[calc(100vw-32px)] sm:min-w-[400px] h-11 px-4 flex items-center justify-between text-[13.5px] font-semibold rounded-xl border border-[#f2741d]/55 bg-[#f2741d]/10 hover:border-[#f2741d]/85 hover:bg-[#f2741d]/18 shadow-[0_0_20px_rgba(242,116,29,0.15),_inset_0_0_12px_rgba(242,116,29,0.05)] hover:shadow-[0_0_24px_rgba(242,116,29,0.3)] hover:scale-[1.015] transition-all duration-300 group cursor-pointer"
               title="Studio is in preview mode. Connect your GitHub repository to unlock editing."
             >
-              <div className="status-chip-left">
-                <span className="status-ping orange"></span>
-                <Unplug size={14} className="text-orange-400 shrink-0" />
-                <span className="git-status-text">Studio is in preview mode</span>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="size-2.5 rounded-full bg-[#f2741d] shadow-[0_0_8px_#f2741d] animate-pulse shrink-0"></span>
+                <Unplug size={15} className="text-[#f2741d] shrink-0" />
+                <span className="text-[#fed7aa] font-semibold text-sm truncate">Studio is in preview mode</span>
               </div>
-              <span className="git-connect-btn-tag">Connect</span>
+              <span className="bg-[#f2741d] group-hover:bg-[#ea580c] text-white text-[11px] font-bold px-3.5 py-1 rounded-md tracking-wider transition-colors shadow-sm shrink-0 ml-2">
+                Connect
+              </span>
             </button>
           )}
         </div>
-
-        {lastSavedAt && (
-          <span className="text-xs text-muted font-mono hidden lg:inline">
-            Saved {lastSavedAt}
-          </span>
-        )}
-      </div>
+      ) : (
+        <div className="hidden md:flex items-center">
+          {connection.status === 'connecting' ? (
+            <div className="flex items-center gap-2 bg-[#131722] border border-amber-500/30 rounded-full px-3.5 py-1 text-xs">
+              <RefreshCw size={12} className="animate-spin text-amber-400" />
+              <span className="text-amber-400 font-mono text-[11px]">Connecting Git...</span>
+            </div>
+          ) : repoPrereqs && !repoPrereqs.isInstalled ? (
+            <div className="flex items-center gap-2 bg-[#131722] border border-[#f2741d]/30 rounded-full px-3.5 py-1 text-xs">
+              <span className="size-2 rounded-full bg-[#f2741d] animate-pulse"></span>
+              <span className="text-white font-medium">{config.owner}/{config.repo}</span>
+              <span className="text-[#f2741d] font-mono text-[11px]">Setup Required</span>
+              <button
+                type="button"
+                className="bg-[#f2741d]/20 hover:bg-[#f2741d] text-[#f2741d] hover:text-white border border-[#f2741d]/40 text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full transition-all cursor-pointer flex items-center gap-1"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onInstallStudio?.();
+                }}
+                disabled={isInstallingStudio}
+              >
+                {isInstallingStudio ? (
+                  <>
+                    <RefreshCw size={10} className="animate-spin" />
+                    <span>Installing...</span>
+                  </>
+                ) : (
+                  <span>Install</span>
+                )}
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="flex items-center gap-2 bg-[#131722] hover:bg-[#19202f] border border-[#00f0ff]/30 hover:border-[#00f0ff] rounded-full px-3.5 py-1 text-xs transition-all cursor-pointer shadow-inner"
+              title={`Connected to ${config.owner}/${config.repo} (${config.branch}). Click to change.`}
+            >
+              <span className="size-2 rounded-full bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]"></span>
+              {connection.user?.avatarUrl ? (
+                <img
+                  src={connection.user.avatarUrl}
+                  alt={connection.user.login}
+                  className="size-4 rounded-full border border-[#00f0ff]/40"
+                />
+              ) : (
+                <GithubIcon size={12} className="text-[#00f0ff]" />
+              )}
+              <span className="text-white font-medium">{config.owner}/{config.repo}</span>
+              <span className="text-[#94a3b8]">•</span>
+              <span className="text-[#00f0ff] font-mono text-[11px] flex items-center gap-1">
+                <GitBranch size={11} />
+                {config.branch}
+              </span>
+              {connection.repo?.hasPushAccess ? (
+                <span className="text-[10px] font-mono bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/40 px-1.5 py-0.2 rounded font-semibold ml-1">
+                  PUSH OK
+                </span>
+              ) : (
+                <span className="text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-semibold ml-1">
+                  READ ONLY
+                </span>
+              )}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* CI Build Status Badge & Actions */}
-      <div className="header-right">
+      <div className="flex items-center gap-2.5">
+        {/* Search Command Palette Button */}
+        {onSearchClick && (
+          <button
+            onClick={onSearchClick}
+            className="flex items-center gap-2 bg-[#131722] hover:bg-[#19202f] border border-[#1e2538] hover:border-[#00f0ff]/40 rounded-lg px-3 py-1.5 text-xs text-[#94a3b8] transition-all cursor-pointer shadow-inner"
+          >
+            <Search className="size-3.5 text-[#00f0ff]" />
+            <span className="hidden xl:inline">Search components...</span>
+            <span className="hidden sm:inline xl:hidden">Search</span>
+            <Kbd className="bg-[#0b0d13] text-[#f1f5f9] text-[10px] px-1.5 py-0.5 border border-[#232c3f] rounded ml-1 font-mono hidden sm:inline-block">
+              Ctrl + K
+            </Kbd>
+          </button>
+        )}
+
         {/* Live CI Badge */}
         {workflowRun && isConnected && (
-          <div className="ci-badge-container">
+          <div className="hidden sm:flex items-center gap-1.5">
             {workflowRun.status === 'in_progress' || workflowRun.status === 'queued' ? (
               <a
                 href={workflowRun.htmlUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="ci-badge building has-tooltip"
+                className="flex items-center gap-1.5 bg-[#f2741d]/15 border border-[#f2741d]/40 text-[#f2741d] text-xs font-mono px-2.5 py-1 rounded-lg hover:bg-[#f2741d]/25 transition-colors"
                 title="GitHub Actions build in progress..."
               >
-                <Clock size={13} className="spin-slow text-amber-400" />
-                <span>Building Firmware</span>
+                <Clock size={12} className="animate-spin text-[#f2741d]" />
+                <span>Building</span>
               </a>
             ) : workflowRun.conclusion === 'success' ? (
-              <div className="ci-success-group">
+              <div className="flex items-center gap-1">
                 <a
                   href={workflowRun.htmlUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="ci-badge success has-tooltip"
-                  title={`Build passed at ${new Date(workflowRun.createdAt).toLocaleTimeString()}`}
+                  className="flex items-center gap-1.5 bg-[#00f0ff]/15 border border-[#00f0ff]/40 text-[#00f0ff] text-xs font-mono px-2.5 py-1 rounded-lg hover:bg-[#00f0ff]/25 transition-colors"
+                  title={`Build passed at ${new Date(workflowRun.createdAt).toLocaleTimeString()}${lastSavedAt ? ` • Saved at ${lastSavedAt}` : ''}`}
                 >
-                  <CheckCircle2 size={13} className="text-cyan-400" />
+                  <CheckCircle2 size={12} className="text-[#00f0ff] shrink-0" />
                   <span>CI Passed</span>
+                  {lastSavedAt && (
+                    <>
+                      <span className="text-[#00f0ff]/40">•</span>
+                      <span className="text-[#00f0ff]/80 text-[11px]">{`Saved ${lastSavedAt}`}</span>
+                    </>
+                  )}
                 </a>
                 <a
                   href={workflowRun.htmlUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="btn-download-uf2"
-                  title="Download compiled .uf2 firmware from GitHub Actions"
+                  className="bg-[#19202f] hover:bg-[#232c3f] border border-[#2d3748] text-white text-xs font-mono px-2 py-1 rounded-lg flex items-center gap-1 transition-colors"
+                  title="Download compiled .uf2 firmware"
                 >
-                  <Download size={12} />
+                  <Download size={11} />
                   <span>UF2</span>
                 </a>
               </div>
@@ -582,33 +671,23 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 href={workflowRun.htmlUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="ci-badge failed"
-                title="Latest build failed. Click to view GitHub logs."
+                className="flex items-center gap-1.5 bg-[#f2741d]/15 border border-[#f2741d]/40 text-[#f2741d] text-xs font-mono px-2.5 py-1 rounded-lg hover:bg-[#f2741d]/25 transition-colors"
+                title="Latest build failed. Click to view logs."
               >
-                <XCircle size={13} className="text-red-400" />
+                <XCircle size={12} />
                 <span>CI Failed</span>
               </a>
             )}
           </div>
         )}
 
-        {/* Discard Changes Button */}
-        <button
-          className="btn-header-secondary"
-          onClick={onSync}
-          disabled={isSyncing || !isConnected}
-          title={isConnected ? "Discard local modifications and pull latest assets from GitHub repository" : "Connect GitHub to discard changes and sync repository assets"}
-        >
-          <Trash2 size={14} className={isSyncing ? 'animate-pulse' : ''} />
-          <span>Discard Changes</span>
-        </button>
-
         {/* Save & Commit Button */}
-        <button
-          className="btn-header-primary"
+        <Button
+          size="sm"
           onClick={onSave}
-          disabled={isSaving || !isConnected || !connection.repo?.hasPushAccess}
-          title={
+          isDisabled={isSaving || !isConnected || !connection.repo?.hasPushAccess}
+          className="bg-[#00f0ff]/10 hover:bg-[#00f0ff] text-[#00f0ff] hover:text-[#0b0d13] border border-[#00f0ff]/30 hover:border-[#00f0ff] font-semibold text-xs rounded-lg px-3.5 h-8 transition-all duration-200 hover:shadow-[0_0_16px_rgba(0,240,255,0.4)] flex items-center gap-1.5 cursor-pointer"
+          aria-label={
             !isConnected
               ? 'Connect GitHub repository to save changes'
               : !connection.repo?.hasPushAccess
@@ -616,285 +695,342 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               : 'Commit changes directly to your GitHub repository'
           }
         >
-          <Save size={14} className={isSaving ? 'spin' : ''} />
-          <span>{isSaving ? 'Committing...' : 'Save to GitHub'}</span>
-        </button>
+          <Save size={13} className={isSaving ? 'animate-spin' : ''} />
+          <span>{isSaving ? 'Committing...' : 'Commit & Build'}</span>
+        </Button>
 
         {/* Settings Button */}
-        <button
-          className="btn-header-icon"
+        <Button
+          size="sm"
           onClick={() => setIsSettingsOpen(true)}
-          title="Select GitHub Repository & Permissions"
+          className="bg-[#19202f] hover:bg-[#232c3f] border border-[#2d3748] text-white text-xs font-medium px-2.5 h-8 rounded-lg transition-all flex items-center justify-center cursor-pointer"
+          aria-label="Select GitHub Repository & Permissions"
         >
-          <Settings size={16} />
-        </button>
+          <Settings size={14} className="text-[#00f0ff]" />
+        </Button>
       </div>
+    </header>
 
-      {/* Settings & Repository Selection Modal */}
-      {isSettingsOpen && (
-        <div className="modal-overlay" onClick={() => setIsSettingsOpen(false)}>
-          <div className="modal-card git-modal-card" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <div className="flex items-center gap-2">
-                <GithubIcon size={18} className="text-accent" />
-                <h3 className="modal-title">GitHub Repository Connection</h3>
+    {/* Settings & Repository Selection Modal Portaled to Document Body */}
+    {isSettingsOpen && (
+      (() => {
+        const modalNode = (
+          <div
+            className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm"
+            onClick={() => setIsSettingsOpen(false)}
+          >
+            <div
+              className="bg-[#131722] border border-[#2d3748] rounded-2xl w-full max-w-xl overflow-hidden shadow-[0_16px_40px_rgba(0,0,0,0.7)] flex flex-col max-h-[90vh]"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between p-4 border-b border-[#1e2538] shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="size-7 rounded-lg bg-[#00f0ff]/10 border border-[#00f0ff]/30 flex items-center justify-center">
+                    <GithubIcon size={15} className="text-[#00f0ff]" />
+                  </div>
+                  <h3 className="text-sm font-bold text-white tracking-tight">GitHub Repository Connection</h3>
+                </div>
+                <button
+                  type="button"
+                  className="text-[#94a3b8] hover:text-white transition-colors cursor-pointer p-1 rounded-lg hover:bg-[#19202f]"
+                  onClick={() => setIsSettingsOpen(false)}
+                >
+                  ✕
+                </button>
               </div>
-              <button
-                className="modal-close-btn"
-                onClick={() => setIsSettingsOpen(false)}
-              >
-                ✕
-              </button>
-            </div>
 
-            <form onSubmit={handleSaveSelection} className="modal-body">
-              {/* Connected State with Repository Selector */}
-              {isConnected ? (
-                <>
-                  <div className="modal-status-card connected">
-                    <div className="status-user-info">
-                      {connection.user?.avatarUrl && (
-                        <img
-                          src={connection.user.avatarUrl}
-                          alt={connection.user.login}
-                          className="modal-avatar"
-                        />
-                      )}
-                      <div>
-                        <div className="status-user-name">
-                          <strong>{connection.user?.name || connection.user?.login}</strong>
-                          <span className="status-user-handle">@{connection.user?.login}</span>
+              {/* Modal Body */}
+              <form onSubmit={handleSaveSelection} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+                {/* Connected State with Repository Selector */}
+                {isConnected ? (
+                  <>
+                    <div className="p-5 space-y-4 overflow-y-auto flex-1 min-h-0">
+                      <div className="bg-[#19202f] border border-[#2d3748] rounded-xl p-4 flex flex-col gap-3">
+                        <div className="flex items-center gap-3">
+                          {connection.user?.avatarUrl && (
+                            <img
+                              src={connection.user.avatarUrl}
+                              alt={connection.user.login}
+                              className="size-10 rounded-full border border-[#00f0ff]/30 shadow-[0_0_8px_rgba(0,240,255,0.2)]"
+                            />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <strong className="text-sm font-bold text-white truncate">
+                                {connection.user?.name || connection.user?.login}
+                              </strong>
+                              <span className="text-xs text-[#94a3b8] font-mono">@{connection.user?.login}</span>
+                            </div>
+                            <div className="text-xs text-[#94a3b8] font-mono mt-0.5 truncate">
+                              Active: <code className="text-[#00f0ff]">{tempConfig.owner}/{tempConfig.repo}</code> on <code className="text-[#a953f6]">{tempConfig.branch}</code>
+                            </div>
+                          </div>
                         </div>
-                        <div className="status-repo-summary">
-                          Active: <code>{tempConfig.owner}/{tempConfig.repo}</code> on <code>{tempConfig.branch}</code>
+
+                        <div className="flex items-center justify-between pt-2 border-t border-[#1e2538] gap-2">
+                          {connection.repo?.hasPushAccess ? (
+                            <Chip className="bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/30 text-xs font-mono font-semibold px-2.5 h-6">
+                              <span className="flex items-center gap-1.5">
+                                <ShieldCheck size={12} /> Push Permission Verified
+                              </span>
+                            </Chip>
+                          ) : (
+                            <Chip className="bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-mono font-semibold px-2.5 h-6">
+                              <span className="flex items-center gap-1.5">
+                                <ShieldAlert size={12} /> Read Only
+                              </span>
+                            </Chip>
+                          )}
+                          <Button
+                            size="sm"
+                            type="button"
+                            onClick={handleDisconnectClick}
+                            className="bg-[#0b0d13] hover:bg-[#f2741d]/15 border border-[#f2741d]/30 hover:border-[#f2741d]/60 text-[#f2741d] hover:text-[#f59442] text-xs font-medium px-3 h-7 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                            aria-label="Disconnect repository access"
+                          >
+                            <LogOut size={12} /> Disconnect
+                          </Button>
                         </div>
                       </div>
-                    </div>
-                    <div className="status-meta-row">
-                      {connection.repo?.hasPushAccess ? (
-                        <span className="badge-permission write">
-                          <ShieldCheck size={13} /> Push Permission Verified
-                        </span>
-                      ) : (
-                        <span className="badge-permission read">
-                          <ShieldAlert size={13} /> Read Only
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        className="btn-disconnect"
-                        onClick={handleDisconnectClick}
-                        title="Disconnect repository access"
-                      >
-                        <LogOut size={12} /> Disconnect
-                      </button>
-                    </div>
-                  </div>
 
-                  {/* Interactive Repository Picker */}
-                  <div className="repo-picker-section">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                        <FolderGit2 size={13} className="text-accent" />
-                        <span>Select ZMK Repository</span>
-                      </label>
-                      <span className="text-[11px] text-muted">
-                        {repositories.length > 0 ? `${repositories.length} repos available` : ''}
-                      </span>
-                    </div>
-
-                    {/* Repository Search Filter */}
-                    <div className="repo-search-bar">
-                      <Search size={13} className="text-muted" />
-                      <input
-                        type="text"
-                        value={repoSearch}
-                        onChange={e => setRepoSearch(e.target.value)}
-                        placeholder="Search your repositories (e.g. zmk-config)..."
-                      />
-                    </div>
-
-                    {/* Repository List */}
-                    <div className="repo-selection-list">
-                      {isLoadingRepos ? (
-                        <div className="repo-loading-row">
-                          <RefreshCw size={14} className="spin text-accent" />
-                          <span>Loading accessible repositories...</span>
+                      {/* Interactive Repository Picker */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                            <FolderGit2 size={13} className="text-[#00f0ff]" />
+                            <span>Select ZMK Repository</span>
+                          </label>
+                          <span className="text-[11px] text-[#94a3b8]">
+                            {repositories.length > 0 ? `${repositories.length} repos available` : ''}
+                          </span>
                         </div>
-                      ) : filteredRepos.length === 0 ? (
-                        <div className="repo-empty-row">
-                          <span>No matching repositories found.</span>
-                        </div>
-                      ) : (
-                        filteredRepos.map(repo => {
-                          const isCurrent =
-                            tempConfig.owner.toLowerCase() === repo.owner.toLowerCase() &&
-                            tempConfig.repo.toLowerCase() === repo.name.toLowerCase();
 
-                          return (
-                            <div
-                              key={repo.id}
-                              className={`repo-item-card ${isCurrent ? 'selected' : ''}`}
-                              onClick={() => handleSelectRepository(repo)}
-                            >
-                              <div className="repo-item-main">
-                                <div className="flex items-center gap-1.5">
-                                  {repo.private ? (
-                                    <Lock size={12} className="text-amber-400" />
-                                  ) : (
-                                    <Globe size={12} className="text-slate-400" />
-                                  )}
-                                  <span className="repo-item-name">{repo.fullName}</span>
-                                  {repo.isZmkConfig && (
-                                    <span className="repo-zmk-badge">ZMK</span>
+                        {/* Repository Search Filter */}
+                        <div className="flex items-center gap-2 bg-[#0e1118] border border-[#1e2538] focus-within:border-[#00f0ff]/50 rounded-xl px-3 py-2 text-xs transition-colors">
+                          <Search size={13} className="text-[#94a3b8] shrink-0" />
+                          <input
+                            type="text"
+                            value={repoSearch}
+                            onChange={e => setRepoSearch(e.target.value)}
+                            placeholder="Search your repositories (e.g. zmk-config)..."
+                            className="w-full bg-transparent text-white placeholder-[#555e6e] outline-none text-xs"
+                          />
+                        </div>
+
+                        {/* Repository List */}
+                        <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
+                          {isLoadingRepos ? (
+                            <div className="flex items-center justify-center gap-2 py-6 text-xs text-[#94a3b8]">
+                              <RefreshCw size={14} className="animate-spin text-[#00f0ff]" />
+                              <span>Loading accessible repositories...</span>
+                            </div>
+                          ) : filteredRepos.length === 0 ? (
+                            <div className="text-center py-6 text-xs text-[#94a3b8]">
+                              <span>No matching repositories found.</span>
+                            </div>
+                          ) : (
+                            filteredRepos.map(repo => {
+                              const isCurrent =
+                                tempConfig.owner.toLowerCase() === repo.owner.toLowerCase() &&
+                                tempConfig.repo.toLowerCase() === repo.name.toLowerCase();
+
+                              return (
+                                <div
+                                  key={repo.id}
+                                  onClick={() => handleSelectRepository(repo)}
+                                  className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+                                    isCurrent
+                                      ? 'bg-[#00f0ff]/10 border-[#00f0ff]/50 shadow-[0_0_12px_rgba(0,240,255,0.15)]'
+                                      : 'bg-[#0e1118] border-[#1e2538] hover:border-[#00f0ff]/30 hover:bg-[#19202f]'
+                                  }`}
+                                >
+                                  <div className="flex-1 min-w-0 pr-2">
+                                    <div className="flex items-center gap-1.5">
+                                      {repo.private ? (
+                                        <Lock size={12} className="text-[#f2741d] shrink-0" />
+                                      ) : (
+                                        <Globe size={12} className="text-[#94a3b8] shrink-0" />
+                                      )}
+                                      <span className={`text-xs font-semibold truncate ${isCurrent ? 'text-[#00f0ff]' : 'text-white'}`}>
+                                        {repo.fullName}
+                                      </span>
+                                      {repo.isZmkConfig && (
+                                        <Chip className="bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/40 text-[10px] font-mono px-1.5 h-4">
+                                          ZMK
+                                        </Chip>
+                                      )}
+                                    </div>
+                                    {repo.description && (
+                                      <p className="text-[11px] text-[#94a3b8] truncate mt-0.5">{repo.description}</p>
+                                    )}
+                                  </div>
+                                  {isCurrent && (
+                                    <span className="size-5 rounded-full bg-[#00f0ff]/20 border border-[#00f0ff] flex items-center justify-center text-[#00f0ff] shrink-0">
+                                      <Check size={12} />
+                                    </span>
                                   )}
                                 </div>
-                                {repo.description && (
-                                  <p className="repo-item-desc">{repo.description}</p>
-                                )}
-                              </div>
-                              {isCurrent && (
-                                <span className="repo-selected-check">
-                                  <Check size={14} />
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Branch Selector */}
-                  <div className="form-group mt-2">
-                    <label className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <GitBranch size={13} className="text-accent" />
-                        <span>Branch</span>
-                      </span>
-                      {isLoadingBranches && (
-                        <span className="text-[11px] text-muted flex items-center gap-1">
-                          <RefreshCw size={10} className="spin" /> Loading branches...
-                        </span>
-                      )}
-                    </label>
-                    <select
-                      value={tempConfig.branch}
-                      onChange={e => setTempConfig({ ...tempConfig, branch: e.target.value })}
-                      className="repo-branch-select"
-                      disabled={isLoadingBranches}
-                    >
-                      {branches.length > 0 ? (
-                        branches.map(b => (
-                          <option key={b} value={b}>
-                            {b}
-                          </option>
-                        ))
-                      ) : (
-                        <option value={tempConfig.branch}>{tempConfig.branch}</option>
-                      )}
-                    </select>
-                  </div>
-
-                  <div className="modal-actions">
-                    <button
-                      type="button"
-                      className="btn-cancel"
-                      onClick={() => setIsSettingsOpen(false)}
-                    >
-                      Cancel
-                    </button>
-                    <button type="submit" className="btn-save">
-                      Apply Repository Selection
-                    </button>
-                  </div>
-                </>
-              ) : (
-                /* Disconnected State - Warm Beige Informational Banner & Authorize with Live Feedback */
-                <div className="modern-auth-container">
-                  <div className="modal-status-card info-beige">
-                    <div className="flex items-start gap-2.5">
-                      <Info size={17} className="text-[var(--color-info)] mt-0.5 shrink-0" />
-                      <div>
-                        <strong className="text-[var(--color-info)] text-sm font-semibold">GitHub Connection</strong>
-                        <p className="text-xs text-[var(--color-info-muted)] mt-1 leading-relaxed">
-                          Make sure to select only the zmk-config repository you want to use for your keymap and firmware builds.
-                        </p>
+                              );
+                            })
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </div>
 
-                  {/* Get GitHub Token Action & Direct Paste Authorization */}
-                  <div className="modern-login-box">
-                    <a
-                      href="https://github.com/settings/personal-access-tokens/new?name=ZMK+Keymap+Manager&description=Read+and+write+keymap+files,+download+firmware+build+artifacts&repository_selection=selected&contents=write&actions=read"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="btn-modern-github-auth"
-                      title="Opens GitHub with Contents (write), Actions (read), and Only select repositories pre-selected"
-                    >
-                      <GithubIcon size={18} />
-                      <span>Get Github Token</span>
-                    </a>
-
-                    <div className="w-full max-w-sm mt-1">
-                      <input
-                        ref={quickKeyInputRef}
-                        type="password"
-                        value={quickKeyInput}
-                        onChange={e => {
-                          setQuickKeyInput(e.target.value);
-                          if (authFeedback) setAuthFeedback(null);
-                        }}
-                        onPaste={handleTokenPaste}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleProcessToken(quickKeyInput);
-                          }
-                        }}
-                        placeholder="Paste here and Authorize"
-                        className="auth-token-input text-center"
-                        disabled={isAuthorizing}
-                        autoFocus
-                      />
-                    </div>
-
-                    {isAuthorizing && (
-                      <div className="flex items-center gap-1.5 text-xs text-accent mt-1">
-                        <RefreshCw size={12} className="spin" />
-                        <span>Validating and connecting...</span>
+                      {/* Branch Selector */}
+                      <div className="space-y-1.5 pt-1">
+                        <label className="flex items-center justify-between text-xs font-semibold text-slate-200">
+                          <span className="flex items-center gap-1.5">
+                            <GitBranch size={13} className="text-[#00f0ff]" />
+                            <span>Branch</span>
+                          </span>
+                          {isLoadingBranches && (
+                            <span className="text-[11px] text-[#94a3b8] flex items-center gap-1">
+                              <RefreshCw size={10} className="animate-spin" /> Loading branches...
+                            </span>
+                          )}
+                        </label>
+                        <select
+                          value={tempConfig.branch}
+                          onChange={e => setTempConfig({ ...tempConfig, branch: e.target.value })}
+                          className="w-full bg-[#0e1118] border border-[#1e2538] focus:border-[#00f0ff]/50 text-white text-xs rounded-xl px-3 py-2 outline-none transition-colors cursor-pointer font-mono"
+                          disabled={isLoadingBranches}
+                        >
+                          {branches.length > 0 ? (
+                            branches.map(b => (
+                              <option key={b} value={b} className="bg-[#131722] text-white">
+                                {b}
+                              </option>
+                            ))
+                          ) : (
+                            <option value={tempConfig.branch} className="bg-[#131722] text-white">{tempConfig.branch}</option>
+                          )}
+                        </select>
                       </div>
-                    )}
 
-                    {/* Live Validation Feedback: Cyan OK or Orange Failed */}
-                    {authFeedback && !isAuthorizing && (
-                      <div className={`validation-feedback ${authFeedback.status} w-full max-w-sm justify-center`}>
-                        {authFeedback.status === 'success' ? (
-                          <Check size={14} className="text-cyan-400 shrink-0" />
-                        ) : (
-                          <AlertCircle size={14} className="text-orange-400 shrink-0" />
+                      {/* Workspace Restoration */}
+                      {renderWorkspaceRestoration()}
+                    </div>
+
+                    {/* Modal Action Buttons */}
+                    <div className="flex items-center justify-end gap-2.5 p-4 border-t border-[#1e2538] bg-[#131722] shrink-0">
+                      <Button
+                        size="sm"
+                        type="button"
+                        onClick={() => setIsSettingsOpen(false)}
+                        className="bg-[#19202f] hover:bg-[#232c3f] border border-[#2d3748] text-[#94a3b8] hover:text-white text-xs font-medium px-4 h-9 rounded-xl transition-all cursor-pointer"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        type="submit"
+                        className="bg-[#00f0ff] hover:bg-[#38f2fd] text-[#0b0d13] font-bold text-xs px-5 h-9 rounded-xl shadow-[0_0_16px_rgba(0,240,255,0.3)] transition-all cursor-pointer"
+                      >
+                        Apply Repository Selection
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  /* Disconnected State */
+                  <>
+                    <div className="p-5 space-y-4 overflow-y-auto flex-1 min-h-0">
+                      <div className="bg-[#a953f6]/10 border border-[#a953f6]/30 rounded-xl p-4 flex items-start gap-3">
+                        <Info size={18} className="text-[#a953f6] mt-0.5 shrink-0" />
+                        <div>
+                          <strong className="text-[#a953f6] text-sm font-semibold">GitHub Connection</strong>
+                          <p className="text-xs text-[#94a3b8] mt-1 leading-relaxed">
+                            Make sure to select only the zmk-config repository you want to use for your keymap and firmware builds.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Login Box */}
+                      <div className="bg-[#0e1118] border border-[#1e2538] rounded-xl p-5 flex flex-col items-center gap-3.5 text-center">
+                        <a
+                          href="https://github.com/settings/personal-access-tokens/new?name=ZMK+Keymap+Manager&description=Read+and+write+keymap+files,+download+firmware+build+artifacts&repository_selection=selected&contents=write&actions=read"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="w-full max-w-sm bg-gradient-to-r from-[#00f0ff] to-[#a953f6] hover:opacity-95 text-[#0b0d13] font-bold text-xs py-2.5 rounded-xl transition-all shadow-[0_0_16px_rgba(0,240,255,0.25)] flex items-center justify-center gap-2"
+                          title="Opens GitHub with Contents (write), Actions (read), and Only select repositories pre-selected"
+                        >
+                          <GithubIcon size={16} />
+                          <span>Get GitHub Token</span>
+                        </a>
+
+                        <div className="w-full max-w-sm">
+                          <input
+                            ref={quickKeyInputRef}
+                            type="password"
+                            value={quickKeyInput}
+                            onChange={e => {
+                              setQuickKeyInput(e.target.value);
+                              if (authFeedback) setAuthFeedback(null);
+                            }}
+                            onPaste={handleTokenPaste}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleProcessToken(quickKeyInput);
+                              }
+                            }}
+                            placeholder="Paste here and press Enter"
+                            className="w-full bg-[#131722] border border-[#1e2538] focus:border-[#00f0ff]/50 rounded-xl px-3.5 py-2.5 text-xs text-center text-white placeholder-[#555e6e] outline-none font-mono transition-colors"
+                            disabled={isAuthorizing}
+                            autoFocus
+                          />
+                        </div>
+
+                        {isAuthorizing && (
+                          <div className="flex items-center gap-1.5 text-xs text-[#00f0ff]">
+                            <RefreshCw size={12} className="animate-spin" />
+                            <span>Validating and connecting...</span>
+                          </div>
                         )}
-                        <span className="text-xs">{authFeedback.message}</span>
-                      </div>
-                    )}
-                  </div>
 
-                  <div className="modal-actions">
-                    <button
-                      type="button"
-                      className="btn-cancel"
-                      onClick={() => setIsSettingsOpen(false)}
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-              )}
-            </form>
+                        {/* Live Validation Feedback */}
+                        {authFeedback && !isAuthorizing && (
+                          <div
+                            className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs w-full max-w-sm justify-center ${
+                              authFeedback.status === 'success'
+                                ? 'bg-[#00f0ff]/10 border-[#00f0ff]/30 text-[#00f0ff]'
+                                : 'bg-[#f2741d]/10 border-[#f2741d]/30 text-[#f2741d]'
+                            }`}
+                          >
+                            {authFeedback.status === 'success' ? (
+                              <Check size={14} className="shrink-0" />
+                            ) : (
+                              <AlertCircle size={14} className="shrink-0" />
+                            )}
+                            <span>{authFeedback.message}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Workspace Restoration */}
+                      {renderWorkspaceRestoration()}
+                    </div>
+
+                    <div className="flex items-center justify-end p-4 border-t border-[#1e2538] bg-[#131722] shrink-0">
+                      <Button
+                        size="sm"
+                        type="button"
+                        onClick={() => setIsSettingsOpen(false)}
+                        className="bg-[#19202f] hover:bg-[#232c3f] border border-[#2d3748] text-[#94a3b8] hover:text-white text-xs font-medium px-4 h-9 rounded-xl transition-all cursor-pointer"
+                      >
+                        Close
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </form>
+            </div>
           </div>
-        </div>
-      )}
-    </header>
+        );
+
+        return typeof document !== 'undefined' ? createPortal(modalNode, document.body) : modalNode;
+      })()
+    )}
+  </>
   );
 };
