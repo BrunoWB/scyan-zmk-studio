@@ -3,7 +3,7 @@ import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../ty
 import type { WidgetInstanceMap } from '../types/widget';
 import { DEFAULT_SYMBOL_SLICES, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS } from '../types/zmk';
 import defaultInstallHeader from '../assets/scyan_assets.install.h?raw';
-import { measureTextWidth } from './widgetRegistry';
+import { measureTextWidth, getWidgetNaturalSize, getWidgetDefinition, normalizeWidgetType } from './widgetRegistry';
 
 export interface HeaderMetadata {
   version: 1;
@@ -338,9 +338,9 @@ export function parseCHeader(cCode: string): ParsedAssets {
       : undefined;
 
     // 6b. Parse display power-management timer defines & idle screens configuration
-    const idleTimeoutMsMatch = cCode.match(/#define\s+(?:ZMK_DISPLAY_IDLE_TIMEOUT_MS|CONFIG_SCYAN_IDLE_TIMEOUT_MS|SCYAN_IDLE_TIMEOUT_MS)\s+(\d+)/);
-    const sleepTimeoutMsMatch = cCode.match(/#define\s+(?:ZMK_DISPLAY_SLEEP_TIMEOUT_MS|CONFIG_ZMK_IDLE_TIMEOUT|SCYAN_SLEEP_TIMEOUT_MS)\s+(\d+)/);
-    const idleScreensMatch = cCode.match(/#define\s+(?:ZMK_DISPLAY_IDLE_SCREENS_ENABLED|SCYAN_IDLE_SCREENS_ENABLED)\s+(\d+)/);
+    const idleTimeoutMsMatch = cCode.match(/#define\s+(?:SCYAN_IDLE_TIMEOUT_MS_LEFT|ZMK_DISPLAY_IDLE_TIMEOUT_MS|CONFIG_SCYAN_IDLE_TIMEOUT_MS|SCYAN_IDLE_TIMEOUT_MS)\s+(\d+)/);
+    const sleepTimeoutMsMatch = cCode.match(/#define\s+(?:SCYAN_SLEEP_TIMEOUT_MS_LEFT|ZMK_DISPLAY_SLEEP_TIMEOUT_MS|CONFIG_ZMK_IDLE_TIMEOUT|SCYAN_SLEEP_TIMEOUT_MS)\s+(\d+)/);
+    const idleScreensMatch = cCode.match(/#define\s+(?:SCYAN_IDLE_SCREENS_ENABLED_LEFT|ZMK_DISPLAY_IDLE_SCREENS_ENABLED|SCYAN_IDLE_SCREENS_ENABLED)\s+(\d+)/);
     const parsedIdleTimeoutSec = idleTimeoutMsMatch ? Math.round(parseInt(idleTimeoutMsMatch[1], 10) / 1000) : undefined;
     const parsedScreenOffTimeoutSec = sleepTimeoutMsMatch ? Math.round(parseInt(sleepTimeoutMsMatch[1], 10) / 1000) : undefined;
     const parsedIdleScreensEnabled = idleScreensMatch ? (parseInt(idleScreensMatch[1], 10) !== 0) : undefined;
@@ -431,6 +431,10 @@ export function parseCHeader(cCode: string): ParsedAssets {
                   case 'WIDGET_TYPE_BONGO':
                     widgetType = 'bongo';
                     defaultName = 'Bongo Cat';
+                    break;
+                  case 'WIDGET_TYPE_LOOP':
+                    widgetType = 'animation';
+                    defaultName = 'Animation';
                     break;
                 }
 
@@ -523,6 +527,35 @@ export function parseCHeader(cCode: string): ParsedAssets {
                       slots: {},
                     }];
                   }
+                } else if (widgetType === 'animation' || widgetType === 'loop') {
+                  if (!metadata) metadata = { version: 1 };
+                  if (!metadata.widgetInstances) metadata.widgetInstances = {};
+                  if (!metadata.widgetInstances['animation'] && !metadata.widgetInstances['loop']) {
+                    const symIdMatch = body.match(/\.symbol_id\s*=\s*([A-Za-z0-9_]+)/);
+                    const symIdsMatch = body.match(/\.symbol_ids\s*=\s*\{([^}]+)\}/);
+                    let resolvedGroupId = '';
+                    if (symIdsMatch && symIdsMatch[1]) {
+                      const firstSym = symIdsMatch[1].split(',')[0].trim();
+                      const sliceMatch = symbolSlices.find(s => s.id === firstSym);
+                      resolvedGroupId = sliceMatch?.groupId || firstSym;
+                    } else if (symIdMatch && symIdMatch[1]) {
+                      const sliceMatch = symbolSlices.find(s => s.id === symIdMatch[1]);
+                      resolvedGroupId = sliceMatch?.groupId || symIdMatch[1];
+                    }
+
+                    metadata.widgetInstances['animation'] = [{
+                      id: parsedBlock.instanceId!,
+                      widgetTypeId: 'animation',
+                      label: 'Animation',
+                      config: {
+                        mode: 'symbol',
+                        groupId: resolvedGroupId,
+                        loopSpeedMs: param1 || 250,
+                        loop: param2 !== 1,
+                      },
+                      slots: {},
+                    }];
+                  }
                 }
               }
               start = -1;
@@ -589,6 +622,53 @@ export function parseCHeader(cCode: string): ParsedAssets {
       if (parsedRightIdleScreensEnabled !== undefined && metadata.rightIdleScreensEnabled === undefined) {
         metadata.rightIdleScreensEnabled = parsedRightIdleScreensEnabled;
       }
+
+      // Reconcile blocks with widget instances for wpm-chart to prevent stale dimensions
+      const reconcileChartBlocks = (blockList?: LayoutBlock[]) => {
+        if (!blockList || !metadata?.widgetInstances?.['wpm-chart']) return;
+        blockList.forEach(block => {
+          const type = block.widgetType || block.id;
+          const normType = (type.includes('chart') || type === 'wpm-chart') ? 'wpm-chart' : type;
+          if (normType === 'wpm-chart') {
+            const inst = block.instanceId
+              ? metadata!.widgetInstances!['wpm-chart'].find(i => i.id === block.instanceId)
+              : metadata!.widgetInstances!['wpm-chart'][0];
+            if (inst?.config?.wpmChart) {
+              if (inst.config.wpmChart.width !== undefined) block.width = inst.config.wpmChart.width;
+              if (inst.config.wpmChart.height !== undefined) block.height = inst.config.wpmChart.height;
+            }
+          }
+        });
+      };
+      reconcileChartBlocks(metadata.leftBlocks);
+      reconcileChartBlocks(metadata.rightBlocks);
+      reconcileChartBlocks(metadata.idleLeftBlocks);
+      reconcileChartBlocks(metadata.idleRightBlocks);
+
+      // Reconcile blocks with widget instances for wpm to prevent stale dimensions
+      const reconcileWpmBlocks = (blockList?: LayoutBlock[]) => {
+        if (!blockList || !metadata?.widgetInstances?.['wpm']) return;
+        const wpmDef = getWidgetDefinition('wpm');
+        if (!wpmDef) return;
+        blockList.forEach(block => {
+          const type = block.widgetType || block.id;
+          const normType = normalizeWidgetType(type);
+          if (normType === 'wpm') {
+            const inst = block.instanceId
+              ? metadata!.widgetInstances!['wpm'].find(i => i.id === block.instanceId)
+              : metadata!.widgetInstances!['wpm'][0];
+            if (inst) {
+              const naturalSize = getWidgetNaturalSize(wpmDef, symbolSlices, inst, parsedSmall, fontMappings);
+              block.width = naturalSize.width;
+              block.height = naturalSize.height;
+            }
+          }
+        });
+      };
+      reconcileWpmBlocks(metadata.leftBlocks);
+      reconcileWpmBlocks(metadata.rightBlocks);
+      reconcileWpmBlocks(metadata.idleLeftBlocks);
+      reconcileWpmBlocks(metadata.idleRightBlocks);
     }
 
   } catch (err) {
@@ -608,6 +688,13 @@ export function generateCHeader(
   fontInput: FontCharMapping[] | FontGlyph[],
   metadata?: HeaderMetadata
 ): string {
+  const safeCId = (id: string) => id.replace(/[^a-zA-Z0-9_]/g, '_');
+  symbolSlices = symbolSlices.map(s => ({
+    ...s,
+    id: safeCId(s.id),
+    groupId: s.groupId ? safeCId(s.groupId) : safeCId(s.id),
+  }));
+
   // Normalize symbols: if any slice or active pixel has negative coords, offset so all are >= 0
   let symMinX = 0;
   let symMinY = 0;
@@ -775,17 +862,20 @@ ${!isSymmetric ? `#define DISPLAY_VIRTUAL_WIDTH_RIGHT  ${rightVirtWidth}
 #endif
 #define ZMK_DISPLAY_SLEEP_TIMEOUT_MS ${screenOffTimeoutMs}
 #define SCYAN_SLEEP_TIMEOUT_MS       ${screenOffTimeoutMs}
-${!isSymmetric ? `#define SCYAN_IDLE_SCREENS_ENABLED_RIGHT ${rightIdleScreensEnabled ? 1 : 0}
+${!isSymmetric ? `#define SCYAN_IDLE_SCREENS_ENABLED_LEFT  ${idleScreensEnabled ? 1 : 0}
+#define SCYAN_IDLE_TIMEOUT_MS_LEFT       ${idleTimeoutMs}
+#define SCYAN_SLEEP_TIMEOUT_MS_LEFT      ${screenOffTimeoutMs}
+#define SCYAN_IDLE_SCREENS_ENABLED_RIGHT ${rightIdleScreensEnabled ? 1 : 0}
 #define SCYAN_IDLE_TIMEOUT_MS_RIGHT        ${rightIdleTimeoutMs}
 #define SCYAN_SLEEP_TIMEOUT_MS_RIGHT       ${rightScreenOffTimeoutMs}
 ` : ''}
 
 /* Sprite slice descriptor */
 struct sprite_slice {
-    uint8_t x;
-    uint8_t y;
-    uint8_t width;
-    uint8_t height;
+    uint16_t x;
+    uint16_t y;
+    uint16_t width;
+    uint16_t height;
 };
 
 /* Symbol identifiers */
@@ -994,6 +1084,7 @@ static const struct display_font font_default = {
     c += `    WIDGET_TYPE_SCREENSAVER,\n`;
     c += `    WIDGET_TYPE_CAPS_LOCK,\n`;
     c += `    WIDGET_TYPE_BONGO,\n`;
+    c += `    WIDGET_TYPE_LOOP,\n`;
     c += `};\n\n`;
     c += `#define MAX_BLOCK_SYMBOLS 16\n`;
     c += `#define MAX_BLOCK_TEXTS 16\n\n`;
@@ -1029,6 +1120,7 @@ static const struct display_font font_default = {
       else if (normType.includes('branding') || normType.includes('text')) enumType = 'WIDGET_TYPE_BRANDING';
       else if (normType.includes('screensaver') || normType.includes('art') || normType.includes('mascot')) enumType = 'WIDGET_TYPE_SCREENSAVER';
       else if (normType.includes('bongo')) enumType = 'WIDGET_TYPE_BONGO';
+      else if (normType.includes('loop') || normType.includes('animation')) enumType = 'WIDGET_TYPE_LOOP';
 
       const lookupKey = (normType.includes('connection') || normType.includes('output')) ? 'connection'
         : normType.includes('battery') ? 'battery'
@@ -1040,11 +1132,12 @@ static const struct display_font font_default = {
         : normType.includes('screensaver') ? 'screensaver'
         : normType.includes('caps') ? 'caps-lock'
         : normType.includes('bongo') ? 'bongo'
+        : (normType.includes('animation') || normType.includes('loop')) ? 'animation'
         : normType;
 
-      const instance = block.instanceId && metadata.widgetInstances?.[lookupKey]
-        ? metadata.widgetInstances[lookupKey].find(i => i.id === block.instanceId)
-        : metadata.widgetInstances?.[lookupKey]?.[0];
+      const instance = block.instanceId && (metadata.widgetInstances?.[lookupKey] || metadata.widgetInstances?.['loop'])
+        ? (metadata.widgetInstances[lookupKey]?.find(i => i.id === block.instanceId) || metadata.widgetInstances?.['loop']?.find(i => i.id === block.instanceId))
+        : (metadata.widgetInstances?.[lookupKey]?.[0] || metadata.widgetInstances?.['loop']?.[0]);
 
       const mode = (instance?.config?.mode === 'font') ? 1 : 0;
       let param1 = 0;
@@ -1054,6 +1147,9 @@ static const struct display_font font_default = {
         param1 = instance?.config?.wpmChart?.gridSize ?? 4;
         param2 = instance?.config?.wpmChart?.targetSpeed ?? 100;
         param3 = instance?.config?.wpmChart?.timeWindow ?? 30;
+      } else if (enumType === 'WIDGET_TYPE_LOOP') {
+        param1 = instance?.config?.loopSpeedMs ?? 250;
+        param2 = (instance?.config?.loop ?? true) ? 0 : 1;
       } else {
         if (instance?.config?.fontSize === 'big') {
           param3 = 1;
@@ -1066,6 +1162,7 @@ static const struct display_font font_default = {
       }
 
       const symbolIds: string[] = [];
+      let loopTotalFrames = 0;
       if (instance?.config?.groupIds && instance.config.groupIds.length > 0) {
         for (const gid of instance.config.groupIds) {
           const match = symbolSlices.find(s => (s.groupId === gid && s.groupOrder === 1) || s.groupId === gid || s.id === gid);
@@ -1077,6 +1174,7 @@ static const struct display_font font_default = {
         const gid = instance.config.groupId;
         const members = symbolSlices.filter(s => s.groupId === gid).sort((a, b) => a.groupOrder - b.groupOrder);
         if (members.length > 0) {
+          loopTotalFrames = members.length;
           for (const m of members) {
             if (symbolIds.length < 16) symbolIds.push(m.id);
           }
@@ -1117,6 +1215,17 @@ static const struct display_font font_default = {
           if (bongos.length > 0) {
             bongos.slice(0, 16).forEach(s => symbolIds.push(s.id));
           }
+        } else if (enumType === 'WIDGET_TYPE_LOOP') {
+          const multi = symbolSlices.find(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length >= 2);
+          if (multi) {
+            const matches = symbolSlices
+              .filter(s => s.groupId === multi.groupId)
+              .sort((a, b) => a.groupOrder - b.groupOrder);
+            loopTotalFrames = matches.length;
+            matches
+              .slice(0, 16)
+              .forEach(s => symbolIds.push(s.id));
+          }
         }
         if (symbolIds.length === 0 && symbolSlices.length > 0) {
           symbolIds.push(symbolSlices[0].id);
@@ -1124,7 +1233,9 @@ static const struct display_font font_default = {
       }
 
       const symbolId = symbolIds[0] || (symbolSlices[0]?.id || '0');
-      const symbolCount = symbolIds.length;
+      const symbolCount = (enumType === 'WIDGET_TYPE_LOOP' && loopTotalFrames > 0)
+        ? loopTotalFrames
+        : symbolIds.length;
       const symbolIdsStr = symbolIds.length > 0 ? `{ ${symbolIds.join(', ')} }` : `{ 0 }`;
 
       const textEntries: string[] = [];
@@ -1183,10 +1294,35 @@ static const struct display_font font_default = {
             bh = 5;
           }
         } else {
-          // Font mode: 6px height for text entries, 10px for digits or big font
+          // Font / Text mode
           const isBig = instance?.config?.fontSize === 'big';
-          bh = isBig ? 10 : ((textCount >= 2) ? 6 : 10);
-          bw = 24;
+          const fontSize = isBig ? 'big' : 'small';
+          const mappings = (fontInput.length > 0 && 'chars' in fontInput[0]) ? (fontInput as FontCharMapping[]) : undefined;
+          const nonEmpty = (instance?.config?.textEntries || []).map(e => e?.trim()).filter(Boolean) as string[];
+          if (nonEmpty.length > 0) {
+            let maxW = 0;
+            for (const entry of nonEmpty) {
+              const w = measureTextWidth(entry.toUpperCase(), smallGlyphs, mappings, fontSize);
+              if (w > maxW) maxW = w;
+            }
+            bw = Math.min(32, Math.max(maxW, 4));
+            bh = isBig ? 10 : 5;
+          } else {
+            // Digits mode fallback (e.g. up to 3 digits '100')
+            bw = 24;
+            bh = 10;
+          }
+        }
+        block.width = bw;
+        block.height = bh;
+      }
+
+      if (enumType === 'WIDGET_TYPE_WPM_CHART') {
+        if (instance?.config?.wpmChart) {
+          bw = instance.config.wpmChart.width ?? bw ?? 32;
+          bh = instance.config.wpmChart.height ?? bh ?? 24;
+          block.width = bw;
+          block.height = bh;
         }
       }
 

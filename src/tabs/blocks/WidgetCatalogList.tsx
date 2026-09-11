@@ -53,6 +53,18 @@ export const WidgetMiniPreview: React.FC<{
   instances,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const startTimeRef = useRef<number>(Date.now());
+  const [animTimestamp, setAnimTimestamp] = useState<number>(0);
+
+  useEffect(() => {
+    if (widget.id !== 'animation' && widget.id !== 'loop') return;
+    const speedMs = Math.max(20, (instances?.[widget.id]?.[0]?.config?.loopSpeedMs ?? instances?.['loop']?.[0]?.config?.loopSpeedMs) ?? 250);
+    startTimeRef.current = Date.now();
+    const timer = setInterval(() => {
+      setAnimTimestamp(Date.now() - startTimeRef.current);
+    }, speedMs);
+    return () => clearInterval(timer);
+  }, [widget.id, instances]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -91,6 +103,7 @@ export const WidgetMiniPreview: React.FC<{
       customText,
       instances,
       activeInstanceId,
+      animationTimestamp: animTimestamp,
     });
 
     ctx.fillStyle = '#00d2ff';
@@ -110,6 +123,7 @@ export const WidgetMiniPreview: React.FC<{
     fontMappings,
     customText,
     instances,
+    animTimestamp,
   ]);
 
   return <canvas ref={canvasRef} className="pixel-preview-canvas" />;

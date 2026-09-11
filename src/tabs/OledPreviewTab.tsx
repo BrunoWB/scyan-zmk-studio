@@ -46,6 +46,8 @@ const BLOCK_COLORS: Record<string, string> = {
   'screensaver': '#38bdf8',
   'bongo': '#f472b6',
   'caps-lock': '#fb7185',
+  'animation': '#a855f7',
+  'loop': '#a855f7',
 };
 
 function getOledDisplayDimensions(width: number, height: number): { displayW: number; displayH: number } {
@@ -632,6 +634,26 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     return () => clearInterval(interval);
   }, []);
 
+  const hasAnimationBlock = useMemo(() => {
+    const isAnim = (b: LayoutBlock) => {
+      const t = (b.widgetType || b.id).toLowerCase();
+      return t.includes('animation') || t.includes('loop');
+    };
+    return leftDisplayBlocks.some(isAnim) || rightDisplayBlocks.some(isAnim);
+  }, [leftDisplayBlocks, rightDisplayBlocks]);
+
+  const animStartTimeRef = useRef<number>(Date.now());
+  const [animTimestamp, setAnimTimestamp] = useState<number>(0);
+
+  useEffect(() => {
+    if (!hasAnimationBlock) return;
+    animStartTimeRef.current = Date.now();
+    const interval = setInterval(() => {
+      setAnimTimestamp(Date.now() - animStartTimeRef.current);
+    }, 50);
+    return () => clearInterval(interval);
+  }, [hasAnimationBlock]);
+
   // Render both Left (Master) and Right (Peripheral) OLED displays
   useEffect(() => {
     const PIXEL_PITCH = 2; // Crisp dot simulation
@@ -665,6 +687,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
           isIdle,
           customizations,
           bongoState,
+          animationTimestamp: animTimestamp,
         });
 
         leftCanvas.width = leftVWidth * PIXEL_PITCH;
@@ -711,6 +734,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
           isIdle,
           customizations,
           bongoState,
+          animationTimestamp: animTimestamp,
         });
 
         rightCanvas.width = rightVWidth * PIXEL_PITCH;
@@ -730,18 +754,17 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
       }
     }
   }, [
+    leftDisplayBlocks,
+    rightDisplayBlocks,
     symbolsGrid,
     symbolSlices,
     fontGrid,
     fontGlyphs,
     fontMappings,
-    leftDisplayBlocks,
-    rightDisplayBlocks,
     leftVWidth,
     leftVHeight,
     rightVWidth,
     rightVHeight,
-    isIdle,
     outputMode,
     bleProfileIndex,
     battery,
@@ -755,6 +778,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     layerNames,
     customizations,
     bongoState,
+    animTimestamp,
   ]);
 
   const renderBlockOverlay = (
@@ -876,10 +900,6 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
               {/* OLED Display (Inner Side) */}
               <div className="corne-mcu-bay">
                 <div className="mcu-pcb-socket">
-                  <div className="flex items-center justify-between w-full mb-1 px-0.5">
-                    <span className="side-badge left">MASTER</span>
-                    <span className="text-[8px] font-mono text-[#64748b]">{`${leftVWidth}×${leftVHeight}`}</span>
-                  </div>
                   <div
                     className="oled-glass-housing"
                     style={{
@@ -925,10 +945,6 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
               {/* OLED Display (Inner Side) */}
               <div className="corne-mcu-bay">
                 <div className="mcu-pcb-socket">
-                  <div className="flex items-center justify-between w-full mb-1 px-0.5">
-                    <span className="side-badge right">PERIPHERAL</span>
-                    <span className="text-[8px] font-mono text-[#64748b]">{`${rightVWidth}×${rightVHeight}`}</span>
-                  </div>
                   <div
                     className="oled-glass-housing"
                     style={{

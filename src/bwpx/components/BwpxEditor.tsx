@@ -40,6 +40,7 @@ import type { SpriteSlice } from '../../types/zmk';
 import { renderBwpxCanvas } from '../core/gridRenderer';
 import { ImageImportModal } from './ImageImportModal';
 import { CanvasContextMenu } from './CanvasContextMenu';
+import { findAvailableSpot } from '../core/canvasPacking';
 import './BwpxEditor.css';
 
 export type ToolType =
@@ -117,6 +118,8 @@ export interface BwpxEditorProps {
   onNewSelection?: (rect: { x: number; y: number; width: number; height: number } | null) => void;
   onSliceMove?: (sliceId: string, newX: number, newY: number) => void;
   onSlicesMove?: (updates: { id: string; dx: number; dy: number }[]) => void;
+  onAddSlices?: (slices: SpriteSlice[]) => void;
+  onSlicesChange?: (slices: SpriteSlice[]) => void;
   externalTool?: ToolType;
 }
 
@@ -136,6 +139,8 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   onNewSelection,
   onSliceMove,
   onSlicesMove,
+  onAddSlices,
+  onSlicesChange,
   externalTool,
 }) => {
   const [grid, setGrid] = useState<BwpxGrid>(
@@ -176,6 +181,8 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
   const [drawButton, setDrawButton] = useState<number>(0);
+  const drawButtonRef = useRef<number>(0);
+  const wasErasingRef = useRef<boolean>(false);
   const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(null);
   const [isSpaceHeld, setIsSpaceHeld] = useState<boolean>(false);
   const [dragCurrentPos, setDragCurrentPos] = useState<{ x: number; y: number } | null>(null);
@@ -430,6 +437,8 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   zoomRef.current = zoom;
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
+  const movingPixelsRef = useRef(movingPixels);
+  movingPixelsRef.current = movingPixels;
   const slicesRef = useRef(slices);
   slicesRef.current = slices;
   const selectedSliceIdsRef = useRef(selectedSliceIds);
@@ -446,6 +455,10 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   onSelectSliceRef.current = onSelectSlice;
   const onSelectSlicesRef = useRef(onSelectSlices);
   onSelectSlicesRef.current = onSelectSlices;
+  const onAddSlicesRef = useRef(onAddSlices);
+  onAddSlicesRef.current = onAddSlices;
+  const onSlicesChangeRef = useRef(onSlicesChange);
+  onSlicesChangeRef.current = onSlicesChange;
 
   // Clear free marquee selections when selection tool is deactivated
   const clearFreeSelections = useCallback(() => {
@@ -634,6 +647,24 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
         setIsSpaceHeld(true);
       }
       if (e.key === 'Escape') {
+        const mp = movingPixelsRef.current;
+        if (mp && mp.active) {
+          const next = gridRef.current.clone();
+          if (mp.sliceRects && mp.sliceRects.length > 0) {
+            mp.sliceRects.forEach(sr => next.clearRect(sr));
+          } else {
+            next.clearRect(mp.originalRect);
+          }
+          mp.pixels.forEach(([rx, ry]) => {
+            next.set(mp.originalRect.x + rx, mp.originalRect.y + ry, 1);
+          });
+          setGrid(next);
+          setMovingPixels(null);
+        }
+        clearFreeSelections();
+        setSelection(null);
+        onSelectSliceRef.current?.('', false);
+        onNewSelectionRef.current?.(null);
         setGhostPlacement(null);
         setContextMenu(null);
       }
@@ -982,6 +1013,8 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
     // Middle click or spacebar -> Pan
     if (e.button === 1 || isSpaceHeld) {
+      drawButtonRef.current = 0;
+      setDrawButton(0);
       setIsPanning(true);
       setPanStart({ x: Math.round(e.clientX - pan.x), y: Math.round(e.clientY - pan.y) });
       return;
@@ -990,15 +1023,46 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     const coords = getGridCoords(e.clientX, e.clientY);
     if (!coords) return;
 
-    // Right-clicking is ALWAYS an eraser regardless of active tool, or if eraser tool is selected:
-    const isErasing = e.button === 2 || activeTool === 'eraser';
-
     // Quick move tool: activated by Shift key or shift click, or activeTool === 'move'
-    const isQuickMove = !isErasing && (isShiftHeldRef.current || e.shiftKey || activeTool === 'move');
+    const isQuickMove = isShiftHeldRef.current || e.shiftKey || activeTool === 'move';
     // Selection tool: activated by Control key or external tool, or activeTool === 'select'
-    const isSelect = !isErasing && !isQuickMove && (isControlHeldRef.current || e.ctrlKey || e.metaKey || activeTool === 'select');
+    const isSelect = !isQuickMove && (isControlHeldRef.current || e.ctrlKey || e.metaKey || activeTool === 'select');
+
+    // Right-clicking is an eraser ONLY when drawing tools are active (not select or quick-move):
+    const isErasing = !isQuickMove && !isSelect && (e.button === 2 || activeTool === 'eraser');
+
+    if (e.button === 2) {
+      if (isSelect || isQuickMove) {
+        // Cancel active drag or move if in progress
+        if (isDrawing || movingPixels) {
+          setIsDrawing(false);
+          setStartPos(null);
+          setDragCurrentPos(null);
+          if (movingPixels) {
+            const next = grid.clone();
+            if (movingPixels.sliceRects && movingPixels.sliceRects.length > 0) {
+              movingPixels.sliceRects.forEach(sr => next.clearRect(sr));
+            } else {
+              next.clearRect(movingPixels.originalRect);
+            }
+            movingPixels.pixels.forEach(([rx, ry]) => {
+              next.set(movingPixels.originalRect.x + rx, movingPixels.originalRect.y + ry, 1);
+            });
+            setGrid(next);
+            setMovingPixels(null);
+          }
+          wasErasingRef.current = true; // suppress context menu when right click cancels drag
+        }
+        drawButtonRef.current = 0;
+        setDrawButton(0);
+        return;
+      }
+    }
 
     if (isQuickMove) {
+      drawButtonRef.current = 0;
+      setDrawButton(0);
+      wasErasingRef.current = false;
       // QUICK MOVE TOOL SPECIFICATIONS:
       // "when clicking with tool if a selection exists underneath add immedialy to active selections and starts drag of current active selections.
       // If clicking and dragging starts on empty starts outside a selection, on mouse up activate all selections in the zone"
@@ -1096,6 +1160,9 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     }
 
     if (isSelect) {
+      drawButtonRef.current = 0;
+      setDrawButton(0);
+      wasErasingRef.current = false;
       const isInside = Boolean(
         selection &&
         selection.active &&
@@ -1114,7 +1181,10 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
     // Normal drawing or right-click erasing
     setIsDrawing(true);
-    setDrawButton(isErasing ? 2 : 0);
+    const btn = isErasing ? 2 : 0;
+    drawButtonRef.current = btn;
+    setDrawButton(btn);
+    wasErasingRef.current = isErasing;
     setStartPos(coords);
     setDragCurrentPos(coords);
     lastDrawPosRef.current = coords;
@@ -1191,7 +1261,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       return;
     }
 
-    const isErasing = drawButton === 2;
+    const isErasing = drawButtonRef.current === 2;
     const isSelect = !isErasing && (isControlHeldRef.current || e.ctrlKey || e.metaKey || activeTool === 'select');
 
     if (isSelect) {
@@ -1488,7 +1558,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       return;
     }
 
-    const isErasing = drawButton === 2 || activeTool === 'eraser';
+    const isErasing = drawButtonRef.current === 2 || activeTool === 'eraser';
     const isSelect = !isErasing && (isControlHeldRef.current || e?.ctrlKey || e?.metaKey || activeTool === 'select');
 
     if (isDrawing && isSelect) {
@@ -1602,6 +1672,8 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     setStartPos(null);
     setDragCurrentPos(null);
     lastDrawPosRef.current = null;
+    drawButtonRef.current = 0;
+    setDrawButton(0);
   };
 
   // Zoom with mouse wheel centered at cursor (non-passive to allow preventDefault safely)
@@ -1767,18 +1839,113 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.type.startsWith('image/')) {
+    if (file.type.startsWith('image/') || file.name.toLowerCase().endsWith('.gif')) {
       setPendingImageSource(file);
       setImportModalOpen(true);
     }
     e.target.value = '';
   };
 
-  const handleConfirmImageImport = (importedGrid: BwpxGrid, width: number, height: number) => {
+  const handleConfirmImageImport = (
+    importedGrid: BwpxGrid,
+    width: number,
+    height: number,
+    gifData?: {
+      frames: { grid: BwpxGrid; delayMs: number }[];
+      name?: string;
+    }
+  ) => {
     setImportModalOpen(false);
     setPendingImageSource(null);
 
-    // Initial position: center of the visible viewport canvas
+    // If multi-frame GIF animation:
+    if (gifData && gifData.frames.length > 0) {
+      const frameCount = gifData.frames.length;
+      const spot = findAvailableSpot(
+        grid,
+        slicesRef.current || [],
+        width,
+        height,
+        frameCount,
+        initialWidth,
+        initialHeight
+      );
+
+      // Stamp frames onto canvas
+      const next = grid.clone();
+      gifData.frames.forEach((frame, i) => {
+        const placement = spot.frames[i];
+        if (!placement) return;
+        const pixels = frame.grid.getAllPixels();
+        pixels.forEach(([px, py]) => {
+          next.set(placement.x + px, placement.y + py, 1);
+        });
+      });
+
+      // Construct unique groupId and SpriteSlice entries
+      const rawName = (gifData.name || 'Anim').trim();
+      const sanitizedName = rawName.replace(/[^a-zA-Z0-9_]/g, '_');
+      const cleanId = `SYMBOL_${sanitizedName.toUpperCase()}_${Date.now().toString().slice(-4)}`;
+      const groupColor = '#00d2ff';
+
+      const newSlices: SpriteSlice[] = spot.frames.map((placement, i) => ({
+        id: i === 0 ? cleanId : `${cleanId}_SUB_${i}`,
+        name: i === 0 ? rawName : undefined,
+        groupId: cleanId,
+        groupOrder: i + 1,
+        x: placement.x,
+        y: placement.y,
+        width,
+        height,
+        color: groupColor,
+      }));
+
+      // Add slices via callbacks
+      if (onAddSlicesRef.current) {
+        onAddSlicesRef.current(newSlices);
+      } else if (onSlicesChangeRef.current) {
+        onSlicesChangeRef.current([...(slicesRef.current || []), ...newSlices]);
+      }
+
+      // Select newly added slices
+      const newSliceIds = newSlices.map(s => s.id);
+      if (onSelectSlicesRef.current) {
+        onSelectSlicesRef.current(newSliceIds);
+      } else if (onSelectSliceRef.current && newSliceIds[0]) {
+        onSelectSliceRef.current(newSliceIds[0]);
+      }
+
+      // Commit grid state with active marquee selection over the pasted group
+      commitGridState(next, {
+        x: spot.bounds.x,
+        y: spot.bounds.y,
+        w: spot.bounds.w,
+        h: spot.bounds.h,
+        active: true,
+      });
+
+      // Adjust viewport pan if the placed group is outside view
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const screenX = pan.x + spot.bounds.x * zoom;
+        const screenY = pan.y + spot.bounds.y * zoom;
+        if (
+          screenX < 0 ||
+          screenY < 0 ||
+          screenX + spot.bounds.w * zoom > canvas.width ||
+          screenY + spot.bounds.h * zoom > canvas.height
+        ) {
+          setPan({
+            x: Math.round(canvas.width / 2 - (spot.bounds.x + spot.bounds.w / 2) * zoom),
+            y: Math.round(canvas.height / 2 - (spot.bounds.y + spot.bounds.h / 2) * zoom),
+          });
+        }
+      }
+
+      return;
+    }
+
+    // Static image fallback: ghost placement
     const canvas = canvasRef.current;
     let initialX = 0;
     let initialY = 0;
@@ -1801,7 +1968,13 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     e.preventDefault();
     if (ghostPlacement) {
       setGhostPlacement(null);
+      return;
     }
+    if (wasErasingRef.current) {
+      wasErasingRef.current = false;
+      return;
+    }
+    setContextMenu({ x: e.clientX, y: e.clientY });
   };
 
   const handleContextMenuPaste = async () => {
@@ -2135,11 +2308,20 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
             onMouseLeave={() => {
               setHoverPos(null);
               setIsPanning(false);
+              drawButtonRef.current = 0;
+              setDrawButton(0);
               if (movingPixels && movingPixels.active) {
                 handleMouseUp();
               } else {
+                if (strokeModifiedRef.current) {
+                  commitGridState(grid);
+                  strokeModifiedRef.current = false;
+                }
                 setIsDrawing(false);
                 setIsInsideSelectionOnDown(false);
+                setStartPos(null);
+                setDragCurrentPos(null);
+                lastDrawPosRef.current = null;
               }
             }}
           />
@@ -2261,6 +2443,12 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           onFlipH={handleFlipH}
           onFlipV={handleFlipV}
           onRotate90={handleRotate90}
+          onDeselect={() => {
+            clearFreeSelections();
+            setSelection(null);
+            onSelectSliceRef.current?.('', false);
+            onNewSelectionRef.current?.(null);
+          }}
           hasSelection={Boolean(selection && selection.active)}
         />
       )}

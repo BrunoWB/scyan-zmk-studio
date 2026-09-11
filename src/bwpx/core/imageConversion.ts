@@ -5,6 +5,12 @@ export interface ImageConversionOptions {
   invert?: boolean;
   targetWidth?: number;
   targetHeight?: number;
+  crop?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 /**
@@ -55,17 +61,23 @@ export function convertImageDataToGrid(
 
 /**
  * Helper to draw an HTMLImageElement to an offscreen canvas with optional target sizing
- * and convert to BwpxGrid.
+ * and cropping, and convert to BwpxGrid.
  */
 export function convertImageElementToGrid(
   img: HTMLImageElement,
   options: ImageConversionOptions
 ): { grid: BwpxGrid; width: number; height: number; originalWidth: number; originalHeight: number } {
-  const originalWidth = img.naturalWidth || img.width;
-  const originalHeight = img.naturalHeight || img.height;
+  const naturalW = img.naturalWidth || img.width;
+  const naturalH = img.naturalHeight || img.height;
 
-  let width = options.targetWidth || originalWidth;
-  let height = options.targetHeight || originalHeight;
+  const crop = options.crop;
+  const cropX = crop ? Math.max(0, Math.min(naturalW - 1, Math.round(crop.x))) : 0;
+  const cropY = crop ? Math.max(0, Math.min(naturalH - 1, Math.round(crop.y))) : 0;
+  const cropW = crop ? Math.max(1, Math.min(naturalW - cropX, Math.round(crop.width))) : naturalW;
+  const cropH = crop ? Math.max(1, Math.min(naturalH - cropY, Math.round(crop.height))) : naturalH;
+
+  let width = options.targetWidth || cropW;
+  let height = options.targetHeight || cropH;
 
   // Ensure positive integer dimensions
   width = Math.max(1, Math.round(width));
@@ -81,14 +93,14 @@ export function convertImageElementToGrid(
       grid: new BwpxGrid(width, height),
       width,
       height,
-      originalWidth,
-      originalHeight,
+      originalWidth: cropW,
+      originalHeight: cropH,
     };
   }
 
-  // Draw image to offscreen canvas (handles scaling)
+  // Draw cropped image slice to offscreen canvas (handles scaling)
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(img, 0, 0, width, height);
+  ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, width, height);
 
   const imgData = ctx.getImageData(0, 0, width, height);
   const grid = convertImageDataToGrid(imgData, options);
@@ -97,8 +109,9 @@ export function convertImageElementToGrid(
     grid,
     width,
     height,
-    originalWidth,
-    originalHeight,
+    originalWidth: cropW,
+    originalHeight: cropH,
   };
 }
+
 

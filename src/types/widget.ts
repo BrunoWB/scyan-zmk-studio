@@ -24,6 +24,8 @@ export interface WidgetInstanceConfig {
   };
   bongoTapMs?: number;            // Tap duration in ms, matching CONFIG_SCYAN_BONGO_TAP_MS (default 60)
   bongoDebounceMs?: number;       // Debounce interval in ms (default 100)
+  loopSpeedMs?: number;           // Animation frame duration in ms for Animation widget (default 250)
+  loop?: boolean;                  // Whether animation loops indefinitely (default true) or stops at the last frame
 }
 
 export interface WidgetSlotDefinition {
@@ -93,6 +95,7 @@ export interface WidgetRenderContext {
   activeInstanceId?: string;
   customizations?: WidgetCustomizationMap;
   bongoState?: 0 | 1 | 2; // 0: idle/neutral, 1: tap left, 2: tap right
+  animationTimestamp?: number; // Timestamp in ms for time-based animation widgets (e.g. Loop)
   blockWidth?: number;
   blockHeight?: number;
 }

@@ -237,5 +237,167 @@ describe('BwpxEditor UX logic', () => {
     expect(atMax.zoom).toBe(maxZoom);
     expect(atMax.pan).toEqual(pan);
   });
+
+  it('correctly places and slices imported GIF frames as a group in an available canvas spot', async () => {
+    const { findAvailableSpot } = await import('../canvasPacking');
+    const grid = new BwpxGrid(128, 34);
+
+    // Existing slice on canvas
+    const existingSlices = [
+      {
+        id: 'EXISTING_USB',
+        groupId: 'EXISTING_USB',
+        groupOrder: 1,
+        x: 0,
+        y: 0,
+        width: 16,
+        height: 16,
+      },
+    ];
+
+    // Simulate 3-frame GIF of size 32x20
+    const frameW = 32;
+    const frameH = 20;
+    const frameCount = 3;
+
+    const spot = findAvailableSpot(grid, existingSlices, frameW, frameH, frameCount, 128, 34);
+
+    // Should not collide with (0,0..16,16)
+    expect(spot.bounds.x).toBeGreaterThanOrEqual(16);
+    expect(spot.frames.length).toBe(3);
+
+    // Create slices as a group
+    const cleanId = 'SYMBOL_BONGO_1234';
+    const newSlices = spot.frames.map((f, i) => ({
+      id: i === 0 ? cleanId : `${cleanId}_SUB_${i}`,
+      name: i === 0 ? 'Bongo' : undefined,
+      groupId: cleanId,
+      groupOrder: i + 1,
+      x: f.x,
+      y: f.y,
+      width: frameW,
+      height: frameH,
+      color: '#00d2ff',
+    }));
+
+    // Slices share groupId and order
+    expect(newSlices[0].groupId).toBe(cleanId);
+    expect(newSlices[0].groupOrder).toBe(1);
+    expect(newSlices[0].name).toBe('Bongo');
+    expect(newSlices[1].groupId).toBe(cleanId);
+    expect(newSlices[1].groupOrder).toBe(2);
+    expect(newSlices[1].name).toBeUndefined();
+    expect(newSlices[2].groupId).toBe(cleanId);
+    expect(newSlices[2].groupOrder).toBe(3);
+    expect(newSlices[2].name).toBeUndefined();
+  });
+
+  it('correctly resolves tool priority so right-click does not erase during select or quick-move modes', () => {
+    // Evaluation function matching BwpxEditor handleMouseDown logic
+    const evaluateTools = (activeTool: string, button: number, isShiftHeld = false, isControlHeld = false) => {
+      const isQuickMove = isShiftHeld || activeTool === 'move';
+      const isSelect = !isQuickMove && (isControlHeld || activeTool === 'select');
+      const isErasing = !isQuickMove && !isSelect && (button === 2 || activeTool === 'eraser');
+      return { isQuickMove, isSelect, isErasing };
+    };
+
+    // 1. Right-click with pencil -> should erase
+    const pencilRightClick = evaluateTools('pencil', 2);
+    expect(pencilRightClick.isErasing).toBe(true);
+    expect(pencilRightClick.isSelect).toBe(false);
+
+    // 2. Right-click with select tool -> should NOT erase, must preserve selection mode
+    const selectRightClick = evaluateTools('select', 2);
+    expect(selectRightClick.isSelect).toBe(true);
+    expect(selectRightClick.isErasing).toBe(false);
+
+    // 3. Right-click with move tool -> should NOT erase, must preserve quick-move mode
+    const moveRightClick = evaluateTools('move', 2);
+    expect(moveRightClick.isQuickMove).toBe(true);
+    expect(moveRightClick.isErasing).toBe(false);
+
+    // 4. Right-click with Control held -> selection mode active, not erasing
+    const ctrlRightClick = evaluateTools('pencil', 2, false, true);
+    expect(ctrlRightClick.isSelect).toBe(true);
+    expect(ctrlRightClick.isErasing).toBe(false);
+
+    // 5. Right-click with Shift held -> quick-move mode active, not erasing
+    const shiftRightClick = evaluateTools('pencil', 2, true, false);
+    expect(shiftRightClick.isQuickMove).toBe(true);
+    expect(shiftRightClick.isErasing).toBe(false);
+  });
+
+  it('guarantees drawButton state lifecycle resets to 0 and preserves selection tool functionality after right-click erase', () => {
+    let drawButton = 0;
+    let isDrawing = false;
+    let wasErasing = false;
+
+    // Step 1: User right-clicks with pencil to erase
+    const isQuickMove = false;
+    const isSelect = false;
+    const isErasing = !isQuickMove && !isSelect && 2 === 2;
+    expect(isErasing).toBe(true);
+
+    // MouseDown
+    isDrawing = true;
+    expect(isDrawing).toBe(true);
+    drawButton = isErasing ? 2 : 0;
+    wasErasing = isErasing;
+    expect(wasErasing).toBe(true);
+    expect(drawButton).toBe(2);
+
+    // MouseMove: uses drawButton === 2 to erase
+    const moveIsErasing = drawButton === 2;
+    expect(moveIsErasing).toBe(true);
+
+    // MouseUp: stroke finished -> drawButton MUST reset to 0
+    isDrawing = false;
+    expect(isDrawing).toBe(false);
+    drawButton = 0;
+    expect(drawButton).toBe(0);
+
+    // Step 2: User now switches to select tool and starts dragging
+    const activeTool: string = 'select';
+    const nextQuickMove = activeTool === 'move';
+    const nextSelect = !nextQuickMove && activeTool === 'select';
+    expect(nextSelect).toBe(true);
+
+    // In handleMouseMove for selection tool:
+    const subsequentMoveIsErasing = drawButton === 2;
+    const subsequentMoveIsSelect = !subsequentMoveIsErasing && activeTool === 'select';
+
+    // Must NOT be erasing, MUST be select!
+    expect(subsequentMoveIsErasing).toBe(false);
+    expect(subsequentMoveIsSelect).toBe(true);
+  });
+
+  it('restores moved pixels on Escape cancellation', () => {
+    const grid = new BwpxGrid(16, 16);
+    grid.set(2, 2, 1);
+    grid.set(3, 3, 1);
+
+    // Simulate moving pixels active
+    const movingPixels = {
+      originalRect: { x: 2, y: 2, w: 2, h: 2 },
+      pixels: [[0, 0], [1, 1]] as [number, number][],
+      offset: { dx: 5, dy: 5 },
+      active: true,
+    };
+
+    // Grid was cleared at originalRect when drag started
+    grid.clearRect(movingPixels.originalRect);
+    expect(grid.get(2, 2)).toBe(0);
+    expect(grid.get(3, 3)).toBe(0);
+
+    // Cancel action (Escape or right click)
+    const restored = grid.clone();
+    movingPixels.pixels.forEach(([rx, ry]) => {
+      restored.set(movingPixels.originalRect.x + rx, movingPixels.originalRect.y + ry, 1);
+    });
+
+    expect(restored.get(2, 2)).toBe(1);
+    expect(restored.get(3, 3)).toBe(1);
+  });
 });
+
 

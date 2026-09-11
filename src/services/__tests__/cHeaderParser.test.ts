@@ -86,17 +86,20 @@ describe('cHeaderParser', () => {
       ],
       rightBlocks: [
         { id: 'right-split', widgetType: 'split', name: 'Split', x: 9, y: 20, width: 13, height: 9, enabled: true, side: 'right' as const },
+        { id: 'right-loop', widgetType: 'loop', name: 'Loop', x: 0, y: 40, width: 26, height: 26, enabled: true, side: 'right' as const },
       ],
       idleLeftBlocks: [
         { id: 'idle-art', widgetType: 'screensaver', name: 'Mascot', x: 3, y: 35, width: 26, height: 26, enabled: true, side: 'left' as const },
       ],
       idleRightBlocks: [],
       widgetInstances: {
-        'wpm-chart': [{ id: 'wpm_1', widgetTypeId: 'wpm-chart', label: 'WPM Chart', config: { mode: 'symbol' as const, wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100 } }, slots: {} }]
+        'wpm-chart': [{ id: 'wpm_1', widgetTypeId: 'wpm-chart', label: 'WPM Chart', config: { mode: 'symbol' as const, wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100 } }, slots: {} }],
+        'loop': [{ id: 'loop_1', widgetTypeId: 'loop', label: 'My Loop', config: { mode: 'symbol' as const, loopSpeedMs: 150 }, slots: {} }],
       }
     };
 
     const cCode = generateCHeader(symbolsGrid, symbolSlices, fontGrid, [], metadata);
+    expect(cCode).toContain('WIDGET_TYPE_LOOP');
     const tmpPath = path.join(os.tmpdir(), 'test_generated_assets.h');
     fs.writeFileSync(tmpPath, cCode);
 
@@ -380,6 +383,127 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
 
     const parsed = parseCHeader(cCode);
     expect(parsed.metadata?.layerNames).toEqual(['FREE', 'QWERTY', 'RIGHTHOLD', 'LEFTHOLD', 'SIMMHOLD']);
+  });
+
+  it('synchronizes wpm-chart width and height from instance config to C block and metadata', () => {
+    const testGrid = new BwpxGrid(16, 16);
+    const metadata = {
+      version: 1 as const,
+      leftBlocks: [
+        { id: 'b_wpm_chart', instanceId: 'w_chart_1', widgetType: 'wpm-chart', name: 'WPM Chart', x: 0, y: 56, width: 24, height: 21, enabled: true, side: 'left' as const }
+      ],
+      rightBlocks: [],
+      idleLeftBlocks: [],
+      idleRightBlocks: [],
+      widgetInstances: {
+        'wpm-chart': [{
+          id: 'w_chart_1',
+          widgetTypeId: 'wpm-chart',
+          label: 'WPM Chart',
+          config: {
+            mode: 'symbol' as const,
+            wpmChart: { width: 32, height: 30, gridSize: 0, targetSpeed: 60, timeWindow: 10 }
+          },
+          slots: {}
+        }]
+      }
+    };
+
+    const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+    // C struct should have width 32 and height 30 (not stale 24 and 21)
+    expect(cCode).toContain('.type = WIDGET_TYPE_WPM_CHART, .x = 0, .y = 56, .width = 32, .height = 30');
+
+    // Parsing should reconcile block width and height to 32 and 30
+    const parsed = parseCHeader(cCode);
+    const parsedBlock = parsed.metadata?.leftBlocks?.[0];
+    expect(parsedBlock?.width).toBe(32);
+    expect(parsedBlock?.height).toBe(30);
+  });
+
+  it('synchronizes wpm text mode width and height from instance config to C block and metadata', () => {
+    const testGrid = new BwpxGrid(16, 16);
+    const metadata = {
+      version: 1 as const,
+      leftBlocks: [
+        { id: 'b_wpm_text', instanceId: 'w_text_1', widgetType: 'wpm', name: 'WPM Meter', x: 4, y: 87, width: 24, height: 10, enabled: true, side: 'left' as const }
+      ],
+      rightBlocks: [],
+      idleLeftBlocks: [],
+      idleRightBlocks: [],
+      widgetInstances: {
+        'wpm': [{
+          id: 'w_text_1',
+          widgetTypeId: 'wpm',
+          label: 'WPM Meter',
+          config: {
+            mode: 'font' as const,
+            fontSize: 'small' as const,
+            textEntries: ['A'],
+          },
+          slots: {}
+        }]
+      }
+    };
+
+    const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+    // C struct should have width 4 and height 5 (measured tight for 'A', not stale 24 and 10)
+    expect(cCode).toContain('.type = WIDGET_TYPE_WPM, .x = 4, .y = 87, .width = 4, .height = 5');
+
+    // Parsing should reconcile block width and height to 4 and 5
+    const parsed = parseCHeader(cCode);
+    const parsedBlock = parsed.metadata?.leftBlocks?.[0];
+    expect(parsedBlock?.width).toBe(4);
+    expect(parsedBlock?.height).toBe(5);
+  });
+
+  it('generates and parses Animation widget with loop config correctly', () => {
+    const testGrid = new BwpxGrid(32, 16);
+    const metadata = {
+      version: 1 as const,
+      screenDimensions: { width: 32, height: 128 },
+      leftBlocks: [
+        { id: 'left-anim-loop', widgetType: 'animation', name: 'Anim Loop', x: 0, y: 10, width: 26, height: 26, enabled: true, side: 'left' as const, instanceId: 'inst_loop' },
+        { id: 'left-anim-oneshot', widgetType: 'animation', name: 'Anim Oneshot', x: 0, y: 50, width: 26, height: 26, enabled: true, side: 'left' as const, instanceId: 'inst_oneshot' },
+      ],
+      rightBlocks: [],
+      idleLeftBlocks: [],
+      idleRightBlocks: [],
+      widgetInstances: {
+        'animation': [
+          { id: 'inst_loop', widgetTypeId: 'animation', label: 'Looping', config: { mode: 'symbol' as const, loopSpeedMs: 150, loop: true }, slots: {} },
+          { id: 'inst_oneshot', widgetTypeId: 'animation', label: 'One Shot', config: { mode: 'symbol' as const, loopSpeedMs: 200, loop: false }, slots: {} },
+        ]
+      }
+    };
+
+    const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+    // inst_loop has loop: true -> param2 = 0
+    expect(cCode).toContain('.param1 = 150, .param2 = 0');
+    // inst_oneshot has loop: false -> param2 = 1
+    expect(cCode).toContain('.param1 = 200, .param2 = 1');
+
+    // Round-trip parse
+    const parsed = parseCHeader(cCode);
+    const animInstances = parsed.metadata?.widgetInstances?.['animation'];
+    expect(animInstances).toBeDefined();
+    expect(animInstances?.length).toBe(2);
+    expect(animInstances?.find(i => i.id === 'inst_loop')?.config.loop).toBe(true);
+    expect(animInstances?.find(i => i.id === 'inst_oneshot')?.config.loop).toBe(false);
+
+    // Raw C fallback parsing (when metadata block stripped)
+    const rawC = `
+      static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
+          { .type = WIDGET_TYPE_LOOP, .x = 2, .y = 20, .width = 24, .height = 24, .enabled = true, .mode = 0, .param1 = 120, .param2 = 1, .param3 = 0, .symbol_count = 0, .symbol_ids = { 0 }, .text_count = 0, .text_entries = { NULL }, .custom_text = NULL, .symbol_id = 0 },
+      };
+      #define LAYOUT_LEFT_ACTIVE_COUNT 1
+    `;
+    const parsedRaw = parseCHeader(rawC);
+    expect(parsedRaw.metadata?.leftBlocks?.length).toBe(1);
+    expect(parsedRaw.metadata?.leftBlocks?.[0].widgetType).toBe('animation');
+    const rawAnimInst = parsedRaw.metadata?.widgetInstances?.['animation']?.[0];
+    expect(rawAnimInst).toBeDefined();
+    expect(rawAnimInst?.config.loopSpeedMs).toBe(120);
+    expect(rawAnimInst?.config.loop).toBe(false); // param2 == 1 -> loop: false
   });
 });
 

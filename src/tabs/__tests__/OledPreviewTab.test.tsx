@@ -51,10 +51,13 @@ describe('OledPreviewTab dynamic screen dimensions & widget moving', () => {
       />
     );
 
-    // Displays have MASTER and PERIPHERAL badges with dimensions
-    expect(html).toContain('MASTER');
-    expect(html).toContain('PERIPHERAL');
-    expect(html).toContain('128×32');
+    // Display titles (MASTER / PERIPHERAL badges) are removed
+    expect(html).not.toContain('MASTER');
+    expect(html).not.toContain('PERIPHERAL');
+
+    // Displays reflect the custom dimensions in housing dimensions (180x45 + border)
+    expect(html).toContain('width:190px');
+    expect(html).toContain('height:55px');
 
     // Both widget overlays are rendered
     expect(html).toContain('oled-block-overlay');
@@ -78,8 +81,9 @@ describe('OledPreviewTab dynamic screen dimensions & widget moving', () => {
       />
     );
 
-    expect(html).toContain('32×128');
-    expect(html).toContain('64×128');
+    // Left display is 48px (+10 border = 58px), Right display is 96px (+10 border = 106px)
+    expect(html).toContain('width:58px');
+    expect(html).toContain('width:106px');
   });
 
   it('renders bongo cat widget with configured speed limits', () => {

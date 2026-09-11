@@ -794,4 +794,273 @@ export async function installScyanStudioToRepo(
   };
 }
 
+/**
+ * Updates or appends a Kconfig key=value setting in .conf content.
+ * Safely handles commented-out values like `# CONFIG_ZMK_IDLE_TIMEOUT=...`
+ * without touching unrelated comments.
+ */
+export function updateKconfigSetting(
+  content: string,
+  key: string,
+  value: string | number
+): { updated: string; changed: boolean } {
+  const targetLine = `${key}=${value}`;
+  const regex = new RegExp(`^(\\s*#\\s*)?${key}=.*$`, 'm');
+  const match = content.match(regex);
+
+  if (match) {
+    // If exact match already exists, no change needed
+    if (match[0] === targetLine) {
+      return { updated: content, changed: false };
+    }
+    const updated = content.replace(regex, targetLine);
+    return { updated, changed: true };
+  }
+
+  // Not found: append at end
+  const trimmed = content.trimEnd();
+  const updated = trimmed ? `${trimmed}\n${targetLine}\n` : `${targetLine}\n`;
+  return { updated, changed: true };
+}
+
+export interface TimeoutConfig {
+  screenOffTimeoutSec: number;
+  rightScreenOffTimeoutSec?: number;
+  symmetricSettings: boolean;
+}
+
+/**
+ * Resolves which .conf files should be updated with new CONFIG_ZMK_IDLE_TIMEOUT settings.
+ */
+export function resolveConfUpdates(
+  confFiles: { path: string; content: string }[],
+  timeouts: TimeoutConfig
+): { path: string; content: string }[] {
+  const leftTimeoutMs = timeouts.screenOffTimeoutSec * 1000;
+  const rightTimeoutMs = (
+    timeouts.symmetricSettings
+      ? timeouts.screenOffTimeoutSec
+      : (timeouts.rightScreenOffTimeoutSec ?? timeouts.screenOffTimeoutSec)
+  ) * 1000;
+
+  const leftConfs = confFiles.filter(f => {
+    const lower = f.path.toLowerCase();
+    return lower.includes('_left') || lower.includes('-left');
+  });
+
+  const rightConfs = confFiles.filter(f => {
+    const lower = f.path.toLowerCase();
+    return lower.includes('_right') || lower.includes('-right');
+  });
+
+  const baseConfs = confFiles.filter(f => {
+    const lower = f.path.toLowerCase();
+    return (
+      !lower.includes('_left') &&
+      !lower.includes('-left') &&
+      !lower.includes('_right') &&
+      !lower.includes('-right')
+    );
+  });
+
+  const updates: { path: string; content: string }[] = [];
+
+  if (leftConfs.length > 0 || rightConfs.length > 0) {
+    // Split configuration present
+    for (const lc of leftConfs) {
+      const res = updateKconfigSetting(lc.content, 'CONFIG_ZMK_IDLE_TIMEOUT', leftTimeoutMs);
+      if (res.changed) {
+        updates.push({ path: lc.path, content: res.updated });
+      }
+    }
+    for (const rc of rightConfs) {
+      const res = updateKconfigSetting(rc.content, 'CONFIG_ZMK_IDLE_TIMEOUT', rightTimeoutMs);
+      if (res.changed) {
+        updates.push({ path: rc.path, content: res.updated });
+      }
+    }
+  } else if (baseConfs.length > 0) {
+    if (timeouts.symmetricSettings) {
+      // Single/unified configuration with symmetric timeout
+      for (const bc of baseConfs) {
+        const res = updateKconfigSetting(bc.content, 'CONFIG_ZMK_IDLE_TIMEOUT', leftTimeoutMs);
+        if (res.changed) {
+          updates.push({ path: bc.path, content: res.updated });
+        }
+      }
+    } else {
+      // Asymmetric settings requested but only base conf exists.
+      // 1. Update base conf with left (central) timeout
+      const primaryBase = baseConfs[0];
+      const baseRes = updateKconfigSetting(primaryBase.content, 'CONFIG_ZMK_IDLE_TIMEOUT', leftTimeoutMs);
+      if (baseRes.changed) {
+        updates.push({ path: primaryBase.path, content: baseRes.updated });
+      }
+      // 2. Create right conf (e.g. config/corne.conf -> config/corne_right.conf) to apply right peripheral timeout
+      const extMatch = primaryBase.path.match(/^(.*)\.conf$/);
+      if (extMatch) {
+        const rightPath = `${extMatch[1]}_right.conf`;
+        const rightRes = updateKconfigSetting('', 'CONFIG_ZMK_IDLE_TIMEOUT', rightTimeoutMs);
+        updates.push({ path: rightPath, content: rightRes.updated });
+      }
+    }
+  }
+
+  return updates;
+}
+
+/**
+ * Probes the repository for .conf files, typically in config/ or root.
+ */
+export async function fetchRepoConfFiles(
+  config: GitHubRepoConfig
+): Promise<{ path: string; content: string }[]> {
+  if (!config.token || !config.owner || !config.repo) {
+    return [];
+  }
+  const octokit = getOctokit(config.token);
+  const branch = config.branch || 'main';
+
+  const confFiles: { path: string; content: string }[] = [];
+  const candidateDirs = ['config', ''];
+
+  for (const dir of candidateDirs) {
+    try {
+      const res = await octokit.repos.getContent({
+        owner: config.owner,
+        repo: config.repo,
+        path: dir,
+        ref: branch,
+      });
+      if (Array.isArray(res.data)) {
+        const confItems = res.data.filter(
+          item => item.type === 'file' && item.name.endsWith('.conf')
+        );
+        for (const item of confItems) {
+          try {
+            const fileRes = await octokit.repos.getContent({
+              owner: config.owner,
+              repo: config.repo,
+              path: item.path,
+              ref: branch,
+            });
+            if ('content' in fileRes.data && typeof fileRes.data.content === 'string') {
+              const decoded = atob(fileRes.data.content.replace(/\s/g, ''));
+              confFiles.push({ path: item.path, content: decoded });
+            }
+          } catch {
+            // ignore individual file read failure
+          }
+        }
+        if (confFiles.length > 0) {
+          break; // Found conf files in preferred directory
+        }
+      }
+    } catch {
+      // directory does not exist or inaccessible
+    }
+  }
+
+  return confFiles;
+}
+
+export interface CommitStudioSaveResult {
+  commitUrl: string;
+  commitSha: string;
+  filesCommitted: string[];
+}
+
+/**
+ * Atomically commits display assets and any updated Kconfig .conf files using Git Trees API.
+ */
+export async function commitStudioSaveToRepo(
+  config: GitHubRepoConfig,
+  headerPath: string,
+  headerContent: string,
+  timeouts: TimeoutConfig,
+  commitMessage = 'feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio'
+): Promise<CommitStudioSaveResult> {
+  if (!config.token || !config.owner || !config.repo) {
+    throw new Error('GitHub Personal Access Token is required to commit changes.');
+  }
+
+  const octokit = getOctokit(config.token);
+  const branch = config.branch || 'main';
+
+  // 1. Discover .conf files and calculate required Kconfig updates
+  let confUpdates: { path: string; content: string }[] = [];
+  try {
+    const existingConfs = await fetchRepoConfFiles(config);
+    confUpdates = resolveConfUpdates(existingConfs, timeouts);
+  } catch (err) {
+    console.warn('Could not inspect .conf files for Kconfig timeout synchronization:', err);
+  }
+
+  // 2. Collect all files to commit
+  const filesToCommit: { path: string; content: string }[] = [
+    { path: headerPath, content: headerContent },
+    ...confUpdates,
+  ];
+
+  // 3. Perform atomic commit via Git Trees API
+  try {
+    const refRes = await octokit.git.getRef({
+      owner: config.owner,
+      repo: config.repo,
+      ref: `heads/${branch}`,
+    });
+    const currentCommitSha = refRes.data.object.sha;
+
+    const commitObjRes = await octokit.git.getCommit({
+      owner: config.owner,
+      repo: config.repo,
+      commit_sha: currentCommitSha,
+    });
+    const baseTreeSha = commitObjRes.data.tree.sha;
+
+    const treeRes = await octokit.git.createTree({
+      owner: config.owner,
+      repo: config.repo,
+      base_tree: baseTreeSha,
+      tree: filesToCommit.map(f => ({
+        path: f.path,
+        mode: '100644' as const,
+        type: 'blob' as const,
+        content: f.content,
+      })),
+    });
+
+    const newCommitRes = await octokit.git.createCommit({
+      owner: config.owner,
+      repo: config.repo,
+      message: commitMessage,
+      tree: treeRes.data.sha,
+      parents: [currentCommitSha],
+    });
+
+    await octokit.git.updateRef({
+      owner: config.owner,
+      repo: config.repo,
+      ref: `heads/${branch}`,
+      sha: newCommitRes.data.sha,
+    });
+
+    return {
+      commitSha: newCommitRes.data.sha,
+      commitUrl: newCommitRes.data.html_url,
+      filesCommitted: filesToCommit.map(f => f.path),
+    };
+  } catch (gitTreeErr) {
+    console.warn('Git Trees API atomic commit failed, attempting fallback to single-file commit:', gitTreeErr);
+    // Fallback: Commit just the header file so user work is never lost
+    const singleRes = await commitFileToRepo(config, headerPath, headerContent, commitMessage);
+    return {
+      commitSha: singleRes.sha,
+      commitUrl: singleRes.commitUrl,
+      filesCommitted: [headerPath],
+    };
+  }
+}
+
+
 

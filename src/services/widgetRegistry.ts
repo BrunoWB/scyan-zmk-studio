@@ -1096,6 +1096,68 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
       const fontSize = inst?.config?.fontSize || 'small';
       drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, customText, destX, destY, fontSize);
     },
+  },
+  {
+    id: 'animation',
+    name: 'Animation',
+    category: 'art',
+    tier: 3,
+    description: 'Sequentially cycles through frames of a symbol group as an animation.',
+    defaultWidth: 26,
+    minWidth: 8,
+    maxWidth: 32,
+    defaultHeight: 26,
+    minHeight: 8,
+    maxHeight: 32,
+    icon: 'film',
+    associatedSliceIds: [],
+    defaultPlacement: { side: 'both', defaultX: 3, defaultY: 35 },
+    slots: [],
+    render: (grid, destX, destY, ctx) => {
+      const inst = ctx.instances?.['animation']?.find(i => i.id === ctx.activeInstanceId)
+        || ctx.instances?.['animation']?.[0]
+        || ctx.instances?.['loop']?.find(i => i.id === ctx.activeInstanceId)
+        || ctx.instances?.['loop']?.[0];
+      const targetGroupId = inst?.config?.groupId;
+      let groupMembers: SpriteSlice[] = [];
+      if (targetGroupId) {
+        groupMembers = ctx.symbolSlices
+          .filter(s => s.groupId === targetGroupId)
+          .sort((a, b) => a.groupOrder - b.groupOrder);
+        if (groupMembers.length === 0) {
+          groupMembers = ctx.symbolSlices.filter(s => s.id === targetGroupId);
+        }
+      }
+      if (groupMembers.length === 0) {
+        // Find any available multi-frame group as fallback
+        const multiGroup = ctx.symbolSlices.find(s => s.groupOrder === 1 && ctx.symbolSlices.filter(m => m.groupId === s.groupId).length >= 2);
+        if (multiGroup) {
+          groupMembers = ctx.symbolSlices
+            .filter(s => s.groupId === multiGroup.groupId)
+            .sort((a, b) => a.groupOrder - b.groupOrder);
+        }
+      }
+
+      if (groupMembers.length > 0) {
+        const speedMs = Math.max(20, inst?.config?.loopSpeedMs ?? 250);
+        const shouldLoop = inst?.config?.loop ?? true;
+        const timestamp = ctx.animationTimestamp ?? (shouldLoop ? (typeof performance !== 'undefined' ? performance.now() : Date.now()) : 0);
+        let frameIdx: number;
+        if (shouldLoop) {
+          frameIdx = Math.floor(timestamp / speedMs) % groupMembers.length;
+        } else {
+          frameIdx = Math.min(Math.floor(timestamp / speedMs), groupMembers.length - 1);
+        }
+        const slice = groupMembers[frameIdx] || groupMembers[0];
+        blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY);
+        return;
+      }
+
+      // Fallback text if no symbol group found
+      const fallbackText = inst?.config?.textEntries?.[0] || 'ANIM';
+      const fontSize = inst?.config?.fontSize || 'small';
+      drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, fallbackText, destX, destY, fontSize);
+    },
   }
 ];
 
@@ -1114,6 +1176,7 @@ export function normalizeWidgetType(idOrType: string): string {
       return 'branding';
     case 'block-wpm':
     case 'left-wpm':
+    case 'right-wpm':
       return 'wpm';
     case 'block-split':
     case 'left-split':
@@ -1137,6 +1200,11 @@ export function normalizeWidgetType(idOrType: string): string {
     case 'block-bongo':
     case 'bongo-cat':
       return 'bongo';
+    case 'block-animation':
+    case 'animation':
+    case 'block-loop':
+    case 'loop':
+      return 'animation';
     default:
       return idOrType;
   }
@@ -1228,6 +1296,21 @@ export function getWidgetNaturalSize(
     if (slice) return { width: slice.width, height: slice.height };
   }
 
+  if (widget.id === 'animation' || widget.id === 'loop') {
+    const targetGroupId = activeInstance?.config?.groupId;
+    let slice: SpriteSlice | undefined;
+    if (targetGroupId) {
+      slice = symbolSlices.find(s => s.groupId === targetGroupId && s.groupOrder === 1)
+        || symbolSlices.find(s => s.groupId === targetGroupId)
+        || symbolSlices.find(s => s.id === targetGroupId);
+    }
+    if (!slice) {
+      const multiGroup = symbolSlices.find(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length >= 2);
+      if (multiGroup) slice = multiGroup;
+    }
+    if (slice) return { width: slice.width, height: slice.height };
+  }
+
   if (widget.id === 'branding') {
     const rawText = activeInstance?.config?.textEntries?.[0] !== undefined
       ? activeInstance.config.textEntries[0]
@@ -1258,21 +1341,24 @@ export function getWidgetNaturalSize(
       return { width: 27, height: 5 };
     } else {
       // Font / Text mode
+      const isBig = activeInstance?.config?.fontSize === 'big';
+      const fontSize = isBig ? 'big' : 'small';
       const entries = activeInstance?.config?.textEntries || [];
-      if (entries.length >= 2) {
-        let maxLen = 0;
-        let longestStr = '';
-        for (const e of entries) {
-          if (e && e.length > maxLen) {
-            maxLen = e.length;
-            longestStr = e;
-          }
+      const nonEmptyEntries = entries.map(e => e?.trim()).filter(Boolean) as string[];
+
+      if (nonEmptyEntries.length > 0) {
+        let maxTextW = 0;
+        for (const e of nonEmptyEntries) {
+          const w = measureTextWidth(e.toUpperCase(), fontGlyphs, fontMappings, fontSize);
+          if (w > maxTextW) maxTextW = w;
         }
-        const fontSize = activeInstance?.config?.fontSize || 'small';
-        const textW = Math.max(12, measureTextWidth(longestStr.toUpperCase(), fontGlyphs, fontMappings, fontSize));
-        return { width: Math.min(32, textW), height: fontSize === 'big' ? 10 : 6 };
+        return {
+          width: Math.min(32, Math.max(maxTextW, 4)),
+          height: isBig ? 10 : 5,
+        };
       }
-      // Digits mode (e.g. up to 3 digits '100' at 8px advance each = 24px width, 10px height)
+
+      // Digits mode fallback (e.g. up to 3 digits '100' at 8px advance each = 24px width, 10px height)
       return { width: 24, height: 10 };
     }
   }
@@ -1379,12 +1465,19 @@ export function renderBlocksToGrid(
     const def = getWidgetDefinition(normType);
     const destX = block.x ?? def?.defaultPlacement.defaultX ?? 0;
     const resolvedInstanceId = block.instanceId ??
-      context.instances?.[normType]?.[0]?.id;
+      context.instances?.[normType]?.[0]?.id ??
+      (normType === 'animation' ? context.instances?.['loop']?.[0]?.id : undefined);
+    const activeInstance = context.instances?.[normType]?.find(i => i.id === resolvedInstanceId)
+      || context.instances?.[normType]?.[0]
+      || (normType === 'animation' ? (context.instances?.['loop']?.find(i => i.id === resolvedInstanceId) || context.instances?.['loop']?.[0]) : undefined);
+    const naturalSize = def ? getWidgetNaturalSize(def, context.symbolSlices || [], activeInstance, context.fontGlyphs, context.fontMappings) : null;
+    const effectiveWidth = naturalSize ? naturalSize.width : block.width;
+    const effectiveHeight = naturalSize ? naturalSize.height : block.height;
     const activeContext = {
       ...context,
       activeInstanceId: resolvedInstanceId,
-      blockWidth: block.width,
-      blockHeight: block.height,
+      blockWidth: effectiveWidth,
+      blockHeight: effectiveHeight,
     };
     renderWidgetById(normType, grid, destX, block.y, activeContext);
   }

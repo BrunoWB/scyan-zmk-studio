@@ -78,6 +78,18 @@ export const DEFAULT_SYMBOL_SLICES: SpriteSlice[] = [
   { id: 'SYMBOL_SKULL_LAYER_1', groupId: 'SYMBOL_SKULL_LAYER_1', groupOrder: 1, name: 'Skull (Right Tilt)', x: 26, y: 0, width: 26, height: 23, color: '#10b981' },
   { id: 'SYMBOL_SKULL_LAYER_2', groupId: 'SYMBOL_SKULL_LAYER_2', groupOrder: 1, name: 'Skull (Left Tilt)', x: 52, y: 0, width: 26, height: 23, color: '#059669' },
   { id: 'SYMBOL_SKULL_LAYER_3', groupId: 'SYMBOL_SKULL_LAYER_3', groupOrder: 1, name: 'Skull (Symmetrical Angle)', x: 78, y: 0, width: 26, height: 23, color: '#047857' },
+  { id: 'SYMBOL_CAMPFIRE', groupId: 'SYMBOL_CAMPFIRE', groupOrder: 1, name: 'Campfire', x: 0, y: 145, width: 20, height: 20, color: '#f97316' },
+  { id: 'SYMBOL_CAMPFIRE_SUB_1', groupId: 'SYMBOL_CAMPFIRE', groupOrder: 2, name: 'Campfire F2', x: 20, y: 145, width: 20, height: 20, color: '#f97316' },
+  { id: 'SYMBOL_CAMPFIRE_SUB_2', groupId: 'SYMBOL_CAMPFIRE', groupOrder: 3, name: 'Campfire F3', x: 40, y: 145, width: 20, height: 20, color: '#f97316' },
+  { id: 'SYMBOL_CAMPFIRE_SUB_3', groupId: 'SYMBOL_CAMPFIRE', groupOrder: 4, name: 'Campfire F4', x: 60, y: 145, width: 20, height: 20, color: '#f97316' },
+  { id: 'SYMBOL_SHUBA_DUCK', groupId: 'SYMBOL_SHUBA_DUCK', groupOrder: 1, name: 'Shuba Duck', x: 0, y: 165, width: 24, height: 24, color: '#eab308' },
+  { id: 'SYMBOL_SHUBA_DUCK_SUB_1', groupId: 'SYMBOL_SHUBA_DUCK', groupOrder: 2, name: 'Shuba Duck F2', x: 24, y: 165, width: 24, height: 24, color: '#eab308' },
+  { id: 'SYMBOL_SHUBA_DUCK_SUB_2', groupId: 'SYMBOL_SHUBA_DUCK', groupOrder: 3, name: 'Shuba Duck F3', x: 48, y: 165, width: 24, height: 24, color: '#eab308' },
+  { id: 'SYMBOL_SHUBA_DUCK_SUB_3', groupId: 'SYMBOL_SHUBA_DUCK', groupOrder: 4, name: 'Shuba Duck F4', x: 72, y: 165, width: 24, height: 24, color: '#eab308' },
+  { id: 'SYMBOL_BATHING_CAPYBARA', groupId: 'SYMBOL_BATHING_CAPYBARA', groupOrder: 1, name: 'Bathing Capybara', x: 0, y: 189, width: 26, height: 24, color: '#a16207' },
+  { id: 'SYMBOL_BATHING_CAPYBARA_SUB_1', groupId: 'SYMBOL_BATHING_CAPYBARA', groupOrder: 2, name: 'Bathing Capybara F2', x: 26, y: 189, width: 26, height: 24, color: '#a16207' },
+  { id: 'SYMBOL_BATHING_CAPYBARA_SUB_2', groupId: 'SYMBOL_BATHING_CAPYBARA', groupOrder: 3, name: 'Bathing Capybara F3', x: 52, y: 189, width: 26, height: 24, color: '#a16207' },
+  { id: 'SYMBOL_BATHING_CAPYBARA_SUB_3', groupId: 'SYMBOL_BATHING_CAPYBARA', groupOrder: 4, name: 'Bathing Capybara F4', x: 78, y: 189, width: 26, height: 24, color: '#a16207' },
 ];
 
 export const DEFAULT_LEFT_LAYOUT_BLOCKS: LayoutBlock[] = [

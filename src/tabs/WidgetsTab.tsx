@@ -7,6 +7,7 @@ import {
   renderWidgetById,
   getWidgetsByTier,
   getWidgetNaturalSize,
+  normalizeWidgetType,
 } from '../services/widgetRegistry';
 import { formatLayerLabel } from '../services/keymapService';
 import { WidgetMiniPreview } from './blocks/WidgetCatalogList';
@@ -18,7 +19,7 @@ import type {
 import {
   Activity, Battery, Wifi, Link2, Layers, Sparkles, Gauge, Type,
   Type as TypeIcon, Image as ImageIcon,
-  Plus, Trash2, Usb, Bluetooth, Cat
+  Plus, Trash2, Usb, Bluetooth, Cat, Repeat, Film
 } from 'lucide-react';
 
 export interface WidgetsTabProps {
@@ -35,6 +36,10 @@ export interface WidgetsTabProps {
   rightBlocks?: LayoutBlock[];
   onLeftBlocksChange?: (blocks: LayoutBlock[]) => void;
   onRightBlocksChange?: (blocks: LayoutBlock[]) => void;
+  idleLeftBlocks?: LayoutBlock[];
+  idleRightBlocks?: LayoutBlock[];
+  onIdleLeftBlocksChange?: (blocks: LayoutBlock[]) => void;
+  onIdleRightBlocksChange?: (blocks: LayoutBlock[]) => void;
   layerNames?: string[];
 }
 
@@ -48,6 +53,8 @@ const WIDGET_ICONS: Record<string, React.ComponentType<{ size?: number; classNam
   gauge: Gauge,
   type: Type,
   cat: Cat,
+  repeat: Repeat,
+  film: Film,
 };
 
 const TIER_METADATA = {
@@ -85,6 +92,10 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   rightBlocks,
   onLeftBlocksChange,
   onRightBlocksChange,
+  idleLeftBlocks,
+  idleRightBlocks,
+  onIdleLeftBlocksChange,
+  onIdleRightBlocksChange,
   layerNames,
 }) => {
   const [activeWidgetId, setActiveWidgetId] = useState<string>(WIDGET_REGISTRY[0]?.id || 'status-bar');
@@ -142,6 +153,14 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
         bongoTapMs: 60,
         bongoDebounceMs: 100,
       };
+    } else if (activeWidget.id === 'animation' || activeWidget.id === 'loop') {
+      const multiGroup = symbolSlices.find(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length >= 2);
+      initialConfig = {
+        mode: 'symbol',
+        groupId: multiGroup?.groupId || '',
+        loopSpeedMs: 250,
+        loop: true,
+      };
     }
 
     const newInst: WidgetInstance = {
@@ -182,6 +201,12 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
     if (onRightBlocksChange && rightBlocks) {
       onRightBlocksChange(rightBlocks.filter(b => b.instanceId !== instId));
     }
+    if (onIdleLeftBlocksChange && idleLeftBlocks) {
+      onIdleLeftBlocksChange(idleLeftBlocks.filter(b => b.instanceId !== instId));
+    }
+    if (onIdleRightBlocksChange && idleRightBlocks) {
+      onIdleRightBlocksChange(idleRightBlocks.filter(b => b.instanceId !== instId));
+    }
   };
 
   const handleUpdateInstanceConfig = (instId: string, partial: Partial<import('../types/widget').WidgetInstanceConfig>) => {
@@ -195,6 +220,30 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
       };
     });
     onInstancesChange({ ...instances, [activeWidget.id]: newInstances });
+
+    const updatedInst = newInstances.find(i => i.id === instId);
+    const naturalSize = updatedInst ? getWidgetNaturalSize(activeWidget, symbolSlices, updatedInst, fontGlyphs, fontMappings) : null;
+
+    if (naturalSize) {
+      const updateBlocks = (blocks?: LayoutBlock[]) => {
+        if (!blocks) return blocks;
+        return blocks.map(b => {
+          const norm = normalizeWidgetType(b.widgetType || b.id);
+          if (b.instanceId === instId || (!b.instanceId && norm === activeWidget.id)) {
+            return {
+              ...b,
+              width: naturalSize.width,
+              height: naturalSize.height,
+            };
+          }
+          return b;
+        });
+      };
+      if (onLeftBlocksChange && leftBlocks) onLeftBlocksChange(updateBlocks(leftBlocks)!);
+      if (onRightBlocksChange && rightBlocks) onRightBlocksChange(updateBlocks(rightBlocks)!);
+      if (onIdleLeftBlocksChange && idleLeftBlocks) onIdleLeftBlocksChange(updateBlocks(idleLeftBlocks)!);
+      if (onIdleRightBlocksChange && idleRightBlocks) onIdleRightBlocksChange(updateBlocks(idleRightBlocks)!);
+    }
   };
 
   const handleUpdateInstanceLabel = (instId: string, label: string) => {
@@ -730,6 +779,88 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                           </div>
                         </div>
                       )}
+
+                      {(activeWidget.id === 'animation' || activeWidget.id === 'loop') && (
+                        <div className="flex flex-col gap-3">
+                          <div>
+                            <label className="text-xs text-muted mb-1 block">Animation Symbol Group</label>
+                            <select
+                              value={inst.config?.groupId || ''}
+                              onChange={e => handleUpdateInstanceConfig(inst.id, { groupId: e.target.value })}
+                              className="select-dark text-xs w-full"
+                            >
+                              <option value="">-- Select Symbol Group --</option>
+                              {symbolSlices
+                                .filter(s => s.groupOrder === 1 || !s.groupOrder)
+                                .map(s => {
+                                  const groupCount = symbolSlices.filter(m => m.groupId === s.groupId).length;
+                                  return (
+                                    <option key={s.groupId || s.id} value={s.groupId || s.id}>
+                                      {s.name || s.groupId || s.id} ({groupCount} {groupCount === 1 ? 'slice' : 'frames'})
+                                    </option>
+                                  );
+                                })}
+                            </select>
+                            <span className="text-[10px] text-muted mt-1 block">
+                              Cycles sequentially through all slices in this group by order.
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2 pt-1">
+                            <input
+                              type="checkbox"
+                              id={`loop-check-${inst.id}`}
+                              checked={inst.config?.loop ?? true}
+                              onChange={e => handleUpdateInstanceConfig(inst.id, { loop: e.target.checked })}
+                              className="accent-accent h-4 w-4 rounded cursor-pointer"
+                            />
+                            <label htmlFor={`loop-check-${inst.id}`} className="text-xs text-text-main font-medium cursor-pointer select-none">
+                              Loop
+                            </label>
+                          </div>
+                          <span className="text-[10px] text-muted -mt-2 block">
+                            When checked, repeats indefinitely. When unchecked, runs once and stops at the last slice.
+                          </span>
+
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-xs text-muted">
+                                Speed / Frame Duration
+                              </label>
+                              <span className="text-[11px] font-mono text-accent">
+                                {inst.config?.loopSpeedMs ?? 250}ms ({((1000 / (inst.config?.loopSpeedMs ?? 250))).toFixed(1)} FPS)
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="range"
+                                min={50}
+                                max={1500}
+                                step={25}
+                                value={inst.config?.loopSpeedMs ?? 250}
+                                onChange={e => handleUpdateInstanceConfig(inst.id, { loopSpeedMs: parseInt(e.target.value, 10) || 250 })}
+                                className="flex-1 accent-accent"
+                              />
+                              <input
+                                type="number"
+                                min={20}
+                                max={5000}
+                                value={inst.config?.loopSpeedMs ?? 250}
+                                onChange={e => handleUpdateInstanceConfig(inst.id, { loopSpeedMs: Math.max(20, parseInt(e.target.value, 10) || 250) })}
+                                className="input-text-dark text-xs w-20 text-right font-mono"
+                              />
+                            </div>
+                            {(inst.config?.loopSpeedMs ?? 250) < 150 && (
+                              <div className="mt-2 text-[11px] text-amber-400 bg-amber-950/30 border border-amber-800/40 rounded p-2">
+                                ⚠️ <strong>Battery Warning</strong>: Speeds under 150ms (&gt;6.7 FPS) trigger rapid I2C screen blits that increase microcontroller wake-ups and accelerate battery drain on wireless split keyboards.
+                              </div>
+                            )}
+                            <span className="text-[10px] text-muted mt-1 block">
+                              Duration in milliseconds each symbol frame remains on screen before cycling to the next frame.
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -953,6 +1084,22 @@ const InstancePreview: React.FC<InstancePreviewProps> = ({
   testBongoState = 0
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const startTimeRef = useRef<number>(Date.now());
+  const [animTimestamp, setAnimTimestamp] = useState<number>(0);
+
+  useEffect(() => {
+    startTimeRef.current = Date.now();
+    setAnimTimestamp(0);
+  }, [widget.id, instance.id, instance.config?.loop, instance.config?.groupId, instance.config?.loopSpeedMs]);
+
+  useEffect(() => {
+    if (widget.id !== 'animation' && widget.id !== 'loop') return;
+    const speedMs = Math.max(20, instance.config?.loopSpeedMs ?? 250);
+    const timer = setInterval(() => {
+      setAnimTimestamp(Date.now() - startTimeRef.current);
+    }, speedMs);
+    return () => clearInterval(timer);
+  }, [widget.id, instance.config?.loopSpeedMs, instance.config?.loop]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -995,6 +1142,7 @@ const InstancePreview: React.FC<InstancePreviewProps> = ({
       instances: tempInstances,
       activeInstanceId: instance.id,
       bongoState: testBongoState,
+      animationTimestamp: animTimestamp,
     });
 
     ctx.fillStyle = '#00d2ff';
@@ -1008,8 +1156,18 @@ const InstancePreview: React.FC<InstancePreviewProps> = ({
   }, [
     widget, instance, symbolsGrid, symbolSlices, fontGrid, fontGlyphs, fontMappings,
     customText, testBattery, testWpm, testOutputMode, testBleProfile, testLayer, layerNames, testSplitConnected, simulateMissingSymbols,
-    testBongoState
+    testBongoState, animTimestamp
   ]);
 
-  return <canvas ref={canvasRef} className="pixel-preview-canvas" />;
+  return (
+    <canvas
+      ref={canvasRef}
+      className="pixel-preview-canvas cursor-pointer"
+      title="Click to replay animation"
+      onClick={() => {
+        startTimeRef.current = Date.now();
+        setAnimTimestamp(0);
+      }}
+    />
+  );
 };

@@ -33,7 +33,7 @@ import {
   getStoredGitHubConfig,
   saveStoredGitHubConfig,
   fetchFileFromRepo,
-  commitFileToRepo,
+  commitStudioSaveToRepo,
   verifyGitHubConnection,
   clearStoredGitHubToken,
   checkRepoPrerequisites,
@@ -320,7 +320,14 @@ export function App() {
     let savedInstances: WidgetInstanceMap = {};
     try {
       const saved = localStorage.getItem('zmk-widget-instances');
-      if (saved) savedInstances = JSON.parse(saved);
+      if (saved) {
+        savedInstances = JSON.parse(saved);
+      } else {
+        const def = getDefaultAssets();
+        if (def.metadata?.widgetInstances) {
+          savedInstances = JSON.parse(JSON.stringify(def.metadata.widgetInstances));
+        }
+      }
     } catch {}
     
     // Auto-populate defaults for templates that aren't in savedInstances AND aren't cleared
@@ -331,8 +338,12 @@ export function App() {
       try { clearedSet = new Set(JSON.parse(clearedStr)); } catch {}
     }
 
+    if (savedInstances['loop'] && !defaults['animation']) {
+      defaults['animation'] = savedInstances['loop'].map(i => ({ ...i, widgetTypeId: 'animation' }));
+    }
+
     WIDGET_REGISTRY.forEach(w => {
-      const shouldAutoPopulate = w.id === 'wpm-chart' || (w.associatedSliceIds && w.associatedSliceIds.length > 0);
+      const shouldAutoPopulate = w.id === 'wpm-chart' || w.id === 'animation' || w.id === 'loop' || (w.associatedSliceIds && w.associatedSliceIds.length > 0);
       if (!defaults[w.id] && !clearedSet.has(w.id) && shouldAutoPopulate) {
         let initialConfig: import('./types/widget').WidgetInstanceConfig = { mode: 'symbol' };
         if (w.id === 'wpm-chart') {
@@ -364,6 +375,45 @@ export function App() {
             bongoTapMs: 60,
             bongoDebounceMs: 100,
           };
+        } else if (w.id === 'animation' || w.id === 'loop') {
+          const campfireInst: WidgetInstance = {
+            id: 'anim-campfire',
+            widgetTypeId: w.id,
+            label: 'Campfire',
+            config: {
+              mode: 'symbol',
+              groupId: 'SYMBOL_CAMPFIRE',
+              loopSpeedMs: 150,
+              loop: true,
+            },
+            slots: {},
+          };
+          const duckInst: WidgetInstance = {
+            id: 'anim-shuba-duck',
+            widgetTypeId: w.id,
+            label: 'Infinite Walker Shuba Duck',
+            config: {
+              mode: 'symbol',
+              groupId: 'SYMBOL_SHUBA_DUCK',
+              loopSpeedMs: 120,
+              loop: true,
+            },
+            slots: {},
+          };
+          const capybaraInst: WidgetInstance = {
+            id: 'anim-capybara',
+            widgetTypeId: w.id,
+            label: 'Bathing Capybara',
+            config: {
+              mode: 'symbol',
+              groupId: 'SYMBOL_BATHING_CAPYBARA',
+              loopSpeedMs: 300,
+              loop: true,
+            },
+            slots: {},
+          };
+          defaults[w.id] = [campfireInst, duckInst, capybaraInst];
+          return;
         }
 
         const inst: WidgetInstance = {
@@ -540,7 +590,7 @@ export function App() {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(() => localStorage.getItem('zmk_builder_last_saved_at'));
-  const [currentSha, setCurrentSha] = useState<string | undefined>(undefined);
+  const [_currentSha, setCurrentSha] = useState<string | undefined>(undefined);
   const [currentHeaderPath, setCurrentHeaderPath] = useState<string>('config/scyan_assets.h');
   const [repoPrereqs, setRepoPrereqs] = useState<RepoPrerequisites | null>(null);
   const [isInstallingStudio, setIsInstallingStudio] = useState<boolean>(false);
@@ -980,14 +1030,18 @@ export function App() {
       };
       const generatedC = generateCHeader(symbolsGrid, symbolSlices, fontGrid, fontMappings, metadata);
       const targetPath = currentHeaderPath || 'config/scyan_assets.h';
-      const commitRes = await commitFileToRepo(
+      const commitRes = await commitStudioSaveToRepo(
         config,
         targetPath,
         generatedC,
-        'feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio',
-        currentSha
+        {
+          screenOffTimeoutSec,
+          rightScreenOffTimeoutSec,
+          symmetricSettings,
+        },
+        'feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio'
       );
-      setCurrentSha(commitRes.sha);
+      setCurrentSha(commitRes.commitSha);
       setCurrentHeaderPath(targetPath);
       localStorage.setItem('zmk_builder_cached_header', generatedC);
       const savedParsed = parseCHeader(generatedC);
@@ -995,7 +1049,10 @@ export function App() {
       const nowStr = new Date().toLocaleTimeString();
       setLastSavedAt(nowStr);
       localStorage.setItem('zmk_builder_last_saved_at', nowStr);
-      showToast('success', `Committed to ${config.branch}! GitHub Actions firmware build started.`);
+      const fileListMsg = commitRes.filesCommitted.length > 1
+        ? ` (${commitRes.filesCommitted.join(', ')})`
+        : '';
+      showToast('success', `Committed to ${config.branch}!${fileListMsg} GitHub Actions firmware build started.`);
     } catch (err: any) {
       console.error('Save failed:', err);
       let msg = err.message || 'Check repository permissions';
@@ -1219,6 +1276,10 @@ export function App() {
                 rightBlocks={rightBlocks}
                 onLeftBlocksChange={setLeftBlocks}
                 onRightBlocksChange={setRightBlocks}
+                idleLeftBlocks={idleLeftBlocks}
+                idleRightBlocks={idleRightBlocks}
+                onIdleLeftBlocksChange={setIdleLeftBlocks}
+                onIdleRightBlocksChange={setIdleRightBlocks}
                 layerNames={keymapLayout.layerNames}
               />
             )}

@@ -137,6 +137,77 @@
   max-height: 100%;
   object-fit: contain;
   image-rendering: pixelated;
+  display: block;
+}
+
+/* Interactive Crop Stage & Handles */
+.image-import-crop-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+.image-import-crop-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.image-import-crop-mask {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.58);
+  pointer-events: auto;
+}
+
+.image-import-crop-box {
+  position: absolute;
+  border: 1.5px dashed var(--accent, #00d2ff);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), inset 0 0 12px rgba(0, 210, 255, 0.08);
+  cursor: move;
+  pointer-events: auto;
+}
+
+.image-import-crop-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: #ffffff;
+  border: 1.5px solid var(--accent, #00d2ff);
+  border-radius: 1px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  pointer-events: auto;
+  z-index: 10;
+}
+
+.image-import-crop-handle.handle-nw { top: -4px; left: -4px; cursor: nwse-resize; }
+.image-import-crop-handle.handle-ne { top: -4px; right: -4px; cursor: nesw-resize; }
+.image-import-crop-handle.handle-se { bottom: -4px; right: -4px; cursor: nwse-resize; }
+.image-import-crop-handle.handle-sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
+.image-import-crop-handle.handle-n  { top: -4px; left: calc(50% - 4px); cursor: ns-resize; }
+.image-import-crop-handle.handle-s  { bottom: -4px; left: calc(50% - 4px); cursor: ns-resize; }
+.image-import-crop-handle.handle-w  { top: calc(50% - 4px); left: -4px; cursor: ew-resize; }
+.image-import-crop-handle.handle-e  { top: calc(50% - 4px); right: -4px; cursor: ew-resize; }
+
+.image-import-reset-crop-btn {
+  background: rgba(0, 210, 255, 0.1);
+  border: 1px solid rgba(0, 210, 255, 0.3);
+  color: var(--accent, #00d2ff);
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 1px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transition: all 0.15s ease;
+}
+
+.image-import-reset-crop-btn:hover {
+  background: rgba(0, 210, 255, 0.2);
+  border-color: var(--accent, #00d2ff);
 }
 
 .image-import-grid-view {
@@ -368,4 +439,95 @@
 .image-import-btn-confirm:active {
   transform: scale(0.98);
 }
+
+/* GIF Playback controls bar */
+.image-import-playback-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #0f1218;
+  border: 1px solid #1e232d;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.image-import-play-btn,
+.image-import-step-btn {
+  background: #1a1f29;
+  border: 1px solid #29303e;
+  color: #cbd5e1;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.image-import-play-btn:hover,
+.image-import-step-btn:hover {
+  background: #242c3b;
+  color: var(--accent, #00d2ff);
+  border-color: rgba(0, 210, 255, 0.4);
+}
+
+.image-import-frame-counter {
+  font-size: 11px;
+  color: #94a3b8;
+  min-width: 90px;
+}
+
+.image-import-frame-counter strong {
+  color: var(--accent, #00d2ff);
+}
+
+.image-import-scrubber-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.image-import-scrubber {
+  width: 100%;
+  height: 4px;
+  accent-color: var(--accent, #00d2ff);
+  cursor: pointer;
+}
+
+.image-import-speed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: #94a3b8;
+  background: #141822;
+  border: 1px solid #202736;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.image-import-gif-badge {
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #00d2ff;
+  background: rgba(0, 210, 255, 0.12);
+  border: 1px solid rgba(0, 210, 255, 0.3);
+  padding: 2px 7px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.image-import-original-canvas {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
 

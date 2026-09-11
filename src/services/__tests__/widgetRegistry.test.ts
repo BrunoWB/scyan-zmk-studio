@@ -25,6 +25,7 @@ import {
   DEFAULT_FONT_GLYPHS,
   DEFAULT_FONT_MAPPINGS,
   type SpriteSlice,
+  type LayoutBlock,
 } from '../../types/zmk';
 import { getDefaultAssets } from '../cHeaderParser';
 import type { WidgetRenderContext } from '../../types/widget';
@@ -380,8 +381,8 @@ describe('Widget Registry - Single Source of Truth', () => {
         'wpm-chart',
       ]);
 
-      expect(tier3.length).toBe(3);
-      expect(tier3.map(w => w.id)).toEqual(['branding', 'screensaver', 'bongo']);
+      expect(tier3.length).toBe(4);
+      expect(tier3.map(w => w.id)).toEqual(['branding', 'screensaver', 'bongo', 'animation']);
 
       expect(tier1.length + tier2.length + tier3.length).toBe(WIDGET_REGISTRY.length);
     });
@@ -953,7 +954,7 @@ describe('Widget Registry - Single Source of Truth', () => {
       };
       expect(getWidgetNaturalSize(wpmDef, speedoSlices, symbolInst)).toEqual({ width: 27, height: 5 });
 
-      // Font mode with digits
+      // Font mode with digits (no text entries)
       const fontInst = {
         id: 'inst-wpm-font',
         widgetTypeId: 'wpm',
@@ -961,6 +962,35 @@ describe('Widget Registry - Single Source of Truth', () => {
         config: { mode: 'font' as const },
       };
       expect(getWidgetNaturalSize(wpmDef, speedoSlices, fontInst)).toEqual({ width: 24, height: 10 });
+
+      // Font mode with single text entry ('A')
+      const singleTextInst = {
+        id: 'inst-wpm-single',
+        widgetTypeId: 'wpm',
+        label: 'WPM Letter',
+        config: { mode: 'font' as const, textEntries: ['A'], fontSize: 'small' as const },
+      };
+      expect(getWidgetNaturalSize(wpmDef, speedoSlices, singleTextInst)).toEqual({ width: 4, height: 5 });
+
+      // Font mode with multiple text entries ('SLOW', 'TURBO')
+      const multiTextInst = {
+        id: 'inst-wpm-multi',
+        widgetTypeId: 'wpm',
+        label: 'WPM Multi',
+        config: { mode: 'font' as const, textEntries: ['SLOW', 'TURBO'], fontSize: 'small' as const },
+      };
+      const expectedTurboW = measureTextWidth('TURBO', DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS, 'small');
+      expect(getWidgetNaturalSize(wpmDef, speedoSlices, multiTextInst, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS)).toEqual({ width: expectedTurboW, height: 5 });
+
+      // Font mode with big font
+      const bigTextInst = {
+        id: 'inst-wpm-big',
+        widgetTypeId: 'wpm',
+        label: 'WPM Big',
+        config: { mode: 'font' as const, textEntries: ['A'], fontSize: 'big' as const },
+      };
+      const expectedBigW = measureTextWidth('A', DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS, 'big');
+      expect(getWidgetNaturalSize(wpmDef, speedoSlices, bigTextInst, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS)).toEqual({ width: expectedBigW, height: 10 });
     });
 
     it('computes natural size and renders branding widget with small and big font size configs', () => {
@@ -1017,6 +1047,170 @@ describe('Widget Registry - Single Source of Truth', () => {
 
       expect(grid2.countOn()).toBeGreaterThan(0);
       expect(grid2.getAllPixels()).not.toEqual(grid.getAllPixels());
+    });
+
+    it('renders Animation widget cycling sequentially or stopping at last slice based on loop config', () => {
+      const animDef = getWidgetDefinition('animation')!;
+      expect(animDef).toBeDefined();
+      expect(animDef.id).toBe('animation');
+      expect(animDef.name).toBe('Animation');
+      expect(animDef.category).toBe('art');
+      expect(animDef.tier).toBe(3);
+      expect(animDef.icon).toBe('film');
+
+      // Legacy 'loop' lookup resolves to animation
+      expect(getWidgetDefinition('loop')).toBe(animDef);
+
+      // Create test slices with 2 frames in GROUP_TEST
+      const testSymbols = new BwpxGrid(32, 16);
+      testSymbols.set(0, 0, 1); // Frame 0 pixel
+      testSymbols.set(16, 0, 1); // Frame 1 pixel
+      testSymbols.set(16, 1, 1); // Distinct Frame 1 pixel
+
+      const customSlices: SpriteSlice[] = [
+        { id: 'FRAME_A', groupId: 'GROUP_TEST', groupOrder: 1, x: 0, y: 0, width: 8, height: 8 },
+        { id: 'FRAME_B', groupId: 'GROUP_TEST', groupOrder: 2, x: 16, y: 0, width: 8, height: 8 },
+      ];
+
+      // 1. Looping instance (loop: true, default)
+      const loopingInst = {
+        id: 'inst-anim-loop',
+        widgetTypeId: 'animation',
+        label: 'Animated Loop',
+        config: { mode: 'symbol' as const, groupId: 'GROUP_TEST', loopSpeedMs: 200, loop: true },
+      };
+
+      const gridFrame0 = new BwpxGrid(32, 20);
+      renderWidgetById('animation', gridFrame0, 0, {
+        ...renderContext,
+        symbolsGrid: testSymbols,
+        symbolSlices: customSlices,
+        instances: { animation: [loopingInst] },
+        activeInstanceId: 'inst-anim-loop',
+        animationTimestamp: 100, // Frame 0 (100 / 200 = 0)
+      });
+
+      const gridFrame1 = new BwpxGrid(32, 20);
+      renderWidgetById('animation', gridFrame1, 0, {
+        ...renderContext,
+        symbolsGrid: testSymbols,
+        symbolSlices: customSlices,
+        instances: { animation: [loopingInst] },
+        activeInstanceId: 'inst-anim-loop',
+        animationTimestamp: 300, // Frame 1 (300 / 200 = 1)
+      });
+
+      const gridFrame2Looped = new BwpxGrid(32, 20);
+      renderWidgetById('animation', gridFrame2Looped, 0, {
+        ...renderContext,
+        symbolsGrid: testSymbols,
+        symbolSlices: customSlices,
+        instances: { animation: [loopingInst] },
+        activeInstanceId: 'inst-anim-loop',
+        animationTimestamp: 500, // Frame 0 again (500 / 200 = 2 % 2 = 0)
+      });
+
+      expect(gridFrame0.countOn()).toBeGreaterThan(0);
+      expect(gridFrame1.countOn()).toBeGreaterThan(0);
+      expect(gridFrame0.getAllPixels()).not.toEqual(gridFrame1.getAllPixels());
+      expect(gridFrame2Looped.getAllPixels()).toEqual(gridFrame0.getAllPixels());
+
+      // 2. Non-looping instance (loop: false, stop at last slice)
+      const nonLoopingInst = {
+        id: 'inst-anim-noloop',
+        widgetTypeId: 'animation',
+        label: 'One-shot Animation',
+        config: { mode: 'symbol' as const, groupId: 'GROUP_TEST', loopSpeedMs: 200, loop: false },
+      };
+
+      const gridStoppedAtLast = new BwpxGrid(32, 20);
+      renderWidgetById('animation', gridStoppedAtLast, 0, {
+        ...renderContext,
+        symbolsGrid: testSymbols,
+        symbolSlices: customSlices,
+        instances: { animation: [nonLoopingInst] },
+        activeInstanceId: 'inst-anim-noloop',
+        animationTimestamp: 500, // Clamped to frame 1 (min(500 / 200, 1) = 1)
+      });
+
+      const gridFarPast = new BwpxGrid(32, 20);
+      renderWidgetById('animation', gridFarPast, 0, {
+        ...renderContext,
+        symbolsGrid: testSymbols,
+        symbolSlices: customSlices,
+        instances: { animation: [nonLoopingInst] },
+        activeInstanceId: 'inst-anim-noloop',
+        animationTimestamp: 99999, // Still frame 1!
+      });
+
+      expect(gridStoppedAtLast.getAllPixels()).toEqual(gridFrame1.getAllPixels());
+      expect(gridFarPast.getAllPixels()).toEqual(gridFrame1.getAllPixels());
+
+      // Natural size check
+      const natSize = getWidgetNaturalSize(animDef, customSlices, loopingInst);
+      expect(natSize.width).toBe(8);
+      expect(natSize.height).toBe(8);
+    });
+
+    it('renders the default example loop instance (Duck) with default install assets', async () => {
+      const { getDefaultAssets } = await import('../cHeaderParser');
+      const assets = getDefaultAssets();
+      expect(assets.metadata?.widgetInstances?.['loop']).toBeDefined();
+      const loopInstances = assets.metadata?.widgetInstances?.['loop'] || [];
+      expect(loopInstances.length).toBeGreaterThanOrEqual(1);
+
+      const duck = loopInstances.find(i => i.label.toLowerCase().includes('duck'));
+      expect(duck).toBeDefined();
+      expect(duck?.config?.groupId).toBe('SYMBOL_DUCK_PIXEL_0414');
+
+      // Verify instance renders successfully with real atlas and slices
+      const grid = new BwpxGrid(32, 55);
+      renderWidgetById('loop', grid, 0, {
+        ...renderContext,
+        symbolsGrid: assets.symbolsGrid,
+        symbolSlices: assets.symbolSlices,
+        instances: { loop: [duck!] },
+        activeInstanceId: duck!.id,
+        animationTimestamp: 0,
+      });
+      expect(grid.countOn()).toBeGreaterThan(0);
+    });
+
+    it('renderBlocksToGrid uses naturalSize so wpm-chart renders at 32px even if block has stale 24px', () => {
+      const grid = new BwpxGrid(32, 64);
+      const staleBlock: LayoutBlock = {
+        id: 'block-wpm',
+        widgetType: 'wpm-chart',
+        instanceId: 'inst_wpm_32',
+        name: 'WPM Chart',
+        x: 0,
+        y: 10,
+        width: 24, // Stale width
+        height: 21, // Stale height
+        enabled: true,
+        side: 'left',
+      };
+
+      renderBlocksToGrid([staleBlock], grid, {
+        ...renderContext,
+        wpm: 50,
+        instances: {
+          'wpm-chart': [{
+            id: 'inst_wpm_32',
+            widgetTypeId: 'wpm-chart',
+            label: 'WPM Chart',
+            config: {
+              mode: 'symbol',
+              wpmChart: { width: 32, height: 30, gridSize: 4, targetSpeed: 100, timeWindow: 30 }
+            },
+            slots: {}
+          }]
+        }
+      });
+
+      // Right border should be at x = 31 (since width = 32), not at x = 23
+      expect(grid.get(31, 10)).toBe(1);
+      expect(grid.get(31, 10 + 30 - 1)).toBe(1);
     });
   });
 });

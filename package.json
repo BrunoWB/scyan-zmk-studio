@@ -16,7 +16,9 @@
     "@heroui/styles": "^3.2.4",
     "@octokit/rest": "^22.0.1",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/omggif": "^1.0.5",
     "lucide-react": "^1.41.0",
+    "omggif": "^1.0.10",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwindcss": "^4.3.3"

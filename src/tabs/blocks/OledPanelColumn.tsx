@@ -664,7 +664,10 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
 
             {/* Ghost Snapping Drop Guide during active drag */}
             {isDropTarget && dropTargetY !== null && draggedWidget && (() => {
-              const guideSize = getWidgetNaturalSize(draggedWidget, symbolSlices, undefined, fontGlyphs, fontMappings);
+              const draggedInstId = (draggedWidget as DisplayWidgetDefinition & { instanceId?: string }).instanceId;
+              const normType = normalizeWidgetType(draggedWidget.id);
+              const activeInstance = instances?.[normType]?.find(i => i.id === draggedInstId) || instances?.[normType]?.[0];
+              const guideSize = getWidgetNaturalSize(draggedWidget, symbolSlices, activeInstance, fontGlyphs, fontMappings);
               return (
                 <div
                   className="oled-drop-guide"

@@ -6,6 +6,7 @@ import {
   FlipHorizontal,
   FlipVertical,
   RotateCw,
+  X,
 } from 'lucide-react';
 import './CanvasContextMenu.css';
 
@@ -19,6 +20,7 @@ export interface CanvasContextMenuProps {
   onFlipH: () => void;
   onFlipV: () => void;
   onRotate90: () => void;
+  onDeselect?: () => void;
   hasSelection: boolean;
 }
 
@@ -32,6 +34,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
   onFlipH,
   onFlipV,
   onRotate90,
+  onDeselect,
   hasSelection,
 }) => {
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -111,6 +114,20 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
       </button>
 
       <div className="context-menu-divider" />
+
+      {hasSelection && onDeselect && (
+        <button
+          className="context-menu-item"
+          onClick={() => {
+            onDeselect();
+            onClose();
+          }}
+        >
+          <X size={13} />
+          <span>Deselect</span>
+          <span className="context-menu-shortcut">Esc</span>
+        </button>
+      )}
 
       <button
         className="context-menu-item"

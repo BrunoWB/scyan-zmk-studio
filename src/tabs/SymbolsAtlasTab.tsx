@@ -328,6 +328,12 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
             });
             onSlicesChange(next);
           }}
+          onAddSlices={(newSlices) => {
+            onSlicesChange([...slices, ...newSlices]);
+            if (newSlices.length > 0) {
+              setSelectedSliceIds(new Set(newSlices.map(s => s.id)));
+            }
+          }}
         />
       </div>
 
