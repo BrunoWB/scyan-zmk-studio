@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, X, Monitor, Moon, Clock, Power, Check, Plus, Minus, SlidersHorizontal } from 'lucide-react';
+import { trackEvent } from '../services/analytics';
 
 export const PRESET_SCREEN_SIZES = [
   { label: '32 × 128 (Corne / OLED Standard)', width: 32, height: 128 },
@@ -331,6 +332,10 @@ const SideSettingsBlock: React.FC<SideSettingsBlockProps> = ({
                   onChange={e => {
                     const val = e.target.value;
                     if (val === 'custom') return;
+                    trackEvent('screen_size_changed', {
+                      size: val,
+                      side: sideName || 'Left',
+                    });
                     const [w, h] = val.split('x').map(Number);
                     onScreenDimensionsChange({ width: w, height: h });
                   }}

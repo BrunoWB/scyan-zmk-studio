@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { ExternalLink, GitBranch, History } from 'lucide-react';
 import { REPOSITORY_URL } from '../data/changelog';
 import { KofiIcon } from './HeaderBar';
+import { trackEvent } from '../services/analytics';
 
 export interface LogoContextMenuProps {
   isOpen: boolean;
@@ -53,6 +54,7 @@ export const LogoContextMenu: React.FC<LogoContextMenuProps> = ({
   const top = Math.min(position.y, windowHeight - menuHeight - 12);
 
   const handleOpenRepo = () => {
+    trackEvent('external_link_clicked', { target: 'github_repo' });
     window.open(REPOSITORY_URL, '_blank', 'noopener,noreferrer');
     onClose();
   };
@@ -109,7 +111,10 @@ export const LogoContextMenu: React.FC<LogoContextMenuProps> = ({
         target="_blank"
         rel="noopener noreferrer"
         role="menuitem"
-        onClick={onClose}
+        onClick={() => {
+          trackEvent('external_link_clicked', { target: 'kofi' });
+          onClose();
+        }}
         className="w-full flex items-center justify-between px-3 py-2 text-xs text-[#cbd5e1] hover:text-white hover:bg-[#1a2234] transition-colors cursor-pointer text-left group border-t border-[#1e2538] mt-1 pt-2"
       >
         <div className="flex items-center gap-2.5">

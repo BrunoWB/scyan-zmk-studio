@@ -40,6 +40,7 @@ import {
 import { BrandIdentityLogo } from './brand/BrandIdentityLogo';
 import { LogoContextMenu } from './LogoContextMenu';
 import { ChangelogModal } from './ChangelogModal';
+import { trackEvent } from '../services/analytics';
 
 export interface HeaderBarProps {
   config: GitHubRepoConfig;
@@ -727,6 +728,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                   href={workflowRun.htmlUrl}
                   target="_blank"
                   rel="noreferrer"
+                  onClick={() => trackEvent('firmware_uf2_clicked', { run_id: workflowRun.id })}
                   className="bg-[#19202f] hover:bg-[#232c3f] border border-[#2d3748] text-white text-xs font-mono px-2 py-1 rounded-lg flex items-center gap-1 transition-colors"
                   title="Download compiled .uf2 firmware"
                 >

@@ -41,6 +41,7 @@ import {
   uninstallScyanStudioFromRepo,
   type RepoPrerequisites,
 } from './services/githubService';
+import { trackEvent } from './services/analytics';
 import { HeaderBar } from './components/HeaderBar';
 import { OledPreviewTab } from './tabs/OledPreviewTab';
 import { SymbolsAtlasTab } from './tabs/SymbolsAtlasTab';
@@ -658,6 +659,16 @@ export function App() {
     const result = await verifyGitHubConnection(cfg);
     setConnection(result);
 
+    if (result.status === 'connected') {
+      trackEvent('github_connected', {
+        has_push_access: Boolean(result.repo?.hasPushAccess),
+      });
+    } else if (result.status === 'error') {
+      trackEvent('github_connect_failed', {
+        error: result.errorMessage ?? 'Connection failed',
+      });
+    }
+
     let updatedCfg = { ...cfg };
     let configChanged = false;
 
@@ -899,6 +910,9 @@ export function App() {
 
   // Handle Tab navigation (open to all as interactive playground)
   const handleTabClick = (tabKey: TabType) => {
+    if (tabKey !== activeTab) {
+      trackEvent('tab_switched', { tab_id: tabKey });
+    }
     setActiveTab(tabKey);
     window.location.hash = tabKey;
   };
@@ -996,6 +1010,9 @@ export function App() {
       localStorage.setItem('zmk_builder_cached_header', defaultC);
 
       showToast('success', `Scyan Studio successfully installed in ${config.owner}/${config.repo}! Firmware build started in GitHub Actions.`);
+      trackEvent('studio_installed', {
+        repo: `${config.owner}/${config.repo}`,
+      });
     } catch (err: any) {
       console.error('Failed to install Scyan Studio:', err);
       showToast('error', `Installation failed: ${err.message || 'Check repository permissions'}`);
@@ -1014,6 +1031,9 @@ export function App() {
     try {
       setIsUninstallingStudio(true);
       await uninstallScyanStudioFromRepo(config);
+      trackEvent('studio_uninstalled', {
+        repo: `${config.owner}/${config.repo}`,
+      });
 
       // Remove all cached workspace, layout, header, and session data from local storage
       const preserveAuthKeys = new Set([
@@ -1116,6 +1136,10 @@ export function App() {
         ? ` (${commitRes.filesCommitted.join(', ')})`
         : '';
       showToast('success', `Committed to ${config.branch}!${fileListMsg} GitHub Actions firmware build started.`);
+      trackEvent('github_push_success', {
+        branch: config.branch,
+        files_count: commitRes.filesCommitted.length,
+      });
     } catch (err: any) {
       console.error('Save failed:', err);
       let msg = err.message || 'Check repository permissions';
@@ -1126,6 +1150,9 @@ export function App() {
           `then re-open Settings and reconnect.`;
       }
       showToast('error', `Save failed: ${msg}`);
+      trackEvent('github_push_failed', {
+        error: msg,
+      });
     } finally {
       setIsSaving(false);
     }

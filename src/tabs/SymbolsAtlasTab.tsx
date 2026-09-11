@@ -19,6 +19,7 @@ import {
   exportGroupAsGif,
   getGroupDefaultFilename,
 } from '../services/symbolGroupExport';
+import { trackEvent } from '../services/analytics';
 
 export interface SymbolsAtlasTabProps {
   symbolsGrid: BwpxGrid;
@@ -78,6 +79,11 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
 
   const handleExportGroupPng = () => {
     if (!groupContextMenu) return;
+    trackEvent('symbol_group_exported', {
+      format: 'png',
+      group_id: groupContextMenu.groupId,
+      slices_count: groupContextMenu.slices.length,
+    });
     exportGroupAsPng(
       symbolsGrid,
       groupContextMenu.slices,
@@ -87,6 +93,11 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
 
   const handleExportGroupGif = () => {
     if (!groupContextMenu) return;
+    trackEvent('symbol_group_exported', {
+      format: 'gif',
+      group_id: groupContextMenu.groupId,
+      slices_count: groupContextMenu.slices.length,
+    });
     exportGroupAsGif(
       symbolsGrid,
       groupContextMenu.slices,

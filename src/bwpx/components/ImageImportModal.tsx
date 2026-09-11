@@ -9,6 +9,7 @@ import {
   type DecodedGif,
   type ConvertedGifFrame,
 } from '../core/gifDecoder';
+import { trackEvent } from '../../services/analytics';
 import {
   X,
   Sparkles,
@@ -424,6 +425,11 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
 
   const handleConfirm = useCallback(() => {
     if (decodedGif && gifFrames.length > 0) {
+      trackEvent('gif_imported', {
+        frame_count: gifFrames.length,
+        width: targetDimensions.w,
+        height: targetDimensions.h,
+      });
       onConfirm(
         gifFrames[0].grid,
         targetDimensions.w,
@@ -434,6 +440,10 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
         }
       );
     } else if (convertedGrid && targetDimensions.w > 0) {
+      trackEvent('image_imported', {
+        width: targetDimensions.w,
+        height: targetDimensions.h,
+      });
       onConfirm(convertedGrid, targetDimensions.w, targetDimensions.h);
     }
   }, [decodedGif, gifFrames, targetDimensions, imageFileName, convertedGrid, onConfirm]);

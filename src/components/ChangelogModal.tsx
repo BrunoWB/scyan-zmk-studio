@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { ExternalLink, GitCommit, Sparkles, Tag, Wrench, X } from 'lucide-react';
 import { CHANGELOG_DATA, REPOSITORY_URL, type ReleaseEntry } from '../data/changelog';
+import { trackEvent } from '../services/analytics';
 
 export interface ChangelogModalProps {
   isOpen: boolean;
@@ -9,8 +10,13 @@ export interface ChangelogModalProps {
 }
 
 export const ChangelogModal: React.FC<ChangelogModalProps> = ({ isOpen, onClose }) => {
+  const currentVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0';
+  const currentCommit = typeof __GIT_COMMIT_HASH__ !== 'undefined' ? __GIT_COMMIT_HASH__ : 'c7b86f1';
+
   useEffect(() => {
     if (!isOpen) return;
+
+    trackEvent('changelog_viewed', { version: currentVersion });
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -22,12 +28,9 @@ export const ChangelogModal: React.FC<ChangelogModalProps> = ({ isOpen, onClose 
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, currentVersion]);
 
   if (!isOpen) return null;
-
-  const currentVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0';
-  const currentCommit = typeof __GIT_COMMIT_HASH__ !== 'undefined' ? __GIT_COMMIT_HASH__ : 'c7b86f1';
 
   const modalNode = (
     <div

@@ -33,3 +33,4 @@ describe('analytics service', () => {
     expect(gtagMock).toHaveBeenCalledWith('event', 'export_header', { format: 'c_header' })
   })
 })
+

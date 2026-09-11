@@ -14,6 +14,7 @@ import { WidgetCatalogList } from './blocks/WidgetCatalogList';
 import { GhostDragOverlay } from './blocks/GhostDragOverlay';
 import { PeripheralMasterWarningModal } from './blocks/PeripheralMasterWarningModal';
 import { SideSettingsPanel } from '../components/ScreenSizePopover';
+import { trackEvent } from '../services/analytics';
 
 export interface BlocksTabProps {
   leftBlocks?: LayoutBlock[];
@@ -589,6 +590,11 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         };
 
         const targetMode = effectiveIdleScreensEnabled ? focusedScreenMode : 'active';
+        trackEvent('widget_added', {
+          widget_type: active.widget.id,
+          side,
+          mode: targetMode,
+        });
         if (targetMode === 'active') {
           if (side === 'left') {
             handleLeftBlocksChange([...effectiveLeftBlocks, newBlock]);
