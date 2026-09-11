@@ -9,6 +9,21 @@
     <link rel="alternate icon" href="./favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Scyan ZMK Studio</title>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-V55YET3QKC"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      // Send telemetry in production (or when ?ga_debug is in the URL), avoiding localhost dev noise
+      if (
+        (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') ||
+        window.location.search.includes('ga_debug')
+      ) {
+        gtag('config', 'G-V55YET3QKC');
+      }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
