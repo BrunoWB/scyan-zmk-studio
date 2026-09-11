@@ -1,104 +1,119 @@
 [
   {
-    "version": "0.3.0",
+    "version": "1.0.0",
+    "type": "major",
+    "title": "Public Release",
+    "description": "First public release of Scyan ZMK Studio. A comprehensive visual IDE for designing 1bpp OLED displays, composing dynamic layout blocks, managing symbol and font atlases, previewing real-time typing with Corne split keyboards, and compiling directly to single-source-of-truth firmware headers.",
+    "date": "2026-09-11",
+    "highlights": [
+      "Production-ready 2-Atlas visual builder and layout compiler for SSD1306 OLED screens",
+      "1-Click automated installation and clean removal of Scyan display module in ZMK keyboard repositories",
+      "Zero-configuration split keyboard simulator with Colemak & QWERTY keymap parsing",
+      "Extensive widget catalog: Oscilloscope WPM chart, Loop animations, Bongo Cat, Output status, and Battery gauges",
+      "Export symbols as animated GIF and transparent PNG; crisp multi-resolution brand assets"
+    ],
+    "patches": [
+      {
+        "patch": "1.0.0",
+        "date": "2026-09-11",
+        "commitHash": "1.0.0",
+        "changes": [
+          "Initial public release of Scyan ZMK Studio v1.0.0"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.6.0",
     "type": "minor",
     "title": "Firmware Module Automation & Cloud CDN Synchronization",
-    "description": "Introduces one-click installation and uninstallation of the Scyan ZMK display module directly into your keyboard repository. Enhances repository caching with aggressive CDN bypasses for instant GitHub synchronization.",
+    "description": "Introduces one-click installation and uninstallation of the Scyan ZMK display module directly into your keyboard repository. Enhances repository caching with aggressive CDN bypasses for instant GitHub synchronization, lossless brand asset export, and in-app changelog navigation.",
     "date": "2026-09-11",
     "highlights": [
       "1-Click automated install and clean uninstall for the scyan-zmk-module directly in zmk-config",
       "All studio commits now carry the standard [Scyan Studio] prefix",
-      "Aggressive GitHub API & CDN cache-busting to prevent stale branch conflict errors",
-      "Session storage and local layout cache automated cleanup upon module removal"
+      "Aggressive GitHub API & CDN cache-busting (no-store) to prevent stale branch conflict errors",
+      "Session storage and local layout cache automated cleanup upon module removal",
+      "Right-click context menu to export symbol groups as transparent PNG and animated GIF",
+      "Crisp multi-resolution PNG/SVG favicon ladder with integer pixel grid snapping and faint canvas grid guides"
     ],
     "patches": [
       {
-        "patch": "0.3.11",
+        "patch": "0.6.0",
         "date": "2026-09-11",
-        "commitHash": "9ab8006",
+        "commitHash": "ba73711",
         "changes": [
-          "chore(brand): regenerate favicons with zero compression lossless PNG stream"
+          "Firmware module automation, cloud CDN synchronization, and brand asset export"
         ]
-      },
+      }
+    ]
+  },
+  {
+    "version": "0.5.0",
+    "type": "minor",
+    "title": "GIF Animation Importer & Multi-Frame Slicing Engine",
+    "description": "A major upgrade to the asset pipeline adding full support for animated GIFs. Imported frames are automatically packed into the Symbols Atlas, sliced into groups, and rendered live with the new Loop Animation widget.",
+    "date": "2026-09-10",
+    "highlights": [
+      "Native client-side GIF parser with 1bpp dithering and transparent background handling",
+      "Loop Animation widget with runtime frame delay and dynamic frame-count scaling",
+      "Interactive crop bounding box with drag handles for fast sprite extraction",
+      "Automatic grouping and naming for multi-frame animation sequences",
+      "Firmware compiler integration: 16-bit sprite slice offsets, identifier sanitization, and Kconfig idle timeout sync"
+    ],
+    "patches": [
       {
-        "patch": "0.3.10",
-        "date": "2026-09-11",
-        "commitHash": "a9bc93e",
+        "patch": "0.5.0",
+        "date": "2026-09-10",
+        "commitHash": "127283c",
         "changes": [
-          "fix(brand): snap favicon translation to integer pixel grid translate(0, 1)"
+          "Native client-side GIF animation importer and multi-frame slicing engine"
         ]
-      },
+      }
+    ]
+  },
+  {
+    "version": "0.4.0",
+    "type": "minor",
+    "title": "UI Design System Overhaul & Modern Typography Engine",
+    "description": "Complete visual redesign in electric cyan and dark slate, featuring an element reference catalog, mouse-targeted canvas zooming, and a modern proportional pixel typography system.",
+    "date": "2026-09-10",
+    "highlights": [
+      "Unified dark UI design system with electric cyan accents, peripheral split UX, and responsive layout",
+      "Dual small/big font slots with support for accented Latin characters, digits, Japanese kana, and custom symbols",
+      "Proportional pixel font with live ghost typing preview in editor",
+      "Mouse-targeted canvas zooming and OLED display border guides"
+    ],
+    "patches": [
       {
-        "patch": "0.3.9",
-        "date": "2026-09-11",
-        "commitHash": "738b005",
+        "patch": "0.4.0",
+        "date": "2026-09-10",
+        "commitHash": "e7b6478",
         "changes": [
-          "feat(editor): add faint hover row and column highlights on canvas"
+          "UI design system overhaul and modern typography engine"
         ]
-      },
+      }
+    ]
+  },
+  {
+    "version": "0.3.0",
+    "type": "minor",
+    "title": "Studio Onboarding, Ecosystem Architecture & Playground Mode",
+    "description": "Adds repository discovery, locked studio validation flow, standalone Playground mode for unauthenticated visual testing, and formal ecosystem architectural contracts.",
+    "date": "2026-09-08",
+    "highlights": [
+      "Repository onboarding flow with automated repo discovery and locked studio validation",
+      "Playground mode allowing free tab navigation and visual experimentation without repository credentials",
+      "Antigravity ecosystem documentation: AGENTS.md, ARCHITECTURE.md, and offline ZMK documentation",
+      "Canonical install header template loader (scyan_assets.install.h)"
+    ],
+    "patches": [
       {
-        "patch": "0.3.8",
-        "date": "2026-09-11",
-        "commitHash": "a7eebda",
+        "patch": "0.3.0",
+        "date": "2026-09-08",
+        "commitHash": "3cd0c4e",
         "changes": [
-          "fix(brand): set favicon viewBox to exact 32x32 canvas with 1px left spacing"
-        ]
-      },
-      {
-        "patch": "0.3.7",
-        "date": "2026-09-11",
-        "commitHash": "873e145",
-        "changes": [
-          "feat(brand): add crisp multi-resolution PNG and apple-touch favicon ladder"
-        ]
-      },
-      {
-        "patch": "0.3.6",
-        "date": "2026-09-11",
-        "commitHash": "fe19ddc",
-        "changes": [
-          "feat(brand): update favicons with header logo gradient and dev orange variant"
-        ]
-      },
-      {
-        "patch": "0.3.5",
-        "date": "2026-09-11",
-        "commitHash": "ebed803",
-        "changes": [
-          "feat(assets): update default install template header from latest zmk-config build"
-        ]
-      },
-      {
-        "patch": "0.3.4",
-        "date": "2026-09-11",
-        "commitHash": "8e59fbf",
-        "changes": [
-          "feat(atlas): add right-click context menu to export symbol group as PNG and GIF"
-        ]
-      },
-      {
-        "patch": "0.3.3",
-        "date": "2026-09-11",
-        "commitHash": "c9bd53c",
-        "changes": [
-          "ui: keep header expanded when studio installation is required"
-        ]
-      },
-      {
-        "patch": "0.3.2",
-        "date": "2026-09-11",
-        "commitHash": "9fdb446",
-        "changes": [
-          "ci: automate patch version bump and changelog sync on push"
-        ]
-      },
-      {
-        "patch": "0.3.1",
-        "date": "2026-09-11",
-        "commitHash": "c7b86f1",
-        "changes": [
-          "Bypass CDN cache in checkRepoPrerequisites and fetchFileFromRepo to prevent 304/stale responses",
-          "Ensure immediate reactivity on local storage state transitions"
+          "Studio onboarding flow, ecosystem architecture, and playground mode"
         ]
       }
     ]
@@ -106,33 +121,24 @@
   {
     "version": "0.2.0",
     "type": "minor",
-    "title": "GIF Animation Importer & Multi-Frame Slicing Engine",
-    "description": "A major upgrade to the asset pipeline adding full support for animated GIFs. Imported frames are automatically packed into the Symbols Atlas, sliced into groups, and rendered live with the new Loop Animation widget.",
-    "date": "2026-09-09",
+    "title": "Dynamic Layout Blocks, Widget Instances & C Compiler",
+    "description": "Introduces dynamic layout block composition for left/right OLED displays with Active and Idle states, reusable widget instances with template browser, and single-source-of-truth C header compilation.",
+    "date": "2026-09-07",
     "highlights": [
-      "Native client-side GIF parser with 1bpp dithering and transparent background handling",
-      "Loop Animation widget with runtime frame delay and dynamic frame-count scaling",
-      "Interactive crop bounding box with drag handles for fast sprite extraction",
-      "Automatic grouping and naming for multi-frame animation sequences"
+      "Dynamic Layout Blocks system supporting Active and Idle display states for split keyboards",
+      "Widget instances architecture with template browser and cascade delete",
+      "Symbol Groups visual bundling and multi-slice drag-to-move",
+      "Oscilloscope heartbeat WPM Chart and unified Output Status widget",
+      "Reactive Bongo Cat widget template",
+      "Production C header compiler (scyan_assets.h) emitting discrete arrays with lossless round-trip metadata"
     ],
     "patches": [
       {
-        "patch": "0.2.2",
-        "date": "2026-09-10",
-        "commitHash": "ee88dd0",
+        "patch": "0.2.0",
+        "date": "2026-09-07",
+        "commitHash": "873ae1d",
         "changes": [
-          "Preserve full frame count for WIDGET_TYPE_LOOP in cHeaderParser",
-          "Sync Kconfig idle timeout with animation widget preferences"
-        ]
-      },
-      {
-        "patch": "0.2.1",
-        "date": "2026-09-10",
-        "commitHash": "068bbb0",
-        "changes": [
-          "Sanitize slice IDs to strictly valid C identifier names",
-          "Expand sprite_slice offset types to uint16_t for large atlases",
-          "Emit explicit left/right idle screen toggle defines in asymmetric mode"
+          "Dynamic layout blocks, widget instances, and C header compiler"
         ]
       }
     ]
@@ -141,24 +147,21 @@
     "version": "0.1.0",
     "type": "minor",
     "title": "Dual-Atlas Studio Foundation & Visual Layout Compiler",
-    "description": "The initial release of Scyan ZMK Studio. Features an infinite 2-Atlas pixel editor (Symbols + Font), dynamic layout block composition for left/right OLED displays, interactive oscilloscope WPM chart, Bongo Cat widget, and live GitHub synchronization.",
+    "description": "The initial foundation of Scyan ZMK Studio. Features an infinite 2-Atlas pixel editor (Symbols + Font), minimalist Corne 5x3 keyboard hardware simulator, and fine-grained GitHub token authentication.",
     "date": "2026-09-06",
     "highlights": [
       "Dual 1bpp Atlases (Font + Symbols) with infinite canvas and real-time pixel editing",
-      "Dynamic block system with Active and Idle display states for split keyboards",
       "Full Corne 5x3 keyboard hardware simulator with Colemak & QWERTY scan-code typing",
-      "Oscilloscope heartbeat WPM chart with real-time waveform decay",
-      "Automated single-source-of-truth C header compilation (scyan_assets.h) with lossless metadata round-trip"
+      "Fine-grained GitHub OAuth and repository-scoped permissions flow",
+      "Variable-width Font Atlas architecture and character mapping"
     ],
     "patches": [
       {
-        "patch": "0.1.1",
-        "date": "2026-09-08",
-        "commitHash": "3d897f2",
+        "patch": "0.1.0",
+        "date": "2026-09-06",
+        "commitHash": "98f4521",
         "changes": [
-          "Unify asset loading around scyan_assets.install.h templates",
-          "Fix natural size calculation for WPM widget in symbol and font modes",
-          "Accurate font ink extent measurements for bounding boxes and export"
+          "Dual-Atlas Studio foundation, Corne split simulator, and GitHub OAuth flow"
         ]
       }
     ]

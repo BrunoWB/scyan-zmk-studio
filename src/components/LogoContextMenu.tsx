@@ -100,7 +100,7 @@ export const LogoContextMenu: React.FC<LogoContextMenuProps> = ({
           <span className="font-medium">See change log</span>
         </div>
         <span className="text-[10px] font-mono text-[#00f0ff] bg-[#00f0ff]/10 px-1.5 py-0.5 rounded border border-[#00f0ff]/20">
-          v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.3.1'}
+          v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}
         </span>
       </button>
 

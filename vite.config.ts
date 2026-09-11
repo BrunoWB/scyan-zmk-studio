@@ -33,7 +33,7 @@ export default defineConfig({
   base: './',
   plugins: [tailwindcss(), react(), devFaviconPlugin()],
   define: {
-    __APP_VERSION__: JSON.stringify(packageJson.version || '0.3.1'),
+    __APP_VERSION__: JSON.stringify(packageJson.version || '1.0.0'),
     __GIT_COMMIT_HASH__: JSON.stringify(gitHash),
     __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
   },

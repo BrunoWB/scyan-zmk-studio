@@ -39,7 +39,7 @@ if (lastCommitMsg.includes('[skip ci]') || lastCommitMsg.startsWith('chore(relea
 
 // 2. Read package.json and calculate next patch version
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
-const currentVersion = packageJson.version || '0.3.1';
+const currentVersion = packageJson.version || '1.0.0';
 const versionParts = currentVersion.split('.').map(Number);
 
 if (versionParts.length !== 3 || versionParts.some(isNaN)) {
