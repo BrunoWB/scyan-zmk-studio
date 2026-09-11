@@ -131,4 +131,24 @@ describe('OledPreviewTab dynamic screen dimensions & widget moving', () => {
     expect(html).toContain('Bongo Cat');
     expect(html).toContain('oled-block-overlay');
   });
+
+  it('renders character clicker and typing speed controls', () => {
+    const html = renderToString(
+      <OledPreviewTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText="TEST"
+        onCustomTextChange={() => {}}
+        leftBlocks={sampleLeftBlocks}
+        rightBlocks={sampleRightBlocks}
+      />
+    );
+
+    expect(html).toContain('Character Clicker');
+    expect(html).toContain('active-accent');
+    expect(html).not.toContain('Clicker: OFF');
+    expect(html).toContain('Typing Speed (WPM)');
+    expect(html).toContain('68 WPM');
+  });
 });

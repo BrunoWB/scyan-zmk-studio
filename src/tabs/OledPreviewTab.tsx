@@ -22,6 +22,11 @@ import {
   formatLayerLabel,
 } from '../services/keymapService';
 import {
+  getNextClickerAction,
+  getKeystrokeIntervalMs,
+  calculateTypingWpm,
+} from '../services/wpmSimulator';
+import {
   renderBlocksToGrid,
   normalizeWidgetType,
   getWidgetDefinition,
@@ -275,7 +280,8 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   const [wpmHistory, setWpmHistory] = useState<number[]>(() => Array(128).fill(0));
   const [splitConnected, setSplitConnected] = useState<boolean>(true);
   const [capsLock, setCapsLock] = useState<boolean>(false);
-  const [randomClickerEnabled, setRandomClickerEnabled] = useState<boolean>(false);
+  const [randomClickerEnabled, setRandomClickerEnabled] = useState<boolean>(true);
+  const [clickerSpeed, setClickerSpeed] = useState<number>(0);
   // Configured Bongo Cat tap duration & debounce cooldown (matching firmware CONFIG_SCYAN_BONGO_TAP_MS)
   const activeBongoInstance = instances?.['bongo']?.[0];
   const bongoTapMs = activeBongoInstance?.config?.bongoTapMs ?? 60;
@@ -343,6 +349,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   const leftCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rightCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const keystrokeTimestampsRef = useRef<number[]>([]);
+  const hadRecentKeystrokesRef = useRef<boolean>(false);
 
   // Automatically fetch keymap from GitHub when repository is configured
   useEffect(() => {
@@ -470,15 +477,14 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   // Record timestamp for live WPM calculation
   const recordKeystroke = useCallback(() => {
     const now = Date.now();
+    hadRecentKeystrokesRef.current = true;
     keystrokeTimestampsRef.current.push(now);
 
-    // Keep only keystrokes within the last 3.5 seconds
-    keystrokeTimestampsRef.current = keystrokeTimestampsRef.current.filter(t => now - t <= 3500);
-    const count = keystrokeTimestampsRef.current.length;
-    if (count >= 2) {
-      // 5 keystrokes per word average
-      const calculatedWpm = Math.min(160, Math.round((count / 5) * (60 / 3.5)));
-      setWpm(Math.max(12, calculatedWpm));
+    // Keep only keystrokes within the last 2.5 seconds
+    keystrokeTimestampsRef.current = keystrokeTimestampsRef.current.filter(t => now - t <= 2500);
+    const calculatedWpm = calculateTypingWpm(keystrokeTimestampsRef.current, now, 2500);
+    if (calculatedWpm > 0) {
+      setWpm(calculatedWpm);
     }
   }, []);
 
@@ -516,37 +522,78 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     }, 140);
   }, [recordKeystroke, triggerBongoTap]);
 
-  // Random key clicker: clicks 1 key per 2 seconds (2000ms)
+  // Random key clicker: simulates typing speeds from 0 (stalled) to 60 WPM
   useEffect(() => {
-    if (!randomClickerEnabled) return;
+    if (!randomClickerEnabled) {
+      setClickerSpeed(0);
+      return;
+    }
 
-    const clickRandomKey = () => {
-      const allCoords: string[] = [];
-      const cols = keymapLayout.columns || 5;
-      const rows = keymapLayout.rows || 3;
+    let isMounted = true;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
 
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          allCoords.push(`L_${r}_${c}`);
-          allCoords.push(`R_${r}_${c}`);
-        }
+    const allCoords: string[] = [];
+    const cols = keymapLayout.columns || 5;
+    const rows = keymapLayout.rows || 3;
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        allCoords.push(`L_${r}_${c}`);
+        allCoords.push(`R_${r}_${c}`);
       }
-      for (let i = 0; i < currentLeftThumbs.length; i++) {
-        allCoords.push(`LT_${i}`);
-      }
-      for (let i = 0; i < currentRightThumbs.length; i++) {
-        allCoords.push(`RT_${i}`);
+    }
+    for (let i = 0; i < currentLeftThumbs.length; i++) {
+      allCoords.push(`LT_${i}`);
+    }
+    for (let i = 0; i < currentRightThumbs.length; i++) {
+      allCoords.push(`RT_${i}`);
+    }
+
+    if (allCoords.length === 0) return;
+
+    let burstState = getNextClickerAction(false);
+    setClickerSpeed(burstState.targetWpm);
+
+    const step = () => {
+      if (!isMounted) return;
+
+      if (burstState.isStalled) {
+        // Stall completed, proceed with a typing burst
+        burstState = getNextClickerAction(true);
+        setClickerSpeed(burstState.targetWpm);
       }
 
-      if (allCoords.length > 0) {
+      if (burstState.burstLength > 0) {
         const picked = allCoords[Math.floor(Math.random() * allCoords.length)];
         triggerKeyPress(picked);
+        burstState.burstLength--;
+
+        if (burstState.burstLength > 0) {
+          const delay = getKeystrokeIntervalMs(burstState.targetWpm, true);
+          timerId = setTimeout(step, delay);
+        } else {
+          // Burst completed, determine next action (stall or another burst)
+          const next = getNextClickerAction(false);
+          burstState = next;
+          setClickerSpeed(next.targetWpm);
+          if (next.isStalled) {
+            timerId = setTimeout(step, next.durationMs);
+          } else {
+            const interWordPause = Math.round(250 + Math.random() * 350);
+            timerId = setTimeout(step, interWordPause);
+          }
+        }
       }
     };
 
-    clickRandomKey();
-    const interval = setInterval(clickRandomKey, 2000);
-    return () => clearInterval(interval);
+    // Immediate first keystroke on activation
+    step();
+
+    return () => {
+      isMounted = false;
+      if (timerId) clearTimeout(timerId);
+      setClickerSpeed(0);
+    };
   }, [
     randomClickerEnabled,
     keymapLayout.columns,
@@ -623,15 +670,31 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     keymapLayout.rows,
   ]);
 
-  // Gentle WPM decay when user stops typing
+  // Responsive WPM decay when user stops typing or clicker stalls
   useEffect(() => {
     const interval = setInterval(() => {
+      if (!hadRecentKeystrokesRef.current) return;
+
       const now = Date.now();
-      keystrokeTimestampsRef.current = keystrokeTimestampsRef.current.filter(t => now - t <= 3000);
-      if (keystrokeTimestampsRef.current.length === 0) {
-        setWpm(prev => (prev > 0 ? Math.max(0, Math.round(prev * 0.9 - 1)) : 0));
+      keystrokeTimestampsRef.current = keystrokeTimestampsRef.current.filter(t => now - t <= 2500);
+      const count = keystrokeTimestampsRef.current.length;
+      const lastKeystroke = keystrokeTimestampsRef.current[keystrokeTimestampsRef.current.length - 1];
+      const timeSinceLast = lastKeystroke ? now - lastKeystroke : 9999;
+
+      if (count === 0 || timeSinceLast > 1200) {
+        setWpm(prev => {
+          if (prev <= 0) {
+            hadRecentKeystrokesRef.current = false;
+            return 0;
+          }
+          const next = Math.max(0, Math.round(prev * 0.7 - 2));
+          if (next === 0) {
+            hadRecentKeystrokesRef.current = false;
+          }
+          return next;
+        });
       }
-    }, 500);
+    }, 350);
     return () => clearInterval(interval);
   }, []);
 
@@ -1175,10 +1238,17 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
                   <label>Character Clicker</label>
                   <button
                     className={`btn-toggle-subtle flex items-center justify-center gap-2 h-9 ${randomClickerEnabled ? 'active-accent' : 'inactive'}`}
-                    onClick={() => setRandomClickerEnabled(!randomClickerEnabled)}
+                    onClick={() => setRandomClickerEnabled(prev => !prev)}
+                    title={randomClickerEnabled ? 'Click to stop character clicker' : 'Simulate random typing speeds (0 stalled to 60 WPM)'}
                   >
                     <Shuffle size={13} />
-                    <span>{randomClickerEnabled ? 'Clicker: ON (2s)' : 'Clicker: OFF'}</span>
+                    <span>
+                      {randomClickerEnabled
+                        ? clickerSpeed === 0
+                          ? 'Clicker: Stalled (0 WPM)'
+                          : `Clicker: ~${clickerSpeed} WPM`
+                        : 'Clicker: OFF'}
+                    </span>
                   </button>
                 </div>
               </div>
@@ -1210,14 +1280,17 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
                   <Gauge size={14} className="text-accent" />
                   <span>Typing Speed (WPM)</span>
                 </label>
-                <span className="value-chip font-mono">{wpm} WPM</span>
+                <span className="value-chip font-mono">{`${wpm} WPM`}</span>
               </div>
               <input
                 type="range"
                 min="0"
                 max="160"
                 value={wpm}
-                onChange={e => setWpm(parseInt(e.target.value, 10))}
+                onChange={e => {
+                  hadRecentKeystrokesRef.current = false;
+                  setWpm(parseInt(e.target.value, 10));
+                }}
                 className="slider-range"
               />
             </div>

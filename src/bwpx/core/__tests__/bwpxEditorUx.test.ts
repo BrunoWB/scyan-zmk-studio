@@ -239,6 +239,49 @@ describe('BwpxEditor UX logic', () => {
     expect(atMax.pan).toEqual(pan);
   });
 
+  it('positions origin (0, 0) in the center of the top-left quadrant of the viewport upon entering editor', async () => {
+    const { calculateFitViewport, ZOOM_STEPS } = await import('../../components/BwpxEditor');
+
+    const testViewports = [
+      { w: 1600, h: 900, targetW: 128, targetH: 34 },
+      { w: 1200, h: 800, targetW: 128, targetH: 34 },
+      { w: 1024, h: 768, targetW: 128, targetH: 34 },
+      { w: 800, h: 600, targetW: 128, targetH: 34 },
+      { w: 1200, h: 800, targetW: 128, targetH: 22 }, // font atlas
+    ];
+
+    for (const { w, h, targetW, targetH } of testViewports) {
+      const result = calculateFitViewport(w, h, targetW, targetH);
+
+      // 1. Origin (0, 0) screen position must match center of top-left quadrant [0..w/2, 0..h/2]
+      expect(result.pan.x).toBe(Math.round(w / 4));
+      expect(result.pan.y).toBe(Math.round(h / 4));
+
+      // 2. Zoom must be a positive integer belonging to ZOOM_STEPS
+      expect(Number.isInteger(result.zoom)).toBe(true);
+      expect(ZOOM_STEPS).toContain(result.zoom);
+
+      // 3. Grid starting at origin (0, 0) with target dimensions must fit inside viewport
+      const screenRightEdge = result.pan.x + targetW * result.zoom;
+      const screenBottomEdge = result.pan.y + targetH * result.zoom;
+
+      expect(screenRightEdge).toBeLessThanOrEqual(w);
+      expect(screenBottomEdge).toBeLessThanOrEqual(h);
+    }
+  });
+
+  it('handles edge cases gracefully for calculateFitViewport (zero or negative dimensions)', async () => {
+    const { calculateFitViewport } = await import('../../components/BwpxEditor');
+
+    const fallbackZero = calculateFitViewport(0, 0);
+    expect(fallbackZero.zoom).toBe(10);
+    expect(fallbackZero.pan).toEqual({ x: 300, y: 200 });
+
+    const fallbackNeg = calculateFitViewport(-100, -100);
+    expect(fallbackNeg.zoom).toBe(10);
+    expect(fallbackNeg.pan).toEqual({ x: 300, y: 200 });
+  });
+
   it('correctly places and slices imported GIF frames as a group in an available canvas spot', async () => {
     const { findAvailableSpot } = await import('../canvasPacking');
     const grid = new BwpxGrid(128, 34);

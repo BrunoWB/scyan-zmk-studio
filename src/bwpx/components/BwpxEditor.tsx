@@ -96,6 +96,34 @@ export function calculateZoomAtPoint(
   return { zoom: nextZoom, pan: nextPan };
 }
 
+export function calculateFitViewport(
+  viewportWidth: number,
+  viewportHeight: number,
+  targetW: number = 128,
+  targetH: number = 34,
+  zoomSteps: number[] = ZOOM_STEPS
+): { zoom: number; pan: { x: number; y: number } } {
+  if (viewportWidth <= 0 || viewportHeight <= 0) {
+    return { zoom: 10, pan: { x: 300, y: 200 } };
+  }
+
+  // Put origin (0, 0) in the center of the top-left quadrant of the viewport
+  const pan = {
+    x: Math.round(viewportWidth / 4),
+    y: Math.round(viewportHeight / 4),
+  };
+
+  // Remaining space from origin (W/4, H/4) to right/bottom edges: 3/4 * W and 3/4 * H
+  const availableW = viewportWidth * 0.75 - 40;
+  const availableH = viewportHeight * 0.75 - 40;
+  const rawFitZoom = Math.min(18, Math.max(4, Math.floor(Math.min(availableW / targetW, availableH / targetH))));
+
+  // Snap to valid ZOOM_STEPS
+  const snapZoom = [...zoomSteps].reverse().find(z => z <= rawFitZoom) ?? 4;
+
+  return { zoom: snapZoom, pan };
+}
+
 export interface HistoryEntry {
   grid: BwpxGrid;
   selection: { x: number; y: number; w: number; h: number; active: boolean } | null;
@@ -477,41 +505,30 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     }
   }, [activeTool, clearFreeSelections]);
 
-  // Center view on (0, 0) origin with reasonable zoom (manual or once on mount)
+  // Center view on (0, 0) origin in the center top-left quadrant of the viewport
   const fitToView = useCallback(() => {
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
 
-    const b = gridRef.current.getBounds();
-    const targetW = b.width > 0 ? Math.max(b.width, 64) : 128;
-    const targetH = b.height > 0 ? Math.max(b.height, 32) : 34;
+    const targetW = initialWidth > 0 ? initialWidth : 128;
+    const targetH = initialHeight > 0 ? initialHeight : 34;
 
-    const fitZoom = Math.min(18, Math.max(4, Math.floor(Math.min((rect.width - 100) / targetW, (rect.height - 100) / targetH))));
-
-    // If pixels exist, center the bounding box around origin/center
-    let newPan: { x: number; y: number };
-    if (b.width > 0) {
-      const centerX = b.minX + b.width / 2;
-      const centerY = b.minY + b.height / 2;
-      newPan = {
-        x: Math.round(rect.width / 2 - centerX * fitZoom),
-        y: Math.round(rect.height / 2 - centerY * fitZoom),
-      };
-    } else {
-      newPan = {
-        x: Math.round(rect.width / 2),
-        y: Math.round(rect.height / 2),
-      };
-    }
+    const { zoom: fitZoom, pan: newPan } = calculateFitViewport(
+      rect.width,
+      rect.height,
+      targetW,
+      targetH
+    );
 
     zoomRef.current = fitZoom;
     panRef.current = newPan;
     setViewport({ zoom: fitZoom, pan: newPan });
-  }, []);
+  }, [initialWidth, initialHeight]);
 
-  // Only auto-fit once on initial mount
+  // Always reset to (0, 0) origin when entering the editor / mounting
   useEffect(() => {
+    fitToView();
     const timer = setTimeout(() => {
       fitToView();
     }, 40);
