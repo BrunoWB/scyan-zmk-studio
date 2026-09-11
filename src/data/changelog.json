@@ -14,6 +14,14 @@
     ],
     "patches": [
       {
+        "patch": "1.0.1",
+        "date": "2026-09-11",
+        "commitHash": "4349380",
+        "changes": [
+          "feat(analytics): add Google Analytics 4 integration"
+        ]
+      },
+      {
         "patch": "1.0.0",
         "date": "2026-09-11",
         "commitHash": "1.0.0",
