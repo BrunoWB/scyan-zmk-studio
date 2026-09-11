@@ -6,21 +6,25 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
-# Only one concurrent deployment; cancel in-progress runs on new push.
+# Only one concurrent deployment; avoid canceling in-progress release tags.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -30,6 +34,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Bump patch version & update changelog
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          node scripts/bump-version.mjs --commit --push
 
       - name: Build
         run: npm run build

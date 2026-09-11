@@ -26,6 +26,7 @@ import {
   normalizeWidgetType,
   getWidgetDefinition,
   getWidgetNaturalSize,
+  resolveWidgetInstance,
 } from '../services/widgetRegistry';
 import {
   DEFAULT_LEFT_LAYOUT_BLOCKS,
@@ -210,7 +211,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
 
       const normType = normalizeWidgetType(currentBlock.widgetType || currentBlock.id);
       const def = getWidgetDefinition(normType);
-      const activeInstance = instances?.[normType]?.find(i => i.id === currentBlock.instanceId) || instances?.[normType]?.[0];
+      const activeInstance = resolveWidgetInstance(instances, normType, currentBlock.instanceId);
       const naturalSize = def ? getWidgetNaturalSize(def, symbolSlices, activeInstance, fontGlyphs, fontMappings) : null;
       const blockW = naturalSize ? naturalSize.width : (currentBlock.width ?? def?.defaultWidth ?? vWidth);
       const blockH = naturalSize ? naturalSize.height : currentBlock.height;
@@ -795,7 +796,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     const isScreenHovered = hoveredSide === side || internalDraggingBlockId !== null;
     if (!block.enabled) return null;
 
-    const activeInstance = instances?.[normType]?.find(i => i.id === block.instanceId) || instances?.[normType]?.[0];
+    const activeInstance = resolveWidgetInstance(instances, normType, block.instanceId);
     const naturalSize = def ? getWidgetNaturalSize(def, symbolSlices, activeInstance, fontGlyphs, fontMappings) : null;
 
     const blockX = block.x ?? def?.defaultPlacement.defaultX ?? 0;

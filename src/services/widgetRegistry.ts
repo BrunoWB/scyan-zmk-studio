@@ -1121,16 +1121,22 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
       const targetGroupId = inst?.config?.groupId;
       let groupMembers: SpriteSlice[] = [];
       if (targetGroupId) {
+        const normTarget = targetGroupId.toLowerCase();
         groupMembers = ctx.symbolSlices
-          .filter(s => s.groupId === targetGroupId)
+          .filter(s => s.groupId === targetGroupId || s.groupId.toLowerCase() === normTarget)
           .sort((a, b) => a.groupOrder - b.groupOrder);
         if (groupMembers.length === 0) {
-          groupMembers = ctx.symbolSlices.filter(s => s.id === targetGroupId);
+          groupMembers = ctx.symbolSlices.filter(s => s.id === targetGroupId || s.id.toLowerCase() === normTarget || (s.name && s.name.toLowerCase() === normTarget));
         }
       }
       if (groupMembers.length === 0) {
-        // Find any available multi-frame group as fallback
-        const multiGroup = ctx.symbolSlices.find(s => s.groupOrder === 1 && ctx.symbolSlices.filter(m => m.groupId === s.groupId).length >= 2);
+        // Find any available animation/custom multi-frame group as fallback (exclude system status icons)
+        const isSystemGroup = (gid: string) => {
+          const u = gid.toUpperCase();
+          return u.includes('CHARGE') || u.includes('BATTERY') || u.includes('SPEED') || u.includes('WPM') || u.includes('BLUETOOTH') || u.includes('USB') || u.includes('SPLIT') || u.includes('LAYER') || u.includes('BRACKET');
+        };
+        const multiGroup = ctx.symbolSlices.find(s => !isSystemGroup(s.groupId) && s.groupOrder === 1 && ctx.symbolSlices.filter(m => m.groupId === s.groupId).length >= 2)
+          || ctx.symbolSlices.find(s => s.groupOrder === 1 && ctx.symbolSlices.filter(m => m.groupId === s.groupId).length >= 2);
         if (multiGroup) {
           groupMembers = ctx.symbolSlices
             .filter(s => s.groupId === multiGroup.groupId)
@@ -1300,15 +1306,26 @@ export function getWidgetNaturalSize(
     const targetGroupId = activeInstance?.config?.groupId;
     let slice: SpriteSlice | undefined;
     if (targetGroupId) {
+      const normTarget = targetGroupId.toLowerCase();
       slice = symbolSlices.find(s => s.groupId === targetGroupId && s.groupOrder === 1)
         || symbolSlices.find(s => s.groupId === targetGroupId)
-        || symbolSlices.find(s => s.id === targetGroupId);
+        || symbolSlices.find(s => s.id === targetGroupId)
+        || symbolSlices.find(s => s.groupId?.toLowerCase() === normTarget && s.groupOrder === 1)
+        || symbolSlices.find(s => s.groupId?.toLowerCase() === normTarget)
+        || symbolSlices.find(s => s.id?.toLowerCase() === normTarget)
+        || symbolSlices.find(s => s.name && s.name.toLowerCase() === normTarget);
     }
-    if (!slice) {
-      const multiGroup = symbolSlices.find(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length >= 2);
-      if (multiGroup) slice = multiGroup;
+    if (!slice && !targetGroupId) {
+      const isSystemGroup = (gid: string) => {
+        const u = gid.toUpperCase();
+        return u.includes('CHARGE') || u.includes('BATTERY') || u.includes('SPEED') || u.includes('WPM') || u.includes('BLUETOOTH') || u.includes('USB') || u.includes('SPLIT') || u.includes('LAYER') || u.includes('BRACKET') || u.includes('ARROW');
+      };
+      // Look for custom animation / mascot groups first
+      slice = symbolSlices.find(s => !isSystemGroup(s.groupId) && s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length >= 2)
+        || symbolSlices.find(s => !isSystemGroup(s.groupId) && (s.id.toUpperCase().includes('ANIM') || s.groupId.toUpperCase().includes('ANIM') || s.id.toUpperCase().includes('DUCK') || s.groupId.toUpperCase().includes('DUCK') || s.id.toUpperCase().includes('CAMPFIRE') || s.groupId.toUpperCase().includes('CAMPFIRE')));
     }
     if (slice) return { width: slice.width, height: slice.height };
+    return { width: defaultWidth, height: defaultHeight };
   }
 
   if (widget.id === 'branding') {
@@ -1450,6 +1467,39 @@ export function renderWidgetById(
 }
 
 /**
+ * Resolves an active widget instance from the instances map, safely handling
+ * alias types (such as animation <-> loop) and falling back gracefully.
+ */
+export function resolveWidgetInstance(
+  instances: import('../types/widget').WidgetInstanceMap | undefined,
+  widgetTypeOrId: string,
+  instanceId?: string | null
+): import('../types/widget').WidgetInstance | undefined {
+  if (!instances) return undefined;
+  const normType = normalizeWidgetType(widgetTypeOrId);
+  const candidateKeys = normType === 'animation'
+    ? ['animation', 'loop']
+    : normType === 'loop'
+    ? ['loop', 'animation']
+    : [normType];
+
+  if (instanceId) {
+    for (const key of candidateKeys) {
+      const found = instances[key]?.find(i => i.id === instanceId);
+      if (found) return found;
+    }
+  }
+
+  for (const key of candidateKeys) {
+    if (instances[key] && instances[key].length > 0) {
+      return instances[key][0];
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Render an entire screen's layout blocks onto a 32x128 grid
  */
 export function renderBlocksToGrid(
@@ -1464,12 +1514,8 @@ export function renderBlocksToGrid(
     const normType = normalizeWidgetType(type);
     const def = getWidgetDefinition(normType);
     const destX = block.x ?? def?.defaultPlacement.defaultX ?? 0;
-    const resolvedInstanceId = block.instanceId ??
-      context.instances?.[normType]?.[0]?.id ??
-      (normType === 'animation' ? context.instances?.['loop']?.[0]?.id : undefined);
-    const activeInstance = context.instances?.[normType]?.find(i => i.id === resolvedInstanceId)
-      || context.instances?.[normType]?.[0]
-      || (normType === 'animation' ? (context.instances?.['loop']?.find(i => i.id === resolvedInstanceId) || context.instances?.['loop']?.[0]) : undefined);
+    const activeInstance = resolveWidgetInstance(context.instances, normType, block.instanceId);
+    const resolvedInstanceId = activeInstance?.id ?? block.instanceId;
     const naturalSize = def ? getWidgetNaturalSize(def, context.symbolSlices || [], activeInstance, context.fontGlyphs, context.fontMappings) : null;
     const effectiveWidth = naturalSize ? naturalSize.width : block.width;
     const effectiveHeight = naturalSize ? naturalSize.height : block.height;

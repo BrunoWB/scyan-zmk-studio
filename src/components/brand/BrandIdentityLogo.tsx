@@ -94,6 +94,7 @@ export interface BrandIdentityLogoProps {
   showSubtitle?: boolean;
   subtitleText?: string;
   onClick?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }
 
 export const BrandIdentityLogo: React.FC<BrandIdentityLogoProps> = ({
@@ -103,6 +104,7 @@ export const BrandIdentityLogo: React.FC<BrandIdentityLogoProps> = ({
   showSubtitle = false,
   subtitleText = 'Saved just now',
   onClick,
+  onContextMenu,
 }) => {
   const [internalHover, setInternalHover] = useState(false);
   const activeHover = controlledHover !== undefined ? controlledHover : internalHover;
@@ -110,6 +112,7 @@ export const BrandIdentityLogo: React.FC<BrandIdentityLogoProps> = ({
   return (
     <div
       onClick={onClick}
+      onContextMenu={onContextMenu}
       onMouseEnter={() => setInternalHover(true)}
       onMouseLeave={() => setInternalHover(false)}
       className={`inline-flex items-center gap-3 group cursor-pointer select-none ${className}`}

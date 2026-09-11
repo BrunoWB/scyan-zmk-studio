@@ -79,6 +79,9 @@ export function clearStoredGitHubToken(): void {
 function getOctokit(token?: string): Octokit {
   return new Octokit({
     auth: token || undefined,
+    request: {
+      fetch: (url: any, opts: any) => fetch(url, { ...opts, cache: 'no-store' }),
+    },
   });
 }
 
@@ -257,12 +260,28 @@ export async function verifyGitHubConnection(config: GitHubRepoConfig): Promise<
  */
 export async function fetchFileFromRepo(
   config: GitHubRepoConfig,
-  path = 'config/scyan_assets.h'
+  path = 'config/scyan_assets.h',
+  targetRef?: string
 ): Promise<{ content: string; sha: string; resolvedPath?: string }> {
   const octokit = getOctokit(config.token);
 
-  // Try configured branch first, then fallback to main/master
-  const branches = [config.branch, 'main', 'master'].filter(Boolean);
+  // Try targetRef or configured branch first, then fallback to main/master
+  let headSha: string | undefined;
+  if (!targetRef) {
+    try {
+      const branchToProbe = config.branch || 'main';
+      const refRes = await octokit.git.getRef({
+        owner: config.owner,
+        repo: config.repo,
+        ref: `heads/${branchToProbe}`,
+      });
+      headSha = refRes.data.object.sha;
+    } catch {}
+  }
+
+  const branches = targetRef
+    ? [targetRef]
+    : [headSha, config.branch, 'main', 'master'].filter((b): b is string => Boolean(b));
   const uniqueBranches = Array.from(new Set(branches));
 
   // Determine candidate paths to probe in target repository
@@ -281,7 +300,6 @@ export async function fetchFileFromRepo(
           repo: config.repo,
           path: candidatePath,
           ref: branch,
-          ...({ timestamp: Date.now() } as any)
         });
 
         if ('content' in res.data && typeof res.data.content === 'string') {
@@ -299,6 +317,19 @@ export async function fetchFileFromRepo(
   }
 
   throw lastErr || new Error('File content is not text or is a directory');
+}
+
+export const STUDIO_COMMIT_PREFIX = '[Scyan Studio] ';
+
+/**
+ * Ensures all commits originating from Scyan Studio start with "[Scyan Studio] ".
+ */
+export function formatStudioCommitMessage(message: string): string {
+  const trimmed = message.trim();
+  if (trimmed.startsWith(STUDIO_COMMIT_PREFIX)) {
+    return trimmed;
+  }
+  return `${STUDIO_COMMIT_PREFIX}${trimmed}`;
 }
 
 /**
@@ -325,12 +356,14 @@ export async function commitFileToRepo(
   });
   const base64Content = btoa(binary);
 
+  const formattedMessage = formatStudioCommitMessage(commitMessage);
+
   try {
     const res = await octokit.repos.createOrUpdateFileContents({
       owner: config.owner,
       repo: config.repo,
       path,
-      message: commitMessage,
+      message: formattedMessage,
       content: base64Content,
       branch: config.branch,
       sha: fileSha || undefined,
@@ -355,7 +388,7 @@ export async function commitFileToRepo(
           owner: config.owner,
           repo: config.repo,
           path,
-          message: commitMessage,
+          message: formattedMessage,
           content: base64Content,
           branch: config.branch,
           sha: existing.data.sha,
@@ -506,6 +539,7 @@ export interface RepoPrerequisites {
   hasAssetsHeader: boolean;
   confPath?: string;
   westPath?: string;
+  headerPath?: string;
   existingConfContent?: string;
   existingWestContent?: string;
 }
@@ -515,7 +549,8 @@ export interface RepoPrerequisites {
  * required display Kconfig flags, and scyan_assets.h.
  */
 export async function checkRepoPrerequisites(
-  config: GitHubRepoConfig
+  config: GitHubRepoConfig,
+  targetRef?: string
 ): Promise<RepoPrerequisites> {
   if (!config.token || !config.owner || !config.repo) {
     return {
@@ -529,11 +564,28 @@ export async function checkRepoPrerequisites(
   const octokit = getOctokit(config.token);
   const branch = config.branch || 'main';
 
+  // Resolve ref: use targetRef if provided, or fetch the latest live branch commit SHA
+  // via Git Data API to guarantee fresh contents and bypass GitHub's 60s edge cache.
+  let refToUse = targetRef;
+  if (!refToUse) {
+    try {
+      const refRes = await octokit.git.getRef({
+        owner: config.owner,
+        repo: config.repo,
+        ref: `heads/${branch}`,
+      });
+      refToUse = refRes.data.object.sha;
+    } catch {
+      refToUse = branch;
+    }
+  }
+
   let hasWestModule = false;
   let hasKconfig = false;
   let hasAssetsHeader = false;
   let confPath = 'config/corne.conf';
   let westPath = 'config/west.yml';
+  let headerPath = 'config/scyan_assets.h';
   let existingConfContent = '';
   let existingWestContent = '';
 
@@ -545,7 +597,7 @@ export async function checkRepoPrerequisites(
         owner: config.owner,
         repo: config.repo,
         path: p,
-        ref: branch,
+        ref: refToUse,
       });
       if ('content' in res.data && typeof res.data.content === 'string') {
         const decoded = atob(res.data.content.replace(/\s/g, ''));
@@ -556,8 +608,10 @@ export async function checkRepoPrerequisites(
         }
         break;
       }
-    } catch {
-      // not found
+    } catch (err: any) {
+      if (err.status !== 404) {
+        console.warn(`[checkRepoPrerequisites] Error checking west candidate ${p}:`, err);
+      }
     }
   }
 
@@ -569,14 +623,17 @@ export async function checkRepoPrerequisites(
         owner: config.owner,
         repo: config.repo,
         path: p,
-        ref: branch,
+        ref: refToUse,
       });
       if ('content' in res.data && typeof res.data.content === 'string') {
         hasAssetsHeader = true;
+        headerPath = p;
         break;
       }
-    } catch {
-      // not found
+    } catch (err: any) {
+      if (err.status !== 404) {
+        console.warn(`[checkRepoPrerequisites] Error checking header candidate ${p}:`, err);
+      }
     }
   }
 
@@ -587,7 +644,7 @@ export async function checkRepoPrerequisites(
       owner: config.owner,
       repo: config.repo,
       path: 'config',
-      ref: branch,
+      ref: refToUse,
     });
     if (Array.isArray(dirRes.data)) {
       const foundConfs = dirRes.data
@@ -597,8 +654,10 @@ export async function checkRepoPrerequisites(
         candidateConfFiles = foundConfs;
       }
     }
-  } catch {
-    // default candidate
+  } catch (err: any) {
+    if (err.status !== 404) {
+      console.warn('[checkRepoPrerequisites] Error reading config directory:', err);
+    }
   }
 
   for (const cp of candidateConfFiles) {
@@ -607,7 +666,7 @@ export async function checkRepoPrerequisites(
         owner: config.owner,
         repo: config.repo,
         path: cp,
-        ref: branch,
+        ref: refToUse,
       });
       if ('content' in res.data && typeof res.data.content === 'string') {
         const decoded = atob(res.data.content.replace(/\s/g, ''));
@@ -618,8 +677,10 @@ export async function checkRepoPrerequisites(
         }
         break;
       }
-    } catch {
-      // not found
+    } catch (err: any) {
+      if (err.status !== 404) {
+        console.warn(`[checkRepoPrerequisites] Error checking conf candidate ${cp}:`, err);
+      }
     }
   }
 
@@ -632,6 +693,7 @@ export async function checkRepoPrerequisites(
     hasAssetsHeader,
     confPath,
     westPath,
+    headerPath,
     existingConfContent,
     existingWestContent,
   };
@@ -776,7 +838,152 @@ export async function installScyanStudioToRepo(
   const newCommitRes = await octokit.git.createCommit({
     owner: config.owner,
     repo: config.repo,
-    message: 'feat(display): install Scyan ZMK Studio module, config & assets',
+    message: formatStudioCommitMessage('feat(display): install Scyan ZMK Studio module, config & assets'),
+    tree: treeRes.data.sha,
+    parents: [currentCommitSha],
+  });
+
+  await octokit.git.updateRef({
+    owner: config.owner,
+    repo: config.repo,
+    ref: `heads/${branch}`,
+    sha: newCommitRes.data.sha,
+  });
+
+  return {
+    commitSha: newCommitRes.data.sha,
+    commitUrl: newCommitRes.data.html_url,
+  };
+}
+
+/**
+ * Removes scyan-zmk-module and its remote (if unused by other projects) from west.yml.
+ */
+export function removeScyanFromWest(content: string): string {
+  const projectRegex = /^[ \t]*-[ \t]+name:[ \t]*scyan-zmk-module[^\n]*\n(?:[ \t]+[^\n]*\n)*/gm;
+  let updated = content.replace(projectRegex, '');
+
+  const hasOtherBrunowb = /remote:[ \t]*brunowb\b/i.test(updated);
+  if (!hasOtherBrunowb) {
+    const remoteRegex = /^[ \t]*-[ \t]+name:[ \t]*brunowb[^\n]*\n(?:[ \t]+[^\n]*\n)*/gmi;
+    updated = updated.replace(remoteRegex, '');
+  }
+
+  return updated.replace(/\n{3,}/g, '\n\n');
+}
+
+/**
+ * Removes custom Scyan display configs and overrides from a .conf file.
+ * Leaves generic display configurations (like SSD1306, work queue, etc.) intact.
+ */
+export function removeScyanFromConf(content: string): string {
+  const lines = content.split(/\r?\n/);
+  const filtered = lines.filter(line => {
+    const trimmed = line.trim();
+    if (/^#?\s*CONFIG_SCYAN_/i.test(trimmed)) return false;
+    if (/^#?\s*CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM\b/i.test(trimmed)) return false;
+    if (/^#?\s*CONFIG_ZMK_DISPLAY_STATUS_SCREEN_BUILT_IN\b/i.test(trimmed)) return false;
+    if (/^#?\s*CONFIG_LV_USE_CANVAS\b/i.test(trimmed)) return false;
+    if (/^#?\s*CONFIG_LV_USE_IMG\b/i.test(trimmed)) return false;
+    if (/^#\s*(Custom status screen|Scyan ZMK Display Module)/i.test(trimmed)) return false;
+    return true;
+  });
+  return filtered.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
+}
+
+/**
+ * Atomically uninstalls Scyan Studio from the connected repository:
+ * 1. Removes scyan-zmk-module from west.yml
+ * 2. Cleans custom Scyan Kconfig flags from .conf
+ * 3. Deletes scyan_assets.h
+ */
+export async function uninstallScyanStudioFromRepo(
+  config: GitHubRepoConfig
+): Promise<{ commitSha: string; commitUrl: string }> {
+  if (!config.token || !config.owner || !config.repo) {
+    throw new Error('Repository is not configured.');
+  }
+
+  const octokit = getOctokit(config.token);
+  const branch = config.branch || 'main';
+
+  // 1. Check prerequisites to locate existing files
+  const prereqs = await checkRepoPrerequisites(config);
+
+  const treeEntries: Array<{
+    path: string;
+    mode: '100644';
+    type: 'blob';
+    sha?: string | null;
+    content?: string;
+  }> = [];
+
+  // 2. Prepare cleaned west.yml if present
+  if (prereqs.existingWestContent && prereqs.existingWestContent.includes('scyan-zmk-module')) {
+    const cleanedWest = removeScyanFromWest(prereqs.existingWestContent);
+    if (cleanedWest !== prereqs.existingWestContent) {
+      treeEntries.push({
+        path: prereqs.westPath || 'config/west.yml',
+        mode: '100644',
+        type: 'blob',
+        content: cleanedWest,
+      });
+    }
+  }
+
+  // 3. Prepare cleaned .conf if present
+  if (prereqs.existingConfContent) {
+    const cleanedConf = removeScyanFromConf(prereqs.existingConfContent);
+    if (cleanedConf !== prereqs.existingConfContent) {
+      treeEntries.push({
+        path: prereqs.confPath || 'config/corne.conf',
+        mode: '100644',
+        type: 'blob',
+        content: cleanedConf,
+      });
+    }
+  }
+
+  // 4. Remove scyan_assets.h if it exists
+  if (prereqs.hasAssetsHeader) {
+    treeEntries.push({
+      path: prereqs.headerPath || 'config/scyan_assets.h',
+      mode: '100644',
+      type: 'blob',
+      sha: null as any,
+    });
+  }
+
+  if (treeEntries.length === 0) {
+    throw new Error('No Scyan Studio assets or configurations found to uninstall.');
+  }
+
+  // 5. Git Trees API atomic commit
+  const refRes = await octokit.git.getRef({
+    owner: config.owner,
+    repo: config.repo,
+    ref: `heads/${branch}`,
+  });
+  const currentCommitSha = refRes.data.object.sha;
+
+  const commitObjRes = await octokit.git.getCommit({
+    owner: config.owner,
+    repo: config.repo,
+    commit_sha: currentCommitSha,
+  });
+  const baseTreeSha = commitObjRes.data.tree.sha;
+
+  const treeRes = await octokit.git.createTree({
+    owner: config.owner,
+    repo: config.repo,
+    base_tree: baseTreeSha,
+    tree: treeEntries,
+  });
+
+  const newCommitRes = await octokit.git.createCommit({
+    owner: config.owner,
+    repo: config.repo,
+    message: formatStudioCommitMessage('chore(display): uninstall Scyan ZMK Studio module, config & assets'),
     tree: treeRes.data.sha,
     parents: [currentCommitSha],
   });
@@ -978,7 +1185,7 @@ export async function commitStudioSaveToRepo(
   headerPath: string,
   headerContent: string,
   timeouts: TimeoutConfig,
-  commitMessage = 'feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio'
+  commitMessage = `${STUDIO_COMMIT_PREFIX}feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio`
 ): Promise<CommitStudioSaveResult> {
   if (!config.token || !config.owner || !config.repo) {
     throw new Error('GitHub Personal Access Token is required to commit changes.');
@@ -986,6 +1193,7 @@ export async function commitStudioSaveToRepo(
 
   const octokit = getOctokit(config.token);
   const branch = config.branch || 'main';
+  const formattedMessage = formatStudioCommitMessage(commitMessage);
 
   // 1. Discover .conf files and calculate required Kconfig updates
   let confUpdates: { path: string; content: string }[] = [];
@@ -1033,7 +1241,7 @@ export async function commitStudioSaveToRepo(
     const newCommitRes = await octokit.git.createCommit({
       owner: config.owner,
       repo: config.repo,
-      message: commitMessage,
+      message: formattedMessage,
       tree: treeRes.data.sha,
       parents: [currentCommitSha],
     });
@@ -1053,7 +1261,7 @@ export async function commitStudioSaveToRepo(
   } catch (gitTreeErr) {
     console.warn('Git Trees API atomic commit failed, attempting fallback to single-file commit:', gitTreeErr);
     // Fallback: Commit just the header file so user work is never lost
-    const singleRes = await commitFileToRepo(config, headerPath, headerContent, commitMessage);
+    const singleRes = await commitFileToRepo(config, headerPath, headerContent, formattedMessage);
     return {
       commitSha: singleRes.sha,
       commitUrl: singleRes.commitUrl,

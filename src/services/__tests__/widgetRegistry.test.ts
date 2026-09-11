@@ -16,6 +16,7 @@ import {
   PUNCTUATION_3X5,
   getWidgetNaturalSize,
   measureTextWidth,
+  resolveWidgetInstance,
 } from '../widgetRegistry';
 import {
   DEFAULT_LEFT_LAYOUT_BLOCKS,
@@ -1211,6 +1212,121 @@ describe('Widget Registry - Single Source of Truth', () => {
       // Right border should be at x = 31 (since width = 32), not at x = 23
       expect(grid.get(31, 10)).toBe(1);
       expect(grid.get(31, 10 + 30 - 1)).toBe(1);
+    });
+  });
+
+  describe('resolveWidgetInstance & Animation Natural Sizing', () => {
+    it('bidirectionally resolves instances between animation and loop', () => {
+      const instances = {
+        loop: [{
+          id: 'inst-duck-1',
+          widgetTypeId: 'loop',
+          label: 'Shuba Duck',
+          config: { mode: 'symbol' as const, groupId: 'GROUP_DUCK' },
+          slots: {},
+        }],
+      };
+
+      // Querying for 'animation' finds the 'loop' instance
+      const resolvedFromAnim = resolveWidgetInstance(instances, 'animation', 'inst-duck-1');
+      expect(resolvedFromAnim).toBeDefined();
+      expect(resolvedFromAnim?.id).toBe('inst-duck-1');
+
+      // Querying without instanceId returns the first candidate
+      const defaultResolved = resolveWidgetInstance(instances, 'animation');
+      expect(defaultResolved?.id).toBe('inst-duck-1');
+
+      // Querying for 'loop' works as expected
+      const resolvedFromLoop = resolveWidgetInstance(instances, 'loop', 'inst-duck-1');
+      expect(resolvedFromLoop?.id).toBe('inst-duck-1');
+    });
+
+    it('calculates natural size for animation matching custom sprite dimensions', () => {
+      const animDef = getWidgetDefinition('animation');
+      expect(animDef).toBeDefined();
+
+      const customSlices: SpriteSlice[] = [
+        ...DEFAULT_SYMBOL_SLICES,
+        {
+          id: 'SLICE_DUCK_0',
+          name: 'Duck Frame 0',
+          groupId: 'GROUP_DUCK',
+          groupOrder: 1,
+          x: 0,
+          y: 0,
+          width: 32,
+          height: 55,
+          color: '#ffdd00',
+        },
+        {
+          id: 'SLICE_DUCK_1',
+          name: 'Duck Frame 1',
+          groupId: 'GROUP_DUCK',
+          groupOrder: 2,
+          x: 0,
+          y: 55,
+          width: 32,
+          height: 55,
+          color: '#ffdd00',
+        },
+      ];
+
+      const instance = {
+        id: 'inst-duck',
+        widgetTypeId: 'animation',
+        label: 'Duck',
+        config: { mode: 'symbol' as const, groupId: 'GROUP_DUCK' },
+        slots: {},
+      };
+
+      const size = getWidgetNaturalSize(animDef!, customSlices, instance);
+      // The natural size must match the actual sprite dimensions (32x55), NOT the 17x10 battery charge icon!
+      expect(size).toEqual({ width: 32, height: 55 });
+    });
+
+    it('matches group ID case-insensitively or by slice ID', () => {
+      const animDef = getWidgetDefinition('animation');
+      const customSlices: SpriteSlice[] = [
+        {
+          id: 'SYMBOL_CAMPFIRE_1',
+          name: 'Campfire 1',
+          groupId: 'symbol_campfire',
+          groupOrder: 1,
+          x: 0,
+          y: 0,
+          width: 28,
+          height: 42,
+          color: '#ff4400',
+        },
+      ];
+
+      const instanceUpper = {
+        id: 'inst-camp',
+        widgetTypeId: 'animation',
+        label: 'Campfire',
+        config: { mode: 'symbol' as const, groupId: 'SYMBOL_CAMPFIRE' },
+        slots: {},
+      };
+
+      const size = getWidgetNaturalSize(animDef!, customSlices, instanceUpper);
+      expect(size).toEqual({ width: 28, height: 42 });
+    });
+
+    it('does not fall back to battery or charge icon when animation groupId is missing', () => {
+      const animDef = getWidgetDefinition('animation');
+      // Even with default symbol slices containing CHARGE and BATTERY multi-frame groups,
+      // fallback must NOT pick system icons like CHARGE (17x10).
+      const instanceUnknown = {
+        id: 'inst-nonexistent',
+        widgetTypeId: 'animation',
+        label: 'Unknown',
+        config: { mode: 'symbol' as const, groupId: 'NONEXISTENT_GROUP' },
+        slots: {},
+      };
+
+      const size = getWidgetNaturalSize(animDef!, DEFAULT_SYMBOL_SLICES, instanceUnknown);
+      // Should fall back to defaultWidth/defaultHeight (26x26), not 17x10
+      expect(size).toEqual({ width: 26, height: 26 });
     });
   });
 });

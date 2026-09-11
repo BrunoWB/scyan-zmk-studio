@@ -5,6 +5,7 @@ import {
   WIDGET_REGISTRY,
   getWidgetsByCategory,
   getWidgetsByTier,
+  resolveWidgetInstance,
 } from '../../services/widgetRegistry';
 import type {
   DisplayWidgetDefinition,
@@ -58,7 +59,8 @@ export const WidgetMiniPreview: React.FC<{
 
   useEffect(() => {
     if (widget.id !== 'animation' && widget.id !== 'loop') return;
-    const speedMs = Math.max(20, (instances?.[widget.id]?.[0]?.config?.loopSpeedMs ?? instances?.['loop']?.[0]?.config?.loopSpeedMs) ?? 250);
+    const activeInst = resolveWidgetInstance(instances, widget.id);
+    const speedMs = Math.max(20, activeInst?.config?.loopSpeedMs ?? 250);
     startTimeRef.current = Date.now();
     const timer = setInterval(() => {
       setAnimTimestamp(Date.now() - startTimeRef.current);
@@ -86,7 +88,8 @@ export const WidgetMiniPreview: React.FC<{
     const tempGrid = new BwpxGrid(width, height);
     const startX = Math.max(0, Math.floor((width - widget.defaultWidth) / 2));
     
-    const activeInstanceId = instances?.[widget.id]?.[0]?.id;
+    const activeInstance = resolveWidgetInstance(instances, widget.id);
+    const activeInstanceId = activeInstance?.id;
 
     widget.render(tempGrid, startX, 0, {
       symbolsGrid,
@@ -207,7 +210,7 @@ export const WidgetCatalogList: React.FC<WidgetCatalogListProps> = ({
           </div>
         ) : (
           filteredWidgets.map(widget => {
-            const widgetInstances = instances?.[widget.id] || [];
+            const widgetInstances = instances?.[widget.id] || (widget.id === 'animation' ? instances?.['loop'] : widget.id === 'loop' ? instances?.['animation'] : undefined) || [];
             if (widgetInstances.length === 0) return null;
 
             return widgetInstances.map(inst => {

@@ -32,6 +32,8 @@ export interface RenderBwpxOptions {
   slices?: SpriteSlice[];
   selectedSliceId?: string;
   frameBounds?: { x: number; y: number; w: number; h: number } | null;
+  hoverPos?: { x: number; y: number } | null;
+  hoverHighlightColor?: string;
 }
 
 /**
@@ -56,6 +58,8 @@ export function renderBwpxCanvas(
     slices = [],
     selectedSliceId = '',
     frameBounds = null,
+    hoverPos = null,
+    hoverHighlightColor = 'rgba(255, 255, 255, 0.04)',
   } = options;
 
   ctx.imageSmoothingEnabled = false;
@@ -74,6 +78,35 @@ export function renderBwpxCanvas(
   const endGridX = Math.ceil((canvas.width - panX) / zoom);
   const startGridY = Math.floor(-panY / zoom);
   const endGridY = Math.ceil((canvas.height - panY) / zoom);
+
+  // Subtle column & row highlight on hover
+  if (hoverPos) {
+    const colX = panX + Math.round(hoverPos.x * zoom);
+    const colW = Math.round((hoverPos.x + 1) * zoom) - Math.round(hoverPos.x * zoom);
+    const rowY = panY + Math.round(hoverPos.y * zoom);
+    const rowH = Math.round((hoverPos.y + 1) * zoom) - Math.round(hoverPos.y * zoom);
+
+    const xMin = frameBounds ? Math.max(0, panX + Math.round(frameBounds.x * zoom)) : 0;
+    const xMax = frameBounds ? Math.min(canvas.width, panX + Math.round((frameBounds.x + frameBounds.w) * zoom)) : canvas.width;
+    const yMin = frameBounds ? Math.max(0, panY + Math.round(frameBounds.y * zoom)) : 0;
+    const yMax = frameBounds ? Math.min(canvas.height, panY + Math.round((frameBounds.y + frameBounds.h) * zoom)) : canvas.height;
+
+    ctx.fillStyle = hoverHighlightColor;
+
+    // Highlight column
+    const drawColX = Math.max(xMin, colX);
+    const drawColW = Math.min(colX + colW, xMax) - drawColX;
+    if (drawColW > 0 && yMax > yMin) {
+      ctx.fillRect(drawColX, yMin, drawColW, yMax - yMin);
+    }
+
+    // Highlight row
+    const drawRowY = Math.max(yMin, rowY);
+    const drawRowH = Math.min(rowY + rowH, yMax) - drawRowY;
+    if (drawRowH > 0 && xMax > xMin) {
+      ctx.fillRect(xMin, drawRowY, xMax - xMin, drawRowH);
+    }
+  }
 
   // 1. Subtle infinite grid lines
   if (showGridLines) {

@@ -89,7 +89,7 @@ describe('HeaderBar disconnected-expanded and compact states', () => {
     expect(html).toContain('Connecting Git...');
   });
 
-  it('renders compact 54px header with repository details when connected', () => {
+  it('renders compact 54px header with repository details when connected and no prerequisites require install', () => {
     const connection: GitHubConnectionState = {
       status: 'connected',
       user: { login: 'test-user', name: 'Test User', avatarUrl: 'https://example.com/avatar.png' },
@@ -102,6 +102,99 @@ describe('HeaderBar disconnected-expanded and compact states', () => {
 
     const html = renderToString(
       <HeaderBar {...baseProps} connection={connection} />
+    );
+
+    expect(html).toContain('h-[54px]');
+    expect(html).not.toContain('disconnected-expanded');
+    expect(html).not.toContain('h-[130px]');
+    expect(html).toContain('test-user/zmk-config');
+    expect(html).toContain('main');
+    expect(html).toContain('PUSH OK');
+  });
+
+  it('renders expanded 130px header when connected but user still requires installing', () => {
+    const connection: GitHubConnectionState = {
+      status: 'connected',
+      user: { login: 'test-user', name: 'Test User', avatarUrl: 'https://example.com/avatar.png' },
+      repo: { name: 'zmk-config', fullName: 'test-user/zmk-config', isPrivate: false, hasPushAccess: true, defaultBranch: 'main', description: null },
+      errorMessage: null,
+      lastCheckedAt: 123456789,
+      resolvedOwner: 'test-user',
+      resolvedRepo: 'zmk-config',
+    };
+
+    const prereqs = {
+      hasWestModule: false,
+      hasKconfig: false,
+      hasAssetsHeader: false,
+      isInstalled: false,
+    };
+
+    const html = renderToString(
+      <HeaderBar {...baseProps} connection={connection} repoPrereqs={prereqs} />
+    );
+
+    expect(html).toContain('disconnected-expanded');
+    expect(html).toContain('h-[130px]');
+    expect(html).not.toContain('h-[54px]');
+    expect(html).toContain('test-user/zmk-config');
+    expect(html).toContain('Setup Required');
+    expect(html).toContain('Install');
+  });
+
+  it('renders expanded 130px header with installing state when install is in progress', () => {
+    const connection: GitHubConnectionState = {
+      status: 'connected',
+      user: { login: 'test-user', name: 'Test User', avatarUrl: 'https://example.com/avatar.png' },
+      repo: { name: 'zmk-config', fullName: 'test-user/zmk-config', isPrivate: false, hasPushAccess: true, defaultBranch: 'main', description: null },
+      errorMessage: null,
+      lastCheckedAt: 123456789,
+      resolvedOwner: 'test-user',
+      resolvedRepo: 'zmk-config',
+    };
+
+    const prereqs = {
+      hasWestModule: false,
+      hasKconfig: false,
+      hasAssetsHeader: false,
+      isInstalled: false,
+    };
+
+    const html = renderToString(
+      <HeaderBar
+        {...baseProps}
+        connection={connection}
+        repoPrereqs={prereqs}
+        isInstallingStudio={true}
+      />
+    );
+
+    expect(html).toContain('disconnected-expanded');
+    expect(html).toContain('h-[130px]');
+    expect(html).not.toContain('h-[54px]');
+    expect(html).toContain('Installing...');
+  });
+
+  it('renders compact 54px header when connected and studio is installed', () => {
+    const connection: GitHubConnectionState = {
+      status: 'connected',
+      user: { login: 'test-user', name: 'Test User', avatarUrl: 'https://example.com/avatar.png' },
+      repo: { name: 'zmk-config', fullName: 'test-user/zmk-config', isPrivate: false, hasPushAccess: true, defaultBranch: 'main', description: null },
+      errorMessage: null,
+      lastCheckedAt: 123456789,
+      resolvedOwner: 'test-user',
+      resolvedRepo: 'zmk-config',
+    };
+
+    const prereqs = {
+      hasWestModule: true,
+      hasKconfig: true,
+      hasAssetsHeader: true,
+      isInstalled: true,
+    };
+
+    const html = renderToString(
+      <HeaderBar {...baseProps} connection={connection} repoPrereqs={prereqs} />
     );
 
     expect(html).toContain('h-[54px]');
@@ -229,5 +322,46 @@ describe('HeaderBar disconnected-expanded and compact states', () => {
 
     expect(html).toContain('CI Passed');
     expect(html).not.toContain('Saved ');
+  });
+
+  it('renders BrandIdentityLogo with SCYAN and STUDIO text in HeaderBar', () => {
+    const connection: GitHubConnectionState = {
+      status: 'connected',
+      user: { login: 'test-user', name: 'Test User', avatarUrl: 'https://example.com/avatar.png' },
+      repo: { name: 'zmk-config', fullName: 'test-user/zmk-config', isPrivate: false, hasPushAccess: true, defaultBranch: 'main', description: null },
+      errorMessage: null,
+      lastCheckedAt: 123456789,
+      resolvedOwner: 'test-user',
+      resolvedRepo: 'zmk-config',
+    };
+
+    const html = renderToString(
+      <HeaderBar {...baseProps} connection={connection} />
+    );
+
+    expect(html).toContain('SCYAN');
+    expect(html).toContain('STUDIO');
+  });
+
+  it('renders Ko-fi tipping link tucked behind Commit & Build with slide-down on hover', () => {
+    const connection: GitHubConnectionState = {
+      status: 'connected',
+      user: null,
+      repo: null,
+      errorMessage: null,
+      lastCheckedAt: null,
+      resolvedOwner: null,
+      resolvedRepo: null,
+    };
+
+    const html = renderToString(
+      <HeaderBar {...baseProps} connection={connection} />
+    );
+
+    expect(html).toContain('https://ko-fi.com/brunowb');
+    expect(html).toContain('Support me on Ko-fi');
+    expect(html).toContain('Buy me a coffee');
+    expect(html).toContain('group/commit');
+    expect(html).toContain('group-hover/commit:translate-y-0');
   });
 });

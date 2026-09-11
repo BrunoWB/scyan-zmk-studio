@@ -902,6 +902,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       selection: !movingPixels || !movingPixels.active ? selection : null,
       slices,
       selectedSliceId,
+      hoverPos: !isPanning ? hoverPos : null,
     });
 
     // Hover brush indicator (when not panning, not placing ghost, and using drawing tool)
@@ -1214,7 +1215,11 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     }
 
     const coords = getGridCoords(e.clientX, e.clientY);
-    setHoverPos(coords);
+    setHoverPos(prev => {
+      if (!prev && !coords) return null;
+      if (prev && coords && prev.x === coords.x && prev.y === coords.y) return prev;
+      return coords;
+    });
 
     if (!coords) return;
 

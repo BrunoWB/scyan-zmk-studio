@@ -3,7 +3,7 @@ import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../ty
 import type { WidgetInstanceMap } from '../types/widget';
 import { DEFAULT_SYMBOL_SLICES, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS } from '../types/zmk';
 import defaultInstallHeader from '../assets/scyan_assets.install.h?raw';
-import { measureTextWidth, getWidgetNaturalSize, getWidgetDefinition, normalizeWidgetType } from './widgetRegistry';
+import { measureTextWidth, getWidgetNaturalSize, getWidgetDefinition, normalizeWidgetType, resolveWidgetInstance } from './widgetRegistry';
 
 export interface HeaderMetadata {
   version: 1;
@@ -324,6 +324,15 @@ export function parseCHeader(cCode: string): ParsedAssets {
         const parsedMeta = JSON.parse(metaMatch[1].trim());
         if (parsedMeta && typeof parsedMeta === 'object') {
           metadata = parsedMeta;
+          if (metadata && metadata.widgetInstances) {
+            const instMap = { ...metadata.widgetInstances };
+            if (instMap['loop'] && !instMap['animation']) {
+              instMap['animation'] = instMap['loop'].map((i: any) => ({ ...i, widgetTypeId: 'animation' }));
+            } else if (instMap['animation'] && !instMap['loop']) {
+              instMap['loop'] = instMap['animation'].map((i: any) => ({ ...i, widgetTypeId: 'loop' }));
+            }
+            metadata.widgetInstances = instMap;
+          }
         }
       } catch (e) {
         console.warn('Failed to parse ZMK_DISPLAY_STUDIO_METADATA comment:', e);
@@ -543,18 +552,20 @@ export function parseCHeader(cCode: string): ParsedAssets {
                       resolvedGroupId = sliceMatch?.groupId || symIdMatch[1];
                     }
 
-                    metadata.widgetInstances['animation'] = [{
+                    const animInst = {
                       id: parsedBlock.instanceId!,
                       widgetTypeId: 'animation',
                       label: 'Animation',
                       config: {
-                        mode: 'symbol',
+                        mode: 'symbol' as const,
                         groupId: resolvedGroupId,
                         loopSpeedMs: param1 || 250,
                         loop: param2 !== 1,
                       },
                       slots: {},
-                    }];
+                    };
+                    metadata.widgetInstances['animation'] = [animInst];
+                    metadata.widgetInstances['loop'] = [{ ...animInst, widgetTypeId: 'loop' }];
                   }
                 }
               }
@@ -669,6 +680,29 @@ export function parseCHeader(cCode: string): ParsedAssets {
       reconcileWpmBlocks(metadata.rightBlocks);
       reconcileWpmBlocks(metadata.idleLeftBlocks);
       reconcileWpmBlocks(metadata.idleRightBlocks);
+
+      // Reconcile blocks with widget instances for animation/loop to ensure natural dimensions
+      const reconcileAnimationBlocks = (blockList?: LayoutBlock[]) => {
+        if (!blockList) return;
+        const animDef = getWidgetDefinition('animation');
+        if (!animDef) return;
+        blockList.forEach(block => {
+          const type = block.widgetType || block.id;
+          const normType = normalizeWidgetType(type);
+          if (normType === 'animation' || normType === 'loop') {
+            const inst = resolveWidgetInstance(metadata?.widgetInstances, normType, block.instanceId);
+            if (inst) {
+              const naturalSize = getWidgetNaturalSize(animDef, symbolSlices, inst, parsedSmall, fontMappings);
+              block.width = naturalSize.width;
+              block.height = naturalSize.height;
+            }
+          }
+        });
+      };
+      reconcileAnimationBlocks(metadata.leftBlocks);
+      reconcileAnimationBlocks(metadata.rightBlocks);
+      reconcileAnimationBlocks(metadata.idleLeftBlocks);
+      reconcileAnimationBlocks(metadata.idleRightBlocks);
     }
 
   } catch (err) {
@@ -1135,9 +1169,7 @@ static const struct display_font font_default = {
         : (normType.includes('animation') || normType.includes('loop')) ? 'animation'
         : normType;
 
-      const instance = block.instanceId && (metadata.widgetInstances?.[lookupKey] || metadata.widgetInstances?.['loop'])
-        ? (metadata.widgetInstances[lookupKey]?.find(i => i.id === block.instanceId) || metadata.widgetInstances?.['loop']?.find(i => i.id === block.instanceId))
-        : (metadata.widgetInstances?.[lookupKey]?.[0] || metadata.widgetInstances?.['loop']?.[0]);
+      const instance = resolveWidgetInstance(metadata.widgetInstances, lookupKey, block.instanceId);
 
       const mode = (instance?.config?.mode === 'font') ? 1 : 0;
       let param1 = 0;
@@ -1172,14 +1204,20 @@ static const struct display_font font_default = {
         }
       } else if (instance?.config?.groupId) {
         const gid = instance.config.groupId;
-        const members = symbolSlices.filter(s => s.groupId === gid).sort((a, b) => a.groupOrder - b.groupOrder);
+        let members = symbolSlices.filter(s => s.groupId === gid).sort((a, b) => a.groupOrder - b.groupOrder);
+        if (members.length === 0) {
+          members = symbolSlices.filter(s => s.groupId.toLowerCase() === gid.toLowerCase()).sort((a, b) => a.groupOrder - b.groupOrder);
+        }
+        if (members.length === 0) {
+          members = symbolSlices.filter(s => s.id === gid || s.name === gid).sort((a, b) => a.groupOrder - b.groupOrder);
+        }
         if (members.length > 0) {
           loopTotalFrames = members.length;
           for (const m of members) {
             if (symbolIds.length < 16) symbolIds.push(m.id);
           }
         } else {
-          const match = symbolSlices.find(s => s.id === gid);
+          const match = symbolSlices.find(s => s.id === gid || s.name === gid);
           if (match) symbolIds.push(match.id);
         }
       }
@@ -1216,7 +1254,12 @@ static const struct display_font font_default = {
             bongos.slice(0, 16).forEach(s => symbolIds.push(s.id));
           }
         } else if (enumType === 'WIDGET_TYPE_LOOP') {
-          const multi = symbolSlices.find(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length >= 2);
+          const multi = symbolSlices.find(s => {
+            if (s.groupOrder !== 1) return false;
+            const gid = s.groupId.toUpperCase();
+            if (/^(CHARGE|BATTERY|SPEED|WPM|BLUETOOTH|USB|SPLIT|LAYER|BRACKET)/i.test(gid)) return false;
+            return symbolSlices.filter(m => m.groupId === s.groupId).length >= 2;
+          });
           if (multi) {
             const matches = symbolSlices
               .filter(s => s.groupId === multi.groupId)
@@ -1321,6 +1364,17 @@ static const struct display_font font_default = {
         if (instance?.config?.wpmChart) {
           bw = instance.config.wpmChart.width ?? bw ?? 32;
           bh = instance.config.wpmChart.height ?? bh ?? 24;
+          block.width = bw;
+          block.height = bh;
+        }
+      }
+
+      if (enumType === 'WIDGET_TYPE_LOOP') {
+        const animDef = getWidgetDefinition('animation');
+        if (animDef) {
+          const naturalSize = getWidgetNaturalSize(animDef, symbolSlices, instance);
+          bw = naturalSize.width;
+          bh = naturalSize.height;
           block.width = bw;
           block.height = bh;
         }

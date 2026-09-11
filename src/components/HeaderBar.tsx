@@ -21,6 +21,7 @@ import {
   Info,
   Unplug,
   RotateCcw,
+  Trash2,
 } from 'lucide-react';
 import { Chip, Button, Kbd } from '@heroui/react';
 import type {
@@ -37,6 +38,8 @@ import {
   fetchRepoBranches,
 } from '../services/githubService';
 import { BrandIdentityLogo } from './brand/BrandIdentityLogo';
+import { LogoContextMenu } from './LogoContextMenu';
+import { ChangelogModal } from './ChangelogModal';
 
 export interface HeaderBarProps {
   config: GitHubRepoConfig;
@@ -55,6 +58,8 @@ export interface HeaderBarProps {
   repoPrereqs?: RepoPrerequisites | null;
   isInstallingStudio?: boolean;
   onInstallStudio?: () => void;
+  isUninstallingStudio?: boolean;
+  onUninstallStudio?: () => void;
   onSearchClick?: () => void;
   onRestoreInitialValues?: () => void;
   onRestoreDefaults?: () => void;
@@ -91,6 +96,19 @@ export const WolfLogo = ({ size = 40, className = '' }: { size?: number; classNa
   </svg>
 );
 
+export const KofiIcon = ({ size = 16, className = '' }: { size?: number; className?: string }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    className={className}
+    aria-hidden="true"
+  >
+    <path d="M23.881 8.948c-.773-4.085-4.859-4.593-4.859-4.593H.723c-.604 0-.679.798-.679.798s-.082 7.324-.022 11.822c.164 2.424 2.586 2.672 2.586 2.672s8.267-.023 11.966-.049c2.438-.426 2.683-2.566 2.658-3.734 4.352.24 7.422-2.831 6.649-6.916zm-11.062 3.511c-1.246 1.453-4.011 3.976-4.011 3.976s-.121.119-.31.023c-.076-.057-.238-.209-.344-.319-1.206-1.261-2.91-3.69-2.91-3.69s-.733-1.09-.272-2.146c.465-1.055 1.579-1.328 2.378-1.024.798.304 1.344 1.092 1.344 1.092s.546-.788 1.344-1.092c.799-.304 1.913-.031 2.378 1.024.461 1.056-.272 2.146-.272 2.146l.405.01zm5.286-.967c-.206 1.37-1.144 1.705-1.993 1.745V7.472c.849.04 1.787.375 1.993 1.745z" />
+  </svg>
+);
+
 export const HeaderBar: React.FC<HeaderBarProps> = ({
   config,
   connection,
@@ -108,6 +126,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   repoPrereqs,
   isInstallingStudio,
   onInstallStudio,
+  isUninstallingStudio,
+  onUninstallStudio,
   onSearchClick,
   onRestoreInitialValues,
   onRestoreDefaults,
@@ -116,6 +136,15 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   const [tempConfig, setTempConfig] = useState<GitHubRepoConfig>(config);
   const [workflowRun, setWorkflowRun] = useState<WorkflowRunInfo | null>(initialWorkflowRun ?? null);
   const [isHeaderHovered, setIsHeaderHovered] = useState(false);
+  const [confirmUninstall, setConfirmUninstall] = useState(false);
+  const [logoMenuPos, setLogoMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [isChangelogOpen, setIsChangelogOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isSettingsOpen) {
+      setConfirmUninstall(false);
+    }
+  }, [isSettingsOpen]);
 
   // Repositories and Branches for interactive selection
   const [repositories, setRepositories] = useState<GitHubRepositoryItem[]>([]);
@@ -468,6 +497,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
   const isConnected = connection.status === 'connected';
   const isDisconnected = connection.status === 'disconnected' || connection.status === 'error';
+  const requiresInstalling = isConnected && Boolean(repoPrereqs && !repoPrereqs.isInstalled);
+  const isExpanded = isDisconnected || requiresInstalling;
 
   return (
     <>
@@ -475,7 +506,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
       onMouseEnter={() => setIsHeaderHovered(true)}
       onMouseLeave={() => setIsHeaderHovered(false)}
       className={`builder-header sticky top-0 z-40 w-full transition-all duration-[350ms] ease-[cubic-bezier(0.16,1,0.3,1)] flex items-center justify-between gap-4 shrink-0 px-6 ${
-        isDisconnected
+        isExpanded
           ? 'disconnected-expanded h-[130px] bg-gradient-to-b from-[#161920] to-[#121419] border-b border-[#f2741d]/35 shadow-[0_4px_20px_rgba(242,116,29,0.08)]'
           : 'h-[54px] bg-[#0b0d13]/90 backdrop-blur-md border-b border-[#1e2538]'
       }`}
@@ -488,7 +519,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               the size change flows naturally as the header expands/collapses. */}
           <div
             style={{
-              transform: isDisconnected ? 'scale(1)' : 'scale(0.7917)',
+              transform: isExpanded ? 'scale(1)' : 'scale(0.7917)',
               transformOrigin: 'left center',
               transition: 'transform 350ms cubic-bezier(0.16,1,0.3,1)',
             }}
@@ -497,13 +528,17 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               size={48}
               isHovered={isHeaderHovered}
               onClick={() => setIsSettingsOpen(false)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setLogoMenuPos({ x: e.clientX, y: e.clientY });
+              }}
             />
           </div>
         </div>
       </div>
 
       {/* Center: Live GitHub Connection Status Widget */}
-      {isDisconnected ? (
+      {isExpanded ? (
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 flex items-center pointer-events-auto">
           {connection.status === 'error' ? (
             <button
@@ -521,7 +556,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 Fix
               </span>
             </button>
-          ) : (
+          ) : isDisconnected ? (
             <button
               type="button"
               onClick={() => setIsSettingsOpen(true)}
@@ -537,6 +572,39 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 Connect
               </span>
             </button>
+          ) : (
+            <div
+              className="w-[440px] max-w-[calc(100vw-32px)] sm:min-w-[400px] h-11 px-4 flex items-center justify-between text-[13.5px] font-semibold rounded-xl border border-[#f2741d]/55 bg-[#f2741d]/10 hover:border-[#f2741d]/85 hover:bg-[#f2741d]/18 shadow-[0_0_20px_rgba(242,116,29,0.15),_inset_0_0_12px_rgba(242,116,29,0.05)] hover:shadow-[0_0_24px_rgba(242,116,29,0.3)] transition-all duration-300 group"
+            >
+              <div
+                onClick={() => setIsSettingsOpen(true)}
+                className="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1 py-1"
+                title={`Connected to ${config.owner}/${config.repo}. Click to open settings.`}
+              >
+                <span className="size-2.5 rounded-full bg-[#f2741d] shadow-[0_0_8px_#f2741d] animate-pulse shrink-0"></span>
+                <FolderGit2 size={15} className="text-[#f2741d] shrink-0" />
+                <span className="text-white font-medium text-sm truncate">{config.owner}/{config.repo}</span>
+                <span className="text-[#f2741d] font-mono text-[11px] shrink-0 hidden sm:inline">Setup Required</span>
+              </div>
+              <button
+                type="button"
+                className="bg-[#f2741d] hover:bg-[#ea580c] disabled:opacity-60 text-white text-[11px] font-bold px-3.5 py-1 rounded-md tracking-wider transition-colors shadow-sm shrink-0 ml-2 flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onInstallStudio?.();
+                }}
+                disabled={isInstallingStudio}
+              >
+                {isInstallingStudio ? (
+                  <>
+                    <RefreshCw size={11} className="animate-spin" />
+                    <span>Installing...</span>
+                  </>
+                ) : (
+                  <span>Install</span>
+                )}
+              </button>
+            </div>
           )}
         </div>
       ) : (
@@ -681,23 +749,41 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           </div>
         )}
 
-        {/* Save & Commit Button */}
-        <Button
-          size="sm"
-          onClick={onSave}
-          isDisabled={isSaving || !isConnected || !connection.repo?.hasPushAccess}
-          className="bg-[#00f0ff]/10 hover:bg-[#00f0ff] text-[#00f0ff] hover:text-[#0b0d13] border border-[#00f0ff]/30 hover:border-[#00f0ff] font-semibold text-xs rounded-lg px-3.5 h-8 transition-all duration-200 hover:shadow-[0_0_16px_rgba(0,240,255,0.4)] flex items-center gap-1.5 cursor-pointer"
-          aria-label={
-            !isConnected
-              ? 'Connect GitHub repository to save changes'
-              : !connection.repo?.hasPushAccess
-              ? 'Read-only access: push permissions required on this repo'
-              : 'Commit changes directly to your GitHub repository'
-          }
-        >
-          <Save size={13} className={isSaving ? 'animate-spin' : ''} />
-          <span>{isSaving ? 'Committing...' : 'Commit & Build'}</span>
-        </Button>
+        {/* Save & Commit Button with Hidden Slide-Down Coffee Tip */}
+        <div className="relative isolate group/commit inline-flex items-center">
+          {/* Coffee Tip: slides down from behind Commit & Build on hover */}
+          <a
+            href="https://ko-fi.com/brunowb"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="absolute left-1.5 right-1.5 top-full -mt-1 -z-10 flex items-center justify-center gap-1.5 bg-[#121622] hover:bg-[#19202f] border border-t-0 border-[#2d3748] hover:border-[#00f0ff]/50 text-[#94a3b8] hover:text-[#00f0ff] text-[11px] font-medium pt-2 pb-1 px-2.5 rounded-b-lg shadow-xl shadow-black/50 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] -translate-y-full opacity-0 pointer-events-none group-hover/commit:translate-y-0 group-hover/commit:opacity-100 group-hover/commit:pointer-events-auto group-focus-within/commit:translate-y-0 group-focus-within/commit:opacity-100 group-focus-within/commit:pointer-events-auto cursor-pointer"
+            style={{ zIndex: -1 }}
+            title="Support me on Ko-fi"
+            aria-label="Support me on Ko-fi"
+          >
+            <KofiIcon size={12} className="text-[#00f0ff] shrink-0" />
+            <span className="text-slate-300 hover:text-white">Buy me a coffee</span>
+          </a>
+
+          <div className="relative z-10 bg-[#0b0d13] rounded-lg flex items-center">
+            <Button
+              size="sm"
+              onClick={onSave}
+              isDisabled={isSaving || !isConnected || !connection.repo?.hasPushAccess}
+              className="bg-[#0e1626] hover:bg-[#00f0ff] text-[#00f0ff] hover:text-[#0b0d13] border border-[#00f0ff]/40 hover:border-[#00f0ff] font-semibold text-xs rounded-lg px-3.5 h-8 transition-all duration-200 hover:shadow-[0_0_16px_rgba(0,240,255,0.4)] flex items-center gap-1.5 cursor-pointer"
+              aria-label={
+                !isConnected
+                  ? 'Connect GitHub repository to save changes'
+                  : !connection.repo?.hasPushAccess
+                  ? 'Read-only access: push permissions required on this repo'
+                  : 'Commit changes directly to your GitHub repository'
+              }
+            >
+              <Save size={13} className={isSaving ? 'animate-spin' : ''} />
+              <span>{isSaving ? 'Committing...' : 'Commit & Build'}</span>
+            </Button>
+          </div>
+        </div>
 
         {/* Settings Button */}
         <Button
@@ -908,6 +994,107 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         </select>
                       </div>
 
+                      {/* Scyan Display Module Ecosystem Integration */}
+                      {repoPrereqs && (
+                        <div className="bg-[#0e1118] border border-[#1e2538] rounded-xl p-3.5 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`size-2 rounded-full ${
+                                  repoPrereqs.isInstalled
+                                    ? 'bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]'
+                                    : 'bg-[#f2741d] animate-pulse'
+                                }`}
+                              />
+                              <span className="text-xs font-semibold text-white">Scyan Display Module</span>
+                              {repoPrereqs.isInstalled ? (
+                                <Chip className="bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/30 text-[10px] font-mono px-1.5 h-4">
+                                  Installed
+                                </Chip>
+                              ) : (
+                                <Chip className="bg-[#f2741d]/15 text-[#f2741d] border border-[#f2741d]/30 text-[10px] font-mono px-1.5 h-4">
+                                  Setup Required
+                                </Chip>
+                              )}
+                            </div>
+
+                            {repoPrereqs.isInstalled ? (
+                              !confirmUninstall ? (
+                                <Button
+                                  size="sm"
+                                  type="button"
+                                  onClick={() => setConfirmUninstall(true)}
+                                  isDisabled={isUninstallingStudio}
+                                  className="bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 border border-red-500/30 text-[11px] font-medium px-2.5 h-7 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <Trash2 size={11} />
+                                  <span>Uninstall Module</span>
+                                </Button>
+                              ) : (
+                                <div className="flex items-center gap-1.5">
+                                  <Button
+                                    size="sm"
+                                    type="button"
+                                    onClick={() => setConfirmUninstall(false)}
+                                    isDisabled={isUninstallingStudio}
+                                    className="bg-[#19202f] hover:bg-[#232c3f] text-[#94a3b8] hover:text-white border border-[#2d3748] text-[10px] font-medium px-2 h-6 rounded-md transition-colors cursor-pointer"
+                                  >
+                                    Cancel
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    type="button"
+                                    onClick={() => {
+                                      setConfirmUninstall(false);
+                                      onUninstallStudio?.();
+                                    }}
+                                    isDisabled={isUninstallingStudio}
+                                    className="bg-red-600 hover:bg-red-500 text-white font-bold text-[10px] px-2.5 h-6 rounded-md transition-colors flex items-center gap-1 cursor-pointer"
+                                  >
+                                    {isUninstallingStudio ? (
+                                      <>
+                                        <RefreshCw size={10} className="animate-spin" />
+                                        <span>Uninstalling...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Trash2 size={10} />
+                                        <span>Confirm Uninstall</span>
+                                      </>
+                                    )}
+                                  </Button>
+                                </div>
+                              )
+                            ) : (
+                              <Button
+                                size="sm"
+                                type="button"
+                                onClick={() => onInstallStudio?.()}
+                                isDisabled={isInstallingStudio}
+                                className="bg-[#f2741d]/20 hover:bg-[#f2741d] text-[#f2741d] hover:text-white border border-[#f2741d]/40 text-[11px] font-semibold px-2.5 h-7 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                              >
+                                {isInstallingStudio ? (
+                                  <>
+                                    <RefreshCw size={11} className="animate-spin" />
+                                    <span>Installing...</span>
+                                  </>
+                                ) : (
+                                  <span>Install Module</span>
+                                )}
+                              </Button>
+                            )}
+                          </div>
+
+                          <p className="text-[11px] text-[#94a3b8] leading-relaxed">
+                            {repoPrereqs.isInstalled
+                              ? confirmUninstall
+                                ? 'Are you sure? This will remove scyan-zmk-module from west.yml, clean custom Scyan display configs from your .conf file, and delete scyan_assets.h.'
+                                : 'Scyan display driver and assets are active in this repository. Uninstalling cleanly reverts your repository to standard ZMK display widgets.'
+                              : 'This repository does not have Scyan ZMK Studio installed yet. Click Install to inject west.yml and display configs.'}
+                          </p>
+                        </div>
+                      )}
+
                       {/* Workspace Restoration */}
                       {renderWorkspaceRestoration()}
                     </div>
@@ -1031,6 +1218,18 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         return typeof document !== 'undefined' ? createPortal(modalNode, document.body) : modalNode;
       })()
     )}
+
+    <LogoContextMenu
+      isOpen={!!logoMenuPos}
+      position={logoMenuPos}
+      onClose={() => setLogoMenuPos(null)}
+      onOpenChangelog={() => setIsChangelogOpen(true)}
+    />
+
+    <ChangelogModal
+      isOpen={isChangelogOpen}
+      onClose={() => setIsChangelogOpen(false)}
+    />
   </>
   );
 };

@@ -1,7 +1,7 @@
 {
   "name": "scyan-zmk-studio",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.3.11",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "scripts": {
@@ -9,7 +9,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "bump:patch": "node scripts/bump-version.mjs"
   },
   "dependencies": {
     "@heroui/react": "^3.2.4",

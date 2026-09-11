@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges">
   <defs>
     <radialGradient id="wolfGrad" cx="100%" cy="100%" r="140%" gradientUnits="userSpaceOnUse" fx="31" fy="30">
-      <stop offset="0%" stop-color="#a953f6" />
+      <stop offset="0%" stop-color="#f59442" />
       <stop offset="100%" stop-color="#00f0ff" />
     </radialGradient>
   </defs>

@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { BwpxGrid } from '../BwpxGrid';
 import { drawLine } from '../algorithms';
+import { renderBwpxCanvas } from '../gridRenderer';
 
 describe('BwpxEditor UX logic', () => {
   it('overrides pixels beneath when dragging/dropping a selection', () => {
@@ -397,6 +398,155 @@ describe('BwpxEditor UX logic', () => {
 
     expect(restored.get(2, 2)).toBe(1);
     expect(restored.get(3, 3)).toBe(1);
+  });
+
+  describe('hover column and row faint highlight', () => {
+    function createMockCanvas() {
+      const fillRectCalls: Array<{ x: number; y: number; w: number; h: number; fillStyle: string }> = [];
+      const canvas = { width: 400, height: 300 } as HTMLCanvasElement;
+      let currentFillStyle = '';
+      const ctx = {
+        imageSmoothingEnabled: false,
+        get fillStyle() {
+          return currentFillStyle;
+        },
+        set fillStyle(val: string) {
+          currentFillStyle = val;
+        },
+        strokeStyle: '',
+        lineWidth: 1,
+        clearRect: vi.fn(),
+        fillRect: vi.fn((x: number, y: number, w: number, h: number) => {
+          fillRectCalls.push({ x, y, w, h, fillStyle: currentFillStyle });
+        }),
+        strokeRect: vi.fn(),
+        save: vi.fn(),
+        restore: vi.fn(),
+        translate: vi.fn(),
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        stroke: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        setLineDash: vi.fn(),
+        fillText: vi.fn(),
+        measureText: vi.fn(() => ({ width: 50 })),
+      } as unknown as CanvasRenderingContext2D;
+
+      return { canvas, ctx, fillRectCalls };
+    }
+
+    it('faintly highlights column and row at hovered grid position', () => {
+      const { canvas, ctx, fillRectCalls } = createMockCanvas();
+      const grid = new BwpxGrid(32, 32);
+
+      renderBwpxCanvas(canvas, ctx, {
+        grid,
+        zoom: 10,
+        pan: { x: 50, y: 30 },
+        showAxes: false,
+        showGridLines: false,
+        hoverPos: { x: 4, y: 7 },
+      });
+
+      // Expected column coordinates:
+      // colX = pan.x + 4 * 10 = 90
+      // colW = (4+1)*10 - 4*10 = 10
+      // height = canvas.height = 300
+      const expectedCol = { x: 90, y: 0, w: 10, h: 300 };
+
+      // Expected row coordinates:
+      // rowY = pan.y + 7 * 10 = 100
+      // rowH = (7+1)*10 - 7*10 = 10
+      // width = canvas.width = 400
+      const expectedRow = { x: 0, y: 100, w: 400, h: 10 };
+
+      const colDraw = fillRectCalls.find(
+        c => c.x === expectedCol.x && c.y === expectedCol.y && c.w === expectedCol.w && c.h === expectedCol.h
+      );
+      const rowDraw = fillRectCalls.find(
+        c => c.x === expectedRow.x && c.y === expectedRow.y && c.w === expectedRow.w && c.h === expectedRow.h
+      );
+
+      expect(colDraw).toBeDefined();
+      expect(colDraw?.fillStyle).toBe('rgba(255, 255, 255, 0.04)');
+
+      expect(rowDraw).toBeDefined();
+      expect(rowDraw?.fillStyle).toBe('rgba(255, 255, 255, 0.04)');
+    });
+
+    it('does not draw hover highlights when hoverPos is null', () => {
+      const { canvas, ctx, fillRectCalls } = createMockCanvas();
+      const grid = new BwpxGrid(32, 32);
+
+      renderBwpxCanvas(canvas, ctx, {
+        grid,
+        zoom: 10,
+        pan: { x: 50, y: 30 },
+        showAxes: false,
+        showGridLines: false,
+        hoverPos: null,
+      });
+
+      // Only canvas background fill should exist
+      const hoverHighlights = fillRectCalls.filter(
+        c => c.fillStyle === 'rgba(255, 255, 255, 0.04)'
+      );
+      expect(hoverHighlights).toHaveLength(0);
+    });
+
+    it('clips hover column and row to frameBounds when frameBounds is specified', () => {
+      const { canvas, ctx, fillRectCalls } = createMockCanvas();
+      const grid = new BwpxGrid(32, 32);
+
+      renderBwpxCanvas(canvas, ctx, {
+        grid,
+        zoom: 10,
+        pan: { x: 0, y: 0 },
+        showAxes: false,
+        showGridLines: false,
+        frameBounds: { x: 2, y: 2, w: 20, h: 15 },
+        hoverPos: { x: 5, y: 5 },
+      });
+
+      // frameBounds in canvas pixels:
+      // xMin = 2 * 10 = 20, xMax = 22 * 10 = 220
+      // yMin = 2 * 10 = 20, yMax = 17 * 10 = 170
+      const colDraw = fillRectCalls.find(
+        c => c.x === 50 && c.y === 20 && c.w === 10 && c.h === 150
+      );
+      const rowDraw = fillRectCalls.find(
+        c => c.x === 20 && c.y === 50 && c.w === 200 && c.h === 10
+      );
+
+      expect(colDraw).toBeDefined();
+      expect(rowDraw).toBeDefined();
+    });
+
+    it('memoizes hover coordinates to prevent state churn when moving subpixel within the same cell', () => {
+      const prev = { x: 3, y: 5 };
+      const nextSame = { x: 3, y: 5 };
+      const nextDifferent = { x: 4, y: 5 };
+
+      const update = (
+        prev: { x: number; y: number } | null,
+        coords: { x: number; y: number } | null
+      ) => {
+        if (!prev && !coords) return null;
+        if (prev && coords && prev.x === coords.x && prev.y === coords.y) return prev;
+        return coords;
+      };
+
+      // Moving within the same cell should return identical reference
+      expect(update(prev, nextSame)).toBe(prev);
+
+      // Moving to a new cell should return new coords
+      expect(update(prev, nextDifferent)).toEqual({ x: 4, y: 5 });
+
+      // Moving out of canvas should return null
+      expect(update(prev, null)).toBeNull();
+    });
   });
 });
 

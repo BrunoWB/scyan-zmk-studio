@@ -505,6 +505,89 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     expect(rawAnimInst?.config.loopSpeedMs).toBe(120);
     expect(rawAnimInst?.config.loop).toBe(false); // param2 == 1 -> loop: false
   });
+
+  it('reconciles animation blocks to natural sprite dimensions and syncs loop/animation metadata', () => {
+    const testGrid = new BwpxGrid(32, 128);
+    const duckSlices: SpriteSlice[] = [
+      {
+        id: 'SYMBOL_DUCK_FRAME0',
+        name: 'Duck Frame 0',
+        groupId: 'SYMBOL_DUCK_PIXEL',
+        groupOrder: 1,
+        x: 0,
+        y: 0,
+        width: 32,
+        height: 55,
+        color: '#ffdd00',
+      },
+      {
+        id: 'SYMBOL_DUCK_FRAME1',
+        name: 'Duck Frame 1',
+        groupId: 'SYMBOL_DUCK_PIXEL',
+        groupOrder: 2,
+        x: 0,
+        y: 55,
+        width: 32,
+        height: 55,
+        color: '#ffdd00',
+      },
+    ];
+
+    const metadata = {
+      version: 1 as const,
+      leftBlocks: [
+        {
+          id: 'block-anim-duck',
+          widgetType: 'animation',
+          instanceId: 'inst-duck',
+          name: 'Duck',
+          x: 0,
+          y: 35,
+          width: 17, // Stale / too small width (e.g. 17x10 battery charge fallback)
+          height: 10,
+          enabled: true,
+          side: 'left' as const,
+        },
+      ],
+      rightBlocks: [],
+      idleLeftBlocks: [],
+      idleRightBlocks: [],
+      widgetInstances: {
+        loop: [
+          {
+            id: 'inst-duck',
+            widgetTypeId: 'loop',
+            label: 'Duck',
+            config: {
+              mode: 'symbol' as const,
+              groupId: 'SYMBOL_DUCK_PIXEL',
+              loopSpeedMs: 120,
+              loop: true,
+            },
+            slots: {},
+          },
+        ],
+      },
+    };
+
+    const cCode = generateCHeader(testGrid, duckSlices, testGrid, [], metadata);
+    // Generated C code must have the natural slice width/height (32x55), NOT 17x10
+    expect(cCode).toContain('.width = 32, .height = 55');
+
+    // Parse the generated header
+    const parsed = parseCHeader(cCode);
+    expect(parsed.metadata).toBeDefined();
+    // Both 'loop' and 'animation' keys must be populated
+    expect(parsed.metadata?.widgetInstances?.['loop']).toBeDefined();
+    expect(parsed.metadata?.widgetInstances?.['animation']).toBeDefined();
+    expect(parsed.metadata?.widgetInstances?.['animation']?.[0].id).toBe('inst-duck');
+
+    // Reconciled block dimensions must match natural sprite size (32x55)
+    const block = parsed.metadata?.leftBlocks?.[0];
+    expect(block).toBeDefined();
+    expect(block?.width).toBe(32);
+    expect(block?.height).toBe(55);
+  });
 });
 
 

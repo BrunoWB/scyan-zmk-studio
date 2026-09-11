@@ -11,7 +11,14 @@ import {
   Sparkles,
   Move,
   Layers,
+  MoreVertical,
 } from 'lucide-react';
+import { SymbolGroupContextMenu } from '../components/SymbolGroupContextMenu';
+import {
+  exportGroupAsPng,
+  exportGroupAsGif,
+  getGroupDefaultFilename,
+} from '../services/symbolGroupExport';
 
 export interface SymbolsAtlasTabProps {
   symbolsGrid: BwpxGrid;
@@ -41,6 +48,51 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
   const [splitDirection, setSplitDirection] = useState<'Horizontal' | 'Vertical'>('Horizontal');
 
   const selectedSlice = slices.find(s => s.id === selectedSliceId);
+
+  const [groupContextMenu, setGroupContextMenu] = useState<{
+    x: number;
+    y: number;
+    groupId: string;
+    groupName: string;
+    slices: SpriteSlice[];
+  } | null>(null);
+
+  const handleGroupContextMenu = (
+    e: React.MouseEvent,
+    groupId: string,
+    groupSlices: SpriteSlice[]
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const head = groupSlices.find(s => s.groupOrder === 1) || groupSlices[0];
+    const name = head?.name || (head?.id ? head.id.replace(/^SYMBOL_/, '') : groupId) || 'Symbol Group';
+
+    setGroupContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      groupId,
+      groupName: name,
+      slices: groupSlices,
+    });
+  };
+
+  const handleExportGroupPng = () => {
+    if (!groupContextMenu) return;
+    exportGroupAsPng(
+      symbolsGrid,
+      groupContextMenu.slices,
+      getGroupDefaultFilename(groupContextMenu.slices, groupContextMenu.groupId)
+    );
+  };
+
+  const handleExportGroupGif = () => {
+    if (!groupContextMenu) return;
+    exportGroupAsGif(
+      symbolsGrid,
+      groupContextMenu.slices,
+      getGroupDefaultFilename(groupContextMenu.slices, groupContextMenu.groupId)
+    );
+  };
 
   React.useEffect(() => {
     let changed = false;
@@ -504,14 +556,35 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
             {/* Group Membership & Display Name */}
             <div className="space-y-3">
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-white flex items-center justify-between">
+                <label
+                  className="text-xs font-medium text-white flex items-center justify-between cursor-context-menu"
+                  onContextMenu={(e) => {
+                    const targetGroupId = selectedSlice.groupId || selectedSlice.id;
+                    const members = slices.filter(s => (s.groupId || s.id) === targetGroupId);
+                    handleGroupContextMenu(e, targetGroupId, members);
+                  }}
+                >
                   <span className="flex items-center gap-1.5">
                     <Layers className="size-3 text-[#00f0ff]" />
                     <span>Symbol Group</span>
                   </span>
-                  <span className="text-[10px] font-mono text-[#00f0ff]">
-                    {selectedSlice.groupId === selectedSlice.id && selectedSlice.groupOrder === 1 ? 'Master' : 'Member'}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-mono text-[#00f0ff]">
+                      {selectedSlice.groupId === selectedSlice.id && selectedSlice.groupOrder === 1 ? 'Master' : 'Member'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        const targetGroupId = selectedSlice.groupId || selectedSlice.id;
+                        const members = slices.filter(s => (s.groupId || s.id) === targetGroupId);
+                        handleGroupContextMenu(e, targetGroupId, members);
+                      }}
+                      className="text-[#555e6e] hover:text-[#00f0ff] p-0.5 rounded transition-colors cursor-pointer"
+                      title="Group export options"
+                    >
+                      <MoreVertical size={12} />
+                    </button>
+                  </div>
                 </label>
                 <select
                   value={selectedSlice.groupId === selectedSlice.id && selectedSlice.groupOrder === 1 ? selectedSlice.id : selectedSlice.groupId}
@@ -658,13 +731,14 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
                 return (
                   <div
                     key={groupId}
-                    className="mb-3"
+                    className="mb-3 cursor-context-menu"
                     style={{
                       background: '#131722',
                       border: `1px solid ${groupColor}30`,
                       borderRadius: '14px',
                       padding: '6px',
                     }}
+                    onContextMenu={(e) => handleGroupContextMenu(e, groupId, groupSlices)}
                   >
                     {/* Group header */}
                     <div className="px-2.5 py-1.5 flex items-center justify-between border-b mb-1" style={{ borderColor: `${groupColor}20` }}>
@@ -672,7 +746,17 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
                         <span className="size-1.5 rounded-full inline-block" style={{ background: groupColor }} />
                         {head?.name || 'Group'}
                       </span>
-                      <span className="text-[10px] font-mono text-[#555e6e]">{groupSlices.length} slices</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-mono text-[#555e6e]">{`${groupSlices.length} slices`}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => handleGroupContextMenu(e, groupId, groupSlices)}
+                          className="text-[#555e6e] hover:text-[#00f0ff] p-0.5 rounded transition-colors cursor-pointer"
+                          title="Group options (Export PNG/GIF)"
+                        >
+                          <MoreVertical size={12} />
+                        </button>
+                      </div>
                     </div>
 
                     {groupSlices.map(slice => {
@@ -691,6 +775,7 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
                             }
                             setPendingNewSlice(null);
                           }}
+                          onContextMenu={(e) => handleGroupContextMenu(e, groupId, groupSlices)}
                           className="relative rounded-xl p-2 px-3 flex items-center justify-between border transition-all cursor-pointer"
                           style={{
                             borderColor: isSelected ? groupColor : 'transparent',
@@ -741,7 +826,8 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
                     }
                     setPendingNewSlice(null);
                   }}
-                  className="relative mb-2 rounded-xl p-2.5 px-3 flex items-center justify-between border transition-all cursor-pointer"
+                  onContextMenu={(e) => handleGroupContextMenu(e, groupId, groupSlices)}
+                  className="relative mb-2 rounded-xl p-2.5 px-3 flex items-center justify-between border transition-all cursor-pointer cursor-context-menu"
                   style={{
                     background: '#131722',
                     borderColor: isSelected ? groupColor : '#1e2538',
@@ -758,6 +844,17 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
                   <div className="flex items-center gap-2">
                     {renderSliceThumb(slice)}
                     <button
+                      type="button"
+                      onClick={e => {
+                        e.stopPropagation();
+                        handleGroupContextMenu(e, groupId, groupSlices);
+                      }}
+                      className="text-[#555e6e] hover:text-[#00f0ff] p-1 rounded transition-colors cursor-pointer"
+                      title="Group options (Export PNG/GIF)"
+                    >
+                      <MoreVertical size={12} />
+                    </button>
+                    <button
                       onClick={e => { e.stopPropagation(); handleDeleteSlice(slice.id); }}
                       className="text-[#555e6e] hover:text-[#f2741d] p-1 rounded transition-colors cursor-pointer"
                       title="Delete Slice"
@@ -772,6 +869,16 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
         </div>
 
       </div>
+
+      <SymbolGroupContextMenu
+        isOpen={groupContextMenu !== null}
+        position={groupContextMenu ? { x: groupContextMenu.x, y: groupContextMenu.y } : null}
+        groupName={groupContextMenu?.groupName || ''}
+        slicesCount={groupContextMenu?.slices.length || 0}
+        onClose={() => setGroupContextMenu(null)}
+        onExportPng={handleExportGroupPng}
+        onExportGif={handleExportGroupGif}
+      />
     </div>
   );
 };

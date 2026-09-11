@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 
 export interface WidgetsTabProps {
+  initialActiveWidgetId?: string;
   symbolsGrid: BwpxGrid;
   symbolSlices: SpriteSlice[];
   fontGrid: BwpxGrid;
@@ -79,6 +80,7 @@ const TIER_METADATA = {
 } as const;
 
 export const WidgetsTab: React.FC<WidgetsTabProps> = ({
+  initialActiveWidgetId,
   symbolsGrid,
   symbolSlices,
   fontGrid,
@@ -98,7 +100,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   onIdleRightBlocksChange,
   layerNames,
 }) => {
-  const [activeWidgetId, setActiveWidgetId] = useState<string>(WIDGET_REGISTRY[0]?.id || 'status-bar');
+  const [activeWidgetId, setActiveWidgetId] = useState<string>(initialActiveWidgetId || WIDGET_REGISTRY[0]?.id || 'status-bar');
   const [selectedTier, setSelectedTier] = useState<'all' | 1 | 2 | 3>('all');
   
   const effectiveLayerNames = useMemo(() => {
@@ -122,13 +124,15 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   }, [effectiveLayerNames.length, testLayer]);
 
   const activeWidget: DisplayWidgetDefinition = getWidgetDefinition(activeWidgetId) || WIDGET_REGISTRY[0];
-  const activeInstances = instances[activeWidget.id] || [];
+  const activeInstances = instances[activeWidget.id] || (activeWidget.id === 'animation' ? instances['loop'] : activeWidget.id === 'loop' ? instances['animation'] : undefined) || [];
 
   const handleAddInstance = () => {
     if (!onInstancesChange) return;
     const newInstanceId = `${activeWidget.id}-${Date.now()}`;
     let initialConfig: import('../types/widget').WidgetInstanceConfig = { mode: 'symbol', fontSize: 'small' };
-    if (activeWidget.id === 'wpm-chart') {
+    if (activeWidget.id === 'branding') {
+      initialConfig = { mode: 'font', fontSize: 'small', textEntries: ['ZMK'] };
+    } else if (activeWidget.id === 'wpm-chart') {
       initialConfig = { mode: 'symbol', wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 } };
     } else if (activeWidget.id === 'connection') {
       initialConfig = {
@@ -154,10 +158,15 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
         bongoDebounceMs: 100,
       };
     } else if (activeWidget.id === 'animation' || activeWidget.id === 'loop') {
-      const multiGroup = symbolSlices.find(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length >= 2);
+      const isSystemGroup = (gid: string) => {
+        const u = gid.toUpperCase();
+        return u.includes('CHARGE') || u.includes('BATTERY') || u.includes('SPEED') || u.includes('WPM') || u.includes('BLUETOOTH') || u.includes('USB') || u.includes('SPLIT') || u.includes('LAYER') || u.includes('BRACKET');
+      };
+      const animGroup = symbolSlices.find(s => !isSystemGroup(s.groupId) && s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length >= 2)
+        || symbolSlices.find(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length >= 2);
       initialConfig = {
         mode: 'symbol',
-        groupId: multiGroup?.groupId || '',
+        groupId: animGroup?.groupId || '',
         loopSpeedMs: 250,
         loop: true,
       };
@@ -180,20 +189,33 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
       });
     }
     
-    onInstancesChange({
+    const nextInstances = [...activeInstances, newInst];
+    const updatedMap: import('../types/widget').WidgetInstanceMap = {
       ...instances,
-      [activeWidget.id]: [...activeInstances, newInst]
-    });
+      [activeWidget.id]: nextInstances,
+    };
+    if (activeWidget.id === 'animation') {
+      updatedMap['loop'] = nextInstances.map(i => ({ ...i, widgetTypeId: 'loop' }));
+    } else if (activeWidget.id === 'loop') {
+      updatedMap['animation'] = nextInstances.map(i => ({ ...i, widgetTypeId: 'animation' }));
+    }
+    onInstancesChange(updatedMap);
   };
 
   const handleDeleteInstance = (instId: string) => {
     if (!onInstancesChange) return;
     const newInstances = activeInstances.filter(i => i.id !== instId);
     
-    onInstancesChange({
+    const updatedMap: import('../types/widget').WidgetInstanceMap = {
       ...instances,
-      [activeWidget.id]: newInstances
-    });
+      [activeWidget.id]: newInstances,
+    };
+    if (activeWidget.id === 'animation') {
+      updatedMap['loop'] = newInstances.map(i => ({ ...i, widgetTypeId: 'loop' }));
+    } else if (activeWidget.id === 'loop') {
+      updatedMap['animation'] = newInstances.map(i => ({ ...i, widgetTypeId: 'animation' }));
+    }
+    onInstancesChange(updatedMap);
     
     if (onLeftBlocksChange && leftBlocks) {
       onLeftBlocksChange(leftBlocks.filter(b => b.instanceId !== instId));
@@ -219,7 +241,16 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
         config: { ...currentConfig, ...partial }
       };
     });
-    onInstancesChange({ ...instances, [activeWidget.id]: newInstances });
+    const updatedMap: import('../types/widget').WidgetInstanceMap = {
+      ...instances,
+      [activeWidget.id]: newInstances,
+    };
+    if (activeWidget.id === 'animation') {
+      updatedMap['loop'] = newInstances.map(i => ({ ...i, widgetTypeId: 'loop' }));
+    } else if (activeWidget.id === 'loop') {
+      updatedMap['animation'] = newInstances.map(i => ({ ...i, widgetTypeId: 'animation' }));
+    }
+    onInstancesChange(updatedMap);
 
     const updatedInst = newInstances.find(i => i.id === instId);
     const naturalSize = updatedInst ? getWidgetNaturalSize(activeWidget, symbolSlices, updatedInst, fontGlyphs, fontMappings) : null;
@@ -227,9 +258,10 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
     if (naturalSize) {
       const updateBlocks = (blocks?: LayoutBlock[]) => {
         if (!blocks) return blocks;
+        const targetNorm = normalizeWidgetType(activeWidget.id);
         return blocks.map(b => {
           const norm = normalizeWidgetType(b.widgetType || b.id);
-          if (b.instanceId === instId || (!b.instanceId && norm === activeWidget.id)) {
+          if (b.instanceId === instId || (!b.instanceId && norm === targetNorm) || (norm === targetNorm && newInstances.length <= 1)) {
             return {
               ...b,
               width: naturalSize.width,
@@ -252,7 +284,16 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
       if (inst.id !== instId) return inst;
       return { ...inst, label };
     });
-    onInstancesChange({ ...instances, [activeWidget.id]: newInstances });
+    const updatedMap: import('../types/widget').WidgetInstanceMap = {
+      ...instances,
+      [activeWidget.id]: newInstances,
+    };
+    if (activeWidget.id === 'animation') {
+      updatedMap['loop'] = newInstances.map(i => ({ ...i, widgetTypeId: 'loop' }));
+    } else if (activeWidget.id === 'loop') {
+      updatedMap['animation'] = newInstances.map(i => ({ ...i, widgetTypeId: 'animation' }));
+    }
+    onInstancesChange(updatedMap);
   };
 
   const filteredWidgets = selectedTier === 'all' ? WIDGET_REGISTRY : getWidgetsByTier(selectedTier);
@@ -865,7 +906,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                   )}
 
                   {/* Font Mode Settings */}
-                  {inst.config?.mode === 'font' && (
+                  {activeWidget.id !== 'wpm-chart' && activeWidget.id !== 'branding' && inst.config?.mode === 'font' && (
                     <div className="flex flex-col gap-3">
                       <div>
                         <label className="text-xs text-muted mb-1 block">Font Size</label>

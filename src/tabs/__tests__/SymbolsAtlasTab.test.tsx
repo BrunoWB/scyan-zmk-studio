@@ -67,4 +67,20 @@ describe('SymbolsAtlasTab selected-slice-card', () => {
     expect(html).toContain('Pos:');
     expect(html).toContain('Size:');
   });
+
+  it('renders symbol atlas groups with export options and context menu support', () => {
+    const html = renderToString(
+      <SymbolsAtlasTab
+        symbolsGrid={dummyGrid}
+        onSymbolsGridChange={() => {}}
+        slices={sampleSlices}
+        onSlicesChange={() => {}}
+      />
+    );
+
+    // Group header options button
+    expect(html).toContain('Group options (Export PNG/GIF)');
+    expect(html).toContain('cursor-context-menu');
+    expect(html).toContain('2 slices');
+  });
 });

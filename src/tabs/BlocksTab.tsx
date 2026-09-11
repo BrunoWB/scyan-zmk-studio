@@ -8,7 +8,7 @@ import {
   DEFAULT_IDLE_RIGHT_BLOCKS,
 } from '../types/zmk';
 import type { DisplayWidgetDefinition, DragWidgetState } from '../types/widget';
-import { getWidgetNaturalSize } from '../services/widgetRegistry';
+import { getWidgetNaturalSize, resolveWidgetInstance } from '../services/widgetRegistry';
 import { OledPanelColumn } from './blocks/OledPanelColumn';
 import { WidgetCatalogList } from './blocks/WidgetCatalogList';
 import { GhostDragOverlay } from './blocks/GhostDragOverlay';
@@ -427,7 +427,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       const targetSideH = side === 'left' ? screenH : (effectiveRightScreenDimensions.height || 128);
 
       const patchedWidget = widget as DisplayWidgetDefinition & { instanceId?: string };
-      const activeInstance = instances?.[widget.id]?.find(i => i.id === patchedWidget.instanceId) || instances?.[widget.id]?.[0];
+      const activeInstance = resolveWidgetInstance(instances, widget.id, patchedWidget.instanceId);
       const { width: naturalW, height: naturalH } = getWidgetNaturalSize(widget, symbolSlices, activeInstance, fontGlyphs, fontMappings);
 
       // Find lowest occupied Y coordinate to append cleanly
@@ -505,7 +505,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       if (!currentWidget) return;
 
       const patchedWidget = currentWidget as DisplayWidgetDefinition & { instanceId?: string };
-      const activeInstance = instances?.[currentWidget.id]?.find(i => i.id === patchedWidget.instanceId) || instances?.[currentWidget.id]?.[0];
+      const activeInstance = resolveWidgetInstance(instances, currentWidget.id, patchedWidget.instanceId);
       const naturalSize = getWidgetNaturalSize(currentWidget, symbolSlices, activeInstance, fontGlyphs, fontMappings);
 
       // Hit-test targeting the active/focused screens
@@ -572,7 +572,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       if (active && active.targetSide && active.targetY !== null) {
         const side = active.targetSide;
         const patchedWidget = active.widget as DisplayWidgetDefinition & { instanceId?: string };
-        const activeInstance = instances?.[active.widget.id]?.find(i => i.id === patchedWidget.instanceId) || instances?.[active.widget.id]?.[0];
+        const activeInstance = resolveWidgetInstance(instances, active.widget.id, patchedWidget.instanceId);
         const { width: naturalW, height: naturalH } = getWidgetNaturalSize(active.widget, symbolSlices, activeInstance, fontGlyphs, fontMappings);
         const newBlock: LayoutBlock = {
           id: `block-${active.widget.id}-${Date.now()}`,

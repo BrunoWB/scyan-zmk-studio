@@ -8,6 +8,7 @@ import {
   getWidgetDefinition,
   normalizeWidgetType,
   getWidgetNaturalSize,
+  resolveWidgetInstance,
 } from '../../services/widgetRegistry';
 import {
   Eye,
@@ -261,7 +262,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
       if (!block.enabled) continue;
       const normType = normalizeWidgetType(block.widgetType || block.id);
       const def = getWidgetDefinition(normType);
-      const activeInstance = instances?.[normType]?.find(inst => inst.id === block.instanceId) || instances?.[normType]?.[0];
+      const activeInstance = resolveWidgetInstance(instances, normType, block.instanceId);
       const naturalSize = def ? getWidgetNaturalSize(def, symbolSlices, activeInstance, fontGlyphs, fontMappings) : null;
       
       const blockX = block.x ?? def?.defaultPlacement.defaultX ?? 0;
@@ -380,7 +381,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
         const normType = normalizeWidgetType(currentBlock.widgetType || currentBlock.id);
         const def = getWidgetDefinition(normType);
         
-        const activeInstance = instances?.[normType]?.find(i => i.id === currentBlock.instanceId) || instances?.[normType]?.[0];
+        const activeInstance = resolveWidgetInstance(instances, normType, currentBlock.instanceId);
         const naturalSize = def ? getWidgetNaturalSize(def, symbolSlices, activeInstance, fontGlyphs, fontMappings) : null;
         
         const blockW = naturalSize ? naturalSize.width : (currentBlock.width ?? def?.defaultWidth ?? V_WIDTH);
@@ -604,7 +605,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
                 const isSelected = selectedBlockId === block.id;
                 if (!block.enabled) return null;
 
-                const activeInstance = instances?.[normType]?.find(i => i.id === block.instanceId) || instances?.[normType]?.[0];
+                const activeInstance = resolveWidgetInstance(instances, normType, block.instanceId);
                 const naturalSize = def ? getWidgetNaturalSize(def, symbolSlices, activeInstance, fontGlyphs, fontMappings) : null;
                 
                 const blockX = block.x ?? def?.defaultPlacement.defaultX ?? 0;
@@ -666,7 +667,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
             {isDropTarget && dropTargetY !== null && draggedWidget && (() => {
               const draggedInstId = (draggedWidget as DisplayWidgetDefinition & { instanceId?: string }).instanceId;
               const normType = normalizeWidgetType(draggedWidget.id);
-              const activeInstance = instances?.[normType]?.find(i => i.id === draggedInstId) || instances?.[normType]?.[0];
+              const activeInstance = resolveWidgetInstance(instances, normType, draggedInstId);
               const guideSize = getWidgetNaturalSize(draggedWidget, symbolSlices, activeInstance, fontGlyphs, fontMappings);
               return (
                 <div

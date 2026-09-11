@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   updateKconfigSetting,
   resolveConfUpdates,
+  removeScyanFromWest,
+  removeScyanFromConf,
+  formatStudioCommitMessage,
+  STUDIO_COMMIT_PREFIX,
 } from '../githubService';
 
 describe('githubService Kconfig timeout synchronization', () => {
@@ -168,6 +172,122 @@ describe('githubService Kconfig timeout synchronization', () => {
       expect(updates.some(u => u.path === 'config/corne_right.conf')).toBe(true);
       const rightConf = updates.find(u => u.path === 'config/corne_right.conf');
       expect(rightConf?.content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=25000');
+    });
+  });
+
+  describe('removeScyanFromWest', () => {
+    it('removes scyan-zmk-module project and brunowb remote cleanly', () => {
+      const westYml = [
+        'manifest:',
+        '  defaults:',
+        '    revision: v0.3',
+        '  remotes:',
+        '    - name: zmkfirmware',
+        '      url-base: https://github.com/zmkfirmware',
+        '    - name: brunowb',
+        '      url-base: https://github.com/BrunoWB',
+        '  projects:',
+        '    - name: zmk',
+        '      remote: zmkfirmware',
+        '      import: app/west.yml',
+        '    - name: scyan-zmk-module',
+        '      remote: brunowb',
+        '      revision: main',
+        '  self:',
+        '    path: config',
+      ].join('\n');
+
+      const result = removeScyanFromWest(westYml);
+      expect(result).not.toContain('scyan-zmk-module');
+      expect(result).not.toContain('brunowb');
+      expect(result).toContain('name: zmk');
+      expect(result).toContain('url-base: https://github.com/zmkfirmware');
+    });
+
+    it('preserves brunowb remote if another project uses it', () => {
+      const westYml = [
+        'manifest:',
+        '  remotes:',
+        '    - name: brunowb',
+        '      url-base: https://github.com/BrunoWB',
+        '  projects:',
+        '    - name: other-module',
+        '      remote: brunowb',
+        '    - name: scyan-zmk-module',
+        '      remote: brunowb',
+        '      revision: main',
+      ].join('\n');
+
+      const result = removeScyanFromWest(westYml);
+      expect(result).not.toContain('scyan-zmk-module');
+      expect(result).toContain('name: brunowb');
+      expect(result).toContain('name: other-module');
+    });
+  });
+
+  describe('removeScyanFromConf', () => {
+    it('removes Scyan-specific configs and comments while preserving generic display configs', () => {
+      const conf = [
+        '# Enable the Corne OLED Display (SSD1306)',
+        'CONFIG_ZMK_DISPLAY=y',
+        'CONFIG_SSD1306=y',
+        'CONFIG_ZMK_DISPLAY_WORK_QUEUE_DEDICATED=y',
+        'CONFIG_ZMK_DISPLAY_DEDICATED_THREAD_PRIORITY=10',
+        'CONFIG_ZMK_DISPLAY_BLANK_ON_IDLE=y',
+        '',
+        '# Scyan ZMK Display Module',
+        'CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM=y',
+        'CONFIG_ZMK_DISPLAY_STATUS_SCREEN_BUILT_IN=n',
+        'CONFIG_LV_USE_CANVAS=y',
+        'CONFIG_LV_USE_IMG=y',
+        'CONFIG_SCYAN_ROTATION_90=y',
+        'CONFIG_SCYAN_ROTATION_270=n',
+        'CONFIG_SCYAN_INVERT=y',
+        'CONFIG_SCYAN_IDLE_TIMEOUT_MS=10000',
+        'CONFIG_SCYAN_USER_NAME="SCYAN"',
+        '',
+        '# Eager debounce config:',
+        'CONFIG_ZMK_KSCAN_DEBOUNCE_PRESS_MS=1',
+      ].join('\n');
+
+      const result = removeScyanFromConf(conf);
+
+      // Scyan custom configs must be removed
+      expect(result).not.toContain('CONFIG_SCYAN_');
+      expect(result).not.toContain('CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM');
+      expect(result).not.toContain('CONFIG_ZMK_DISPLAY_STATUS_SCREEN_BUILT_IN');
+      expect(result).not.toContain('CONFIG_LV_USE_CANVAS');
+      expect(result).not.toContain('CONFIG_LV_USE_IMG');
+      expect(result).not.toContain('# Scyan ZMK Display Module');
+
+      // Generic display and input configs must be preserved
+      expect(result).toContain('CONFIG_ZMK_DISPLAY=y');
+      expect(result).toContain('CONFIG_SSD1306=y');
+      expect(result).toContain('CONFIG_ZMK_DISPLAY_WORK_QUEUE_DEDICATED=y');
+      expect(result).toContain('CONFIG_ZMK_DISPLAY_DEDICATED_THREAD_PRIORITY=10');
+      expect(result).toContain('CONFIG_ZMK_DISPLAY_BLANK_ON_IDLE=y');
+      expect(result).toContain('CONFIG_ZMK_KSCAN_DEBOUNCE_PRESS_MS=1');
+    });
+  });
+
+  describe('formatStudioCommitMessage', () => {
+    it('prepends [Scyan Studio] prefix to messages that lack it', () => {
+      const msg = 'feat(display): update 2-Atlas display spritesheets & glyph tables';
+      expect(formatStudioCommitMessage(msg)).toBe(`[Scyan Studio] ${msg}`);
+    });
+
+    it('does not double-prefix if already starts with [Scyan Studio]', () => {
+      const msg = '[Scyan Studio] chore(display): uninstall Scyan ZMK Studio module, config & assets';
+      expect(formatStudioCommitMessage(msg)).toBe(msg);
+    });
+
+    it('trims whitespace and prepends prefix cleanly', () => {
+      const msg = '  feat(display): install Scyan ZMK Studio module, config & assets  ';
+      expect(formatStudioCommitMessage(msg)).toBe('[Scyan Studio] feat(display): install Scyan ZMK Studio module, config & assets');
+    });
+
+    it('exports the standard prefix constant [Scyan Studio] ', () => {
+      expect(STUDIO_COMMIT_PREFIX).toBe('[Scyan Studio] ');
     });
   });
 });

@@ -1,0 +1,166 @@
+[
+  {
+    "version": "0.3.0",
+    "type": "minor",
+    "title": "Firmware Module Automation & Cloud CDN Synchronization",
+    "description": "Introduces one-click installation and uninstallation of the Scyan ZMK display module directly into your keyboard repository. Enhances repository caching with aggressive CDN bypasses for instant GitHub synchronization.",
+    "date": "2026-09-11",
+    "highlights": [
+      "1-Click automated install and clean uninstall for the scyan-zmk-module directly in zmk-config",
+      "All studio commits now carry the standard [Scyan Studio] prefix",
+      "Aggressive GitHub API & CDN cache-busting to prevent stale branch conflict errors",
+      "Session storage and local layout cache automated cleanup upon module removal"
+    ],
+    "patches": [
+      {
+        "patch": "0.3.11",
+        "date": "2026-09-11",
+        "commitHash": "9ab8006",
+        "changes": [
+          "chore(brand): regenerate favicons with zero compression lossless PNG stream"
+        ]
+      },
+      {
+        "patch": "0.3.10",
+        "date": "2026-09-11",
+        "commitHash": "a9bc93e",
+        "changes": [
+          "fix(brand): snap favicon translation to integer pixel grid translate(0, 1)"
+        ]
+      },
+      {
+        "patch": "0.3.9",
+        "date": "2026-09-11",
+        "commitHash": "738b005",
+        "changes": [
+          "feat(editor): add faint hover row and column highlights on canvas"
+        ]
+      },
+      {
+        "patch": "0.3.8",
+        "date": "2026-09-11",
+        "commitHash": "a7eebda",
+        "changes": [
+          "fix(brand): set favicon viewBox to exact 32x32 canvas with 1px left spacing"
+        ]
+      },
+      {
+        "patch": "0.3.7",
+        "date": "2026-09-11",
+        "commitHash": "873e145",
+        "changes": [
+          "feat(brand): add crisp multi-resolution PNG and apple-touch favicon ladder"
+        ]
+      },
+      {
+        "patch": "0.3.6",
+        "date": "2026-09-11",
+        "commitHash": "fe19ddc",
+        "changes": [
+          "feat(brand): update favicons with header logo gradient and dev orange variant"
+        ]
+      },
+      {
+        "patch": "0.3.5",
+        "date": "2026-09-11",
+        "commitHash": "ebed803",
+        "changes": [
+          "feat(assets): update default install template header from latest zmk-config build"
+        ]
+      },
+      {
+        "patch": "0.3.4",
+        "date": "2026-09-11",
+        "commitHash": "8e59fbf",
+        "changes": [
+          "feat(atlas): add right-click context menu to export symbol group as PNG and GIF"
+        ]
+      },
+      {
+        "patch": "0.3.3",
+        "date": "2026-09-11",
+        "commitHash": "c9bd53c",
+        "changes": [
+          "ui: keep header expanded when studio installation is required"
+        ]
+      },
+      {
+        "patch": "0.3.2",
+        "date": "2026-09-11",
+        "commitHash": "9fdb446",
+        "changes": [
+          "ci: automate patch version bump and changelog sync on push"
+        ]
+      },
+      {
+        "patch": "0.3.1",
+        "date": "2026-09-11",
+        "commitHash": "c7b86f1",
+        "changes": [
+          "Bypass CDN cache in checkRepoPrerequisites and fetchFileFromRepo to prevent 304/stale responses",
+          "Ensure immediate reactivity on local storage state transitions"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.2.0",
+    "type": "minor",
+    "title": "GIF Animation Importer & Multi-Frame Slicing Engine",
+    "description": "A major upgrade to the asset pipeline adding full support for animated GIFs. Imported frames are automatically packed into the Symbols Atlas, sliced into groups, and rendered live with the new Loop Animation widget.",
+    "date": "2026-09-09",
+    "highlights": [
+      "Native client-side GIF parser with 1bpp dithering and transparent background handling",
+      "Loop Animation widget with runtime frame delay and dynamic frame-count scaling",
+      "Interactive crop bounding box with drag handles for fast sprite extraction",
+      "Automatic grouping and naming for multi-frame animation sequences"
+    ],
+    "patches": [
+      {
+        "patch": "0.2.2",
+        "date": "2026-09-10",
+        "commitHash": "ee88dd0",
+        "changes": [
+          "Preserve full frame count for WIDGET_TYPE_LOOP in cHeaderParser",
+          "Sync Kconfig idle timeout with animation widget preferences"
+        ]
+      },
+      {
+        "patch": "0.2.1",
+        "date": "2026-09-10",
+        "commitHash": "068bbb0",
+        "changes": [
+          "Sanitize slice IDs to strictly valid C identifier names",
+          "Expand sprite_slice offset types to uint16_t for large atlases",
+          "Emit explicit left/right idle screen toggle defines in asymmetric mode"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.1.0",
+    "type": "minor",
+    "title": "Dual-Atlas Studio Foundation & Visual Layout Compiler",
+    "description": "The initial release of Scyan ZMK Studio. Features an infinite 2-Atlas pixel editor (Symbols + Font), dynamic layout block composition for left/right OLED displays, interactive oscilloscope WPM chart, Bongo Cat widget, and live GitHub synchronization.",
+    "date": "2026-09-06",
+    "highlights": [
+      "Dual 1bpp Atlases (Font + Symbols) with infinite canvas and real-time pixel editing",
+      "Dynamic block system with Active and Idle display states for split keyboards",
+      "Full Corne 5x3 keyboard hardware simulator with Colemak & QWERTY scan-code typing",
+      "Oscilloscope heartbeat WPM chart with real-time waveform decay",
+      "Automated single-source-of-truth C header compilation (scyan_assets.h) with lossless metadata round-trip"
+    ],
+    "patches": [
+      {
+        "patch": "0.1.1",
+        "date": "2026-09-08",
+        "commitHash": "3d897f2",
+        "changes": [
+          "Unify asset loading around scyan_assets.install.h templates",
+          "Fix natural size calculation for WPM widget in symbol and font modes",
+          "Accurate font ink extent measurements for bounding boxes and export"
+        ]
+      }
+    ]
+  }
+]

@@ -38,6 +38,7 @@ import {
   clearStoredGitHubToken,
   checkRepoPrerequisites,
   installScyanStudioToRepo,
+  uninstallScyanStudioFromRepo,
   type RepoPrerequisites,
 } from './services/githubService';
 import { HeaderBar } from './components/HeaderBar';
@@ -340,13 +341,17 @@ export function App() {
 
     if (savedInstances['loop'] && !defaults['animation']) {
       defaults['animation'] = savedInstances['loop'].map(i => ({ ...i, widgetTypeId: 'animation' }));
+    } else if (savedInstances['animation'] && !defaults['loop']) {
+      defaults['loop'] = savedInstances['animation'].map(i => ({ ...i, widgetTypeId: 'loop' }));
     }
 
     WIDGET_REGISTRY.forEach(w => {
       const shouldAutoPopulate = w.id === 'wpm-chart' || w.id === 'animation' || w.id === 'loop' || (w.associatedSliceIds && w.associatedSliceIds.length > 0);
       if (!defaults[w.id] && !clearedSet.has(w.id) && shouldAutoPopulate) {
         let initialConfig: import('./types/widget').WidgetInstanceConfig = { mode: 'symbol' };
-        if (w.id === 'wpm-chart') {
+        if (w.id === 'branding') {
+          initialConfig = { mode: 'font', fontSize: 'small', textEntries: ['ZMK'] };
+        } else if (w.id === 'wpm-chart') {
           initialConfig = { mode: 'symbol', wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100 } };
         } else if (w.id === 'connection') {
           initialConfig = {
@@ -436,6 +441,12 @@ export function App() {
         defaults[w.id] = [inst];
       }
     });
+ 
+    if (defaults['animation'] && !defaults['loop']) {
+      defaults['loop'] = defaults['animation'].map(i => ({ ...i, widgetTypeId: 'loop' }));
+    } else if (defaults['loop'] && !defaults['animation']) {
+      defaults['animation'] = defaults['loop'].map(i => ({ ...i, widgetTypeId: 'animation' }));
+    }
 
     if (defaults['ble-profile']) {
       delete defaults['ble-profile'];
@@ -492,7 +503,13 @@ export function App() {
         setScreenDimensions(parsed.metadata.screenDimensions);
       }
       if (parsed.metadata.widgetInstances) {
-        setWidgetInstances(parsed.metadata.widgetInstances);
+        const instMap = { ...parsed.metadata.widgetInstances };
+        if (instMap['loop'] && !instMap['animation']) {
+          instMap['animation'] = instMap['loop'].map(i => ({ ...i, widgetTypeId: 'animation' }));
+        } else if (instMap['animation'] && !instMap['loop']) {
+          instMap['loop'] = instMap['animation'].map(i => ({ ...i, widgetTypeId: 'loop' }));
+        }
+        setWidgetInstances(instMap);
       }
       if (parsed.metadata.idleTimeoutSec !== undefined) {
         setIdleTimeoutSec(parsed.metadata.idleTimeoutSec);
@@ -594,6 +611,7 @@ export function App() {
   const [currentHeaderPath, setCurrentHeaderPath] = useState<string>('config/scyan_assets.h');
   const [repoPrereqs, setRepoPrereqs] = useState<RepoPrerequisites | null>(null);
   const [isInstallingStudio, setIsInstallingStudio] = useState<boolean>(false);
+  const [isUninstallingStudio, setIsUninstallingStudio] = useState<boolean>(false);
   const [syncTrigger, setSyncTrigger] = useState<number>(0);
   const autoSyncedRepoRef = useRef<string | null>(null);
 
@@ -970,8 +988,8 @@ export function App() {
       const defaultC = generateCHeader(symbolsGrid, symbolSlices, fontGrid, fontMappings, metadata);
       const res = await installScyanStudioToRepo(config, defaultC);
 
-      // Re-verify prerequisites
-      const updatedPrereqs = await checkRepoPrerequisites(config);
+      // Re-verify prerequisites immediately against the newly created commit SHA to bypass any CDN / browser caching
+      const updatedPrereqs = await checkRepoPrerequisites(config, res.commitSha);
       setRepoPrereqs(updatedPrereqs);
       setCurrentSha(res.commitSha);
       setCurrentHeaderPath('config/scyan_assets.h');
@@ -983,6 +1001,51 @@ export function App() {
       showToast('error', `Installation failed: ${err.message || 'Check repository permissions'}`);
     } finally {
       setIsInstallingStudio(false);
+    }
+  };
+
+  // One-click uninstallation of Scyan Studio from connected repository
+  const handleUninstallStudio = async () => {
+    if (!config.token || !config.owner || !config.repo) {
+      showToast('error', 'Connect your GitHub repository before uninstalling.');
+      return;
+    }
+
+    try {
+      setIsUninstallingStudio(true);
+      await uninstallScyanStudioFromRepo(config);
+
+      // Remove all cached workspace, layout, header, and session data from local storage
+      const preserveAuthKeys = new Set([
+        'zmk_builder_gh_token',
+        'zmk_builder_gh_owner',
+        'zmk_builder_gh_repo',
+        'zmk_builder_gh_branch',
+      ]);
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && !preserveAuthKeys.has(key)) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(k => {
+        try {
+          localStorage.removeItem(k);
+        } catch {}
+      });
+      try {
+        sessionStorage.clear();
+      } catch {}
+
+      showToast('success', `Scyan Studio successfully uninstalled from ${config.owner}/${config.repo}! Reloading...`);
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+    } catch (err: any) {
+      console.error('Failed to uninstall Scyan Studio:', err);
+      showToast('error', `Uninstallation failed: ${err.message || 'Check repository permissions'}`);
+      setIsUninstallingStudio(false);
     }
   };
 
@@ -1039,7 +1102,7 @@ export function App() {
           rightScreenOffTimeoutSec,
           symmetricSettings,
         },
-        'feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio'
+        '[Scyan Studio] feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio'
       );
       setCurrentSha(commitRes.commitSha);
       setCurrentHeaderPath(targetPath);
@@ -1088,6 +1151,8 @@ export function App() {
         repoPrereqs={repoPrereqs}
         isInstallingStudio={isInstallingStudio}
         onInstallStudio={handleInstallStudio}
+        isUninstallingStudio={isUninstallingStudio}
+        onUninstallStudio={handleUninstallStudio}
         onSearchClick={import.meta.env.DEV ? () => setIsCommandPaletteOpen(true) : undefined}
         onRestoreInitialValues={handleRestoreInitialValues}
         onRestoreDefaults={handleRestoreDefaults}
