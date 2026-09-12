@@ -41,7 +41,7 @@ describe('ShieldsTab', () => {
     expect(html).toContain('TIDBIT 19-key');
   });
 
-  it('renders live OLED display module with proper badges for split pairs and dongles', () => {
+  it('renders live OLED display module cleanly without clutter for split pairs and dongles', () => {
     const html = renderToString(
       <ShieldsTab
         symbolsGrid={dummyGrid}
@@ -50,11 +50,11 @@ describe('ShieldsTab', () => {
       />
     );
 
-    // Badges in OLED display modules
-    expect(html).toContain('Left Half (Master)');
-    expect(html).toContain('Right Half (Peripheral)');
     expect(html).toContain('oled-glass-housing');
     expect(html).toContain('corne-oled-canvas');
+    expect(html).not.toContain('case-screw');
+    expect(html).not.toContain('Left Half (Master)');
+    expect(html).not.toContain('Right Half (Peripheral)');
   });
 
   it('displays hardware pinouts and ZMK build targets for the selected shield', () => {
@@ -176,7 +176,7 @@ describe('ShieldsTab', () => {
 
     // Verifies rendering succeeds with fallback defaults
     expect(html).toContain('oled-glass-housing');
-    expect(html).toContain('Left Half (Master)');
-    expect(html).toContain('Right Half (Peripheral)');
+    expect(html).toContain('corne-oled-canvas');
+    expect(html).not.toContain('case-screw');
   });
 });

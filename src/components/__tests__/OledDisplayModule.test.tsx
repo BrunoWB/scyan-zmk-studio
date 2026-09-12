@@ -42,8 +42,9 @@ describe('OledDisplayModule', () => {
     expect(html).toContain('oled-glass-housing');
     expect(html).toContain('width:58px');
     expect(html).toContain('height:202px');
-    expect(html).toContain('Left Half');
-    expect(html).toContain('live-dot');
+    expect(html).not.toContain('Left Half');
+    expect(html).not.toContain('live-dot');
+    expect(html).not.toContain('32×128 px');
   });
 
   it('renders horizontal 128x32 screen with appropriate dimensions', () => {
@@ -63,7 +64,8 @@ describe('OledDisplayModule', () => {
     // 180 + 10 = 190px width, 45 + 10 = 55px height
     expect(html).toContain('width:190px');
     expect(html).toContain('height:55px');
-    expect(html).toContain('Center Display');
+    expect(html).not.toContain('Center Display');
+    expect(html).not.toContain('128×32 px');
   });
 
   it('safely falls back to default 32x128 when given zero or negative dimensions', () => {

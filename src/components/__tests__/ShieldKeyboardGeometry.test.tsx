@@ -38,9 +38,13 @@ describe('ShieldKeyboardGeometry', () => {
     expect(html).toContain('role="button"');
     expect(html).toContain('tabindex="0"');
     expect(html).toContain('shield-blank-thumb');
-    expect(html).toContain('Left Half (Master)');
-    expect(html).toContain('Right Half (Peripheral)');
-    expect(html).toContain('shield-snapoff-label');
+    expect(html).toContain('oled-glass-housing');
+    const blankKeysCount = (html.match(/data-keycap="blank"/g) || []).length;
+    expect(blankKeysCount).toBe(42);
+    expect(html).not.toContain('case-screw');
+    expect(html).not.toContain('shield-snapoff-label');
+    expect(html).not.toContain('Left Half (Master)');
+    expect(html).not.toContain('shield-interconnect-cable');
   });
 
   it('renders Corne in 5-column snap-off mode', () => {
@@ -57,7 +61,8 @@ describe('ShieldKeyboardGeometry', () => {
       />
     );
 
-    expect(html).toContain('5x3+3');
+    const blankKeysCount = (html.match(/data-keycap="blank"/g) || []).length;
+    expect(blankKeysCount).toBe(36);
     expect(html).not.toContain('shield-snapoff-label');
   });
 
@@ -74,9 +79,11 @@ describe('ShieldKeyboardGeometry', () => {
       />
     );
 
-    expect(html).toContain('Top-Inner');
     expect(html).toContain('shield-half-case left-half');
     expect(html).toContain('shield-blank-keycap');
+    expect(html).toContain('oled-glass-housing');
+    expect(html).not.toContain('Top-Inner');
+    expect(html).not.toContain('case-screw');
   });
 
   it('renders Iris (Keebio) with top-inner horizontal OLED and 4-row matrix', () => {
@@ -92,10 +99,12 @@ describe('ShieldKeyboardGeometry', () => {
       />
     );
 
-    expect(html).toContain('Top-Inner');
     expect(html).toContain('shield-half-case left-half');
     expect(html).toContain('shield-blank-keycap');
     expect(html).toContain('shield-blank-thumb');
+    expect(html).toContain('oled-glass-housing');
+    expect(html).not.toContain('Top-Inner');
+    expect(html).not.toContain('case-screw');
   });
 
   it('renders Sofle with EC11 rotary encoders and top-inner OLED module', () => {
@@ -114,6 +123,8 @@ describe('ShieldKeyboardGeometry', () => {
     expect(html).toContain('data-encoder="rotary"');
     expect(html).toContain('shield-encoder-knob');
     expect(html).toContain('encoder-indicator-notch');
+    expect(html).toContain('oled-glass-housing');
+    expect(html).not.toContain('case-screw');
   });
 
   it('renders Ferris Sweep ultra-compact 34-key layout', () => {
@@ -129,8 +140,10 @@ describe('ShieldKeyboardGeometry', () => {
       />
     );
 
-    expect(html).toContain('5x3+2');
     expect(html).toContain('shield-half-case');
+    expect(html).toContain('shield-blank-thumb');
+    expect(html).toContain('oled-glass-housing');
+    expect(html).not.toContain('case-screw');
   });
 
   it('renders Kyria with aggressive stagger and fanning thumb cluster', () => {
@@ -146,8 +159,10 @@ describe('ShieldKeyboardGeometry', () => {
       />
     );
 
-    expect(html).toContain('Inner High-Res 128x64 Bay');
     expect(html).toContain('shield-blank-thumb');
+    expect(html).toContain('oled-glass-housing');
+    expect(html).not.toContain('Inner High-Res 128x64 Bay');
+    expect(html).not.toContain('case-screw');
   });
 
   it('renders Reviung41 angled unibody with central OLED diamond and 2.25u center spacebar', () => {
@@ -164,9 +179,10 @@ describe('ShieldKeyboardGeometry', () => {
     );
 
     expect(html).toContain('shield-unibody-case');
-    expect(html).toContain('Center Unibody Display');
-    expect(html).toContain('Reviung41');
+    expect(html).toContain('oled-glass-housing');
     expect(html).toContain('shield-blank-thumb');
+    expect(html).not.toContain('Center Unibody Display');
+    expect(html).not.toContain('case-screw');
   });
 
   it('renders Reviung34 compact unibody with top-center bridge OLED bay', () => {
@@ -183,8 +199,9 @@ describe('ShieldKeyboardGeometry', () => {
     );
 
     expect(html).toContain('shield-unibody-case');
-    expect(html).toContain('Top Center Bridge Display');
-    expect(html).toContain('Reviung34');
+    expect(html).toContain('oled-glass-housing');
+    expect(html).not.toContain('Top Center Bridge Display');
+    expect(html).not.toContain('case-screw');
   });
 
   it('renders Seeed XIAO Dongle with USB-A plug and central OLED module', () => {
@@ -205,7 +222,8 @@ describe('ShieldKeyboardGeometry', () => {
     expect(html).toContain('dongle-usb-metal');
     expect(html).toContain('dongle-usb-pin');
     expect(html).toContain('Central Dongle Master');
-    expect(html).toContain('Host Receiver Node (0 keys)');
+    expect(html).toContain('oled-glass-housing');
+    expect(html).not.toContain('Host Receiver Node (0 keys)');
   });
 
   it('renders TIDBIT 19-key numpad with top OLED, rotary encoder knob, and 2u key', () => {
@@ -222,10 +240,11 @@ describe('ShieldKeyboardGeometry', () => {
     );
 
     expect(html).toContain('shield-numpad-case');
-    expect(html).toContain('TIDBIT Macropad (19-key)');
-    expect(html).toContain('TIDBIT Numpad Display');
     expect(html).toContain('data-encoder="rotary"');
     expect(html).toContain('shield-encoder-knob');
+    expect(html).toContain('oled-glass-housing');
+    expect(html).not.toContain('TIDBIT Macropad (19-key)');
+    expect(html).not.toContain('case-screw');
   });
 
   it('renders cleanly in compact mode for card previews', () => {

@@ -72,7 +72,7 @@ export const OledDisplayModule: React.FC<OledDisplayModuleProps> = ({
   fontGlyphs = [],
   fontMappings = [],
   side = 'left',
-  badge,
+  badge: _badge,
   isIdle = false,
   battery = 85,
   outputMode = 'ble',
@@ -87,7 +87,7 @@ export const OledDisplayModule: React.FC<OledDisplayModuleProps> = ({
   customizations,
   scale = 1,
   showHousing = true,
-  showLiveDot = false,
+  showLiveDot: _showLiveDot = false,
   accentColor,
   className = '',
   style,
@@ -241,14 +241,7 @@ export const OledDisplayModule: React.FC<OledDisplayModuleProps> = ({
   );
 
   return (
-    <div className={`oled-display-module-wrapper inline-flex flex-col items-center gap-1.5 ${className}`} style={style}>
-      {badge && (
-        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono font-medium tracking-wide uppercase bg-[#131722] border border-[#1e2538] text-[#94a3b8]">
-          {showLiveDot && <span className="live-dot" />}
-          <span>{badge}</span>
-        </div>
-      )}
-
+    <div className={`oled-display-module-wrapper inline-flex flex-col items-center ${className}`} style={style}>
       {showHousing ? (
         <div
           className="oled-glass-housing cursor-pointer transition-all hover:border-[#00f0ff]/60"
@@ -267,10 +260,6 @@ export const OledDisplayModule: React.FC<OledDisplayModuleProps> = ({
           {innerContent}
         </div>
       )}
-
-      <div className="text-[9px] font-mono text-[#64748b]">
-        {width}×{height} px
-      </div>
     </div>
   );
 };

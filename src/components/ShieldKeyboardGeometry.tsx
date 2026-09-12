@@ -214,7 +214,6 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
       const isLeft = side === 'left';
       const blocks = isLeft ? activeLeftBlocks : activeRightBlocks;
       const battery = isLeft ? batteryLevel : Math.max(10, batteryLevel - 4);
-      const badge = isLeft ? 'Left Half (Master)' : 'Right Half (Peripheral)';
 
       // Column order: on right half, mirror order (inner columns face center)
       const colIndices = Array.from({ length: effectiveCols }, (_, i) =>
@@ -226,20 +225,16 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
         <div className="flex items-start" style={{ gap: `${keyGap}px` }}>
           {colIndices.map((origColIdx) => {
             const staggerY = (colStaggers[origColIdx] || 0) * (compact ? 0.35 : scale);
-            const isSnapOffCol = isCorne && corneColumns === 6 && origColIdx === 0;
 
             return (
               <div
                 key={`col-${origColIdx}`}
-                className={`flex flex-col ${isSnapOffCol ? 'shield-snapoff-column' : ''}`}
+                className="flex flex-col"
                 style={{
                   gap: `${keyGap}px`,
                   transform: `translateY(${staggerY}px)`,
                 }}
               >
-                {isSnapOffCol && !compact && (
-                  <span className="shield-snapoff-label">6th snap</span>
-                )}
                 {Array.from({ length: geom.rows }, (_, rowIdx) => {
                   const keyId = `${side}_${origColIdx}_${rowIdx}`;
                   // Homing bump on index finger (Col 4, home row)
@@ -300,7 +295,6 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
             fontGlyphs={fontGlyphs}
             fontMappings={fontMappings}
             side={side}
-            badge={badge}
             isIdle={isIdle}
             battery={battery}
             outputMode={outputMode}
@@ -309,7 +303,6 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
             customText={customText}
             instances={instances}
             showHousing={true}
-            showLiveDot={isLeft}
             scale={oledScale}
           />
         </div>
@@ -320,24 +313,6 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
         // Corne, Ferris Sweep: [Keys] [OLED] on Left, [OLED] [Keys] on Right
         return (
           <div className={`shield-half-case ${side}-half ${compact ? 'compact' : ''}`}>
-            {!compact && (
-              <>
-                <div className="case-screw screw-tl" />
-                <div className="case-screw screw-tr" />
-                <div className="case-screw screw-bl" />
-                <div className="case-screw screw-br" />
-              </>
-            )}
-
-            <div className="flex items-center justify-between gap-2 mb-2 pb-1 border-b border-[#1e2538]/60">
-              <span className={`side-badge ${side}`}>{badge}</span>
-              {!compact && (
-                <span className="text-[9px] font-mono text-[#64748b]">
-                  {`${effectiveCols}x${geom.rows}+${thumbCount}`}
-                </span>
-              )}
-            </div>
-
             <div
               className={`flex items-start ${isLeft ? 'flex-row' : 'flex-row-reverse'}`}
               style={{ gap: `${compact ? 6 : Math.round(12 * scale)}px` }}
@@ -353,26 +328,7 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
         // Lily58, Sofle, Iris: Top-Inner Horizontal slot
         return (
           <div className={`shield-half-case ${side}-half ${compact ? 'compact' : ''}`}>
-            {!compact && (
-              <>
-                <div className="case-screw screw-tl" />
-                <div className="case-screw screw-tr" />
-                <div className="case-screw screw-bl" />
-                <div className="case-screw screw-br" />
-              </>
-            )}
-
-            <div className="flex items-center justify-between gap-2 mb-2 pb-1 border-b border-[#1e2538]/60">
-              <span className={`side-badge ${side}`}>{badge}</span>
-              {!compact && (
-                <span className="text-[9px] font-mono text-[#64748b]">
-                  {shield.displayConfig.nativeResolution.width}×
-                  {shield.displayConfig.nativeResolution.height} Top-Inner
-                </span>
-              )}
-            </div>
-
-            {/* Top header row with Horizontal OLED module and optional Rotary Encoder */}
+            {/* Top row with Horizontal OLED module and optional Rotary Encoder */}
             <div
               className={`flex items-center mb-3 ${isLeft ? 'justify-end' : 'justify-start'}`}
               style={{ gap: `${Math.round(8 * scale)}px` }}
@@ -390,22 +346,6 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
       // Default / Kyria inner horizontal
       return (
         <div className={`shield-half-case ${side}-half ${compact ? 'compact' : ''}`}>
-          {!compact && (
-            <>
-              <div className="case-screw screw-tl" />
-              <div className="case-screw screw-tr" />
-              <div className="case-screw screw-bl" />
-              <div className="case-screw screw-br" />
-            </>
-          )}
-
-          <div className="flex items-center justify-between gap-2 mb-2 pb-1 border-b border-[#1e2538]/60">
-            <span className={`side-badge ${side}`}>{badge}</span>
-            {!compact && (
-              <span className="text-[9px] font-mono text-[#64748b]">{geom.oledLabel}</span>
-            )}
-          </div>
-
           <div
             className={`flex items-start ${isLeft ? 'flex-row' : 'flex-row-reverse'}`}
             style={{ gap: `${compact ? 6 : Math.round(12 * scale)}px` }}
@@ -424,7 +364,6 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
       <div className={`shield-sandbox-container ${compact ? 'compact' : ''}`}>
         <div className={`shield-split-wrapper ${compact ? 'compact' : ''}`}>
           {renderHalf('left')}
-          {!compact && <div className="shield-interconnect-cable" />}
           {renderHalf('right')}
         </div>
       </div>
@@ -515,7 +454,6 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
           fontGlyphs={fontGlyphs}
           fontMappings={fontMappings}
           side="single"
-          badge={isTopCenterOled ? 'Top Center Bridge Display' : 'Center Unibody Display'}
           isIdle={isIdle}
           battery={batteryLevel}
           outputMode={outputMode}
@@ -524,7 +462,6 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
           customText={customText}
           instances={instances}
           showHousing={true}
-          showLiveDot={true}
           scale={oledScale}
         />
       </div>
@@ -551,24 +488,6 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
     return (
       <div className={`shield-sandbox-container ${compact ? 'compact' : ''}`}>
         <div className={`shield-unibody-case ${compact ? 'compact' : ''}`}>
-          {!compact && (
-            <>
-              <div className="case-screw screw-tl" />
-              <div className="case-screw screw-tr" />
-              <div className="case-screw screw-bl" />
-              <div className="case-screw screw-br" />
-            </>
-          )}
-
-          <div className="flex items-center justify-between w-full gap-2 border-b border-[#1e2538]/60 pb-1.5">
-            <span className="side-badge left">
-              {isTopCenterOled ? 'Unibody Top Bridge Display' : 'Unibody Central Display'}
-            </span>
-            <span className="text-[10px] font-mono text-[#00f0ff]">
-              {shield.name} • {shield.keysCount}
-            </span>
-          </div>
-
           {isTopCenterOled ? (
             /* Reviung34: Top Center OLED above clusters */
             <>
@@ -633,7 +552,6 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
               fontGlyphs={fontGlyphs}
               fontMappings={fontMappings}
               side="dongle"
-              badge="Central Dongle Master"
               isIdle={isIdle}
               battery={batteryLevel}
               outputMode={outputMode}
@@ -642,15 +560,8 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
               customText={customText}
               instances={instances}
               showHousing={true}
-              showLiveDot={true}
               scale={oledScale * 1.05}
             />
-
-            {!compact && (
-              <div className="text-[9px] font-mono text-[#f59e0b] mt-1 text-center">
-                Host Receiver Node (0 keys)
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -664,22 +575,6 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
     return (
       <div className={`shield-sandbox-container ${compact ? 'compact' : ''}`}>
         <div className={`shield-numpad-case ${compact ? 'compact' : ''}`}>
-          {!compact && (
-            <>
-              <div className="case-screw screw-tl" />
-              <div className="case-screw screw-tr" />
-              <div className="case-screw screw-bl" />
-              <div className="case-screw screw-br" />
-            </>
-          )}
-
-          <div className="flex items-center justify-between w-full gap-2 border-b border-[#1e2538]/60 pb-1.5">
-            <span className="side-badge left">TIDBIT Macropad (19-key)</span>
-            {!compact && (
-              <span className="text-[10px] font-mono text-[#00f0ff]">Top OLED & Encoder</span>
-            )}
-          </div>
-
           {/* Top Header Row: 128x32 OLED Display + Rotary Encoder */}
           <div
             className="flex items-center justify-between w-full mb-1"
@@ -696,7 +591,6 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
                 fontGlyphs={fontGlyphs}
                 fontMappings={fontMappings}
                 side="single"
-                badge="TIDBIT Numpad Display"
                 isIdle={isIdle}
                 battery={batteryLevel}
                 outputMode={outputMode}
@@ -705,7 +599,6 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
                 customText={customText}
                 instances={instances}
                 showHousing={true}
-                showLiveDot={true}
                 scale={oledScale}
               />
             </div>
