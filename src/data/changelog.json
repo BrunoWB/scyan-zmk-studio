@@ -14,6 +14,14 @@
     ],
     "patches": [
       {
+        "patch": "1.0.5",
+        "date": "2026-09-12",
+        "commitHash": "e595795",
+        "changes": [
+          "chore: remove unused helper in benchmark runner for strict tsc"
+        ]
+      },
+      {
         "patch": "1.0.4",
         "date": "2026-09-12",
         "commitHash": "677e7da",
