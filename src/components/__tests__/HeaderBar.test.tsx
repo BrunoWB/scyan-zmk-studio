@@ -364,4 +364,113 @@ describe('HeaderBar disconnected-expanded and compact states', () => {
     expect(html).toContain('group/commit');
     expect(html).toContain('group-hover/commit:translate-y-0');
   });
+
+  describe('Issue #2: Fine-grained PAT & target verification invariants', () => {
+    it('displays No Repository Selected and NO REPO badge when connected without a valid repo configured', () => {
+      const emptyRepoConfig: GitHubRepoConfig = {
+        owner: 'genteure',
+        repo: '',
+        branch: 'main',
+        token: 'github_pat_test',
+      };
+
+      const connection: GitHubConnectionState = {
+        status: 'connected',
+        user: { login: 'genteure', name: 'Genteure', avatarUrl: 'https://example.com/avatar.png' },
+        repo: { name: 'zmk-config', fullName: 'genteure/zmk-config', isPrivate: false, hasPushAccess: true, defaultBranch: 'main', description: null },
+        errorMessage: null,
+        lastCheckedAt: 123456789,
+        resolvedOwner: 'genteure',
+        resolvedRepo: 'zmk-config',
+      };
+
+      const html = renderToString(
+        <HeaderBar {...baseProps} config={emptyRepoConfig} connection={connection} />
+      );
+
+      expect(html).toContain('No Repository Selected');
+      expect(html).toContain('NO REPO');
+      expect(html).not.toContain('PUSH OK');
+    });
+
+    it('renders No Repository Selected chip in settings modal when target repo is empty', () => {
+      const emptyRepoConfig: GitHubRepoConfig = {
+        owner: 'genteure',
+        repo: '',
+        branch: 'main',
+        token: 'github_pat_test',
+      };
+
+      const connection: GitHubConnectionState = {
+        status: 'connected',
+        user: { login: 'genteure', name: 'Genteure', avatarUrl: 'https://example.com/avatar.png' },
+        repo: { name: 'zmk-config', fullName: 'genteure/zmk-config', isPrivate: false, hasPushAccess: true, defaultBranch: 'main', description: null },
+        errorMessage: null,
+        lastCheckedAt: 123456789,
+        resolvedOwner: 'genteure',
+        resolvedRepo: 'zmk-config',
+      };
+
+      const html = renderToString(
+        <HeaderBar {...baseProps} config={emptyRepoConfig} connection={connection} isSettingsOpen={true} />
+      );
+
+      expect(html).toContain('No repository selected');
+      expect(html).toContain('No Repository Selected');
+      expect(html).not.toContain('Push Permission Verified');
+    });
+
+    it('renders Unverified Selection chip when modal target repo does not match verified connection repo', () => {
+      const mismatchedConfig: GitHubRepoConfig = {
+        owner: 'genteure',
+        repo: 'other-repo',
+        branch: 'main',
+        token: 'github_pat_test',
+      };
+
+      const connection: GitHubConnectionState = {
+        status: 'connected',
+        user: { login: 'genteure', name: 'Genteure', avatarUrl: 'https://example.com/avatar.png' },
+        repo: { name: 'zmk-config', fullName: 'genteure/zmk-config', isPrivate: false, hasPushAccess: true, defaultBranch: 'main', description: null },
+        errorMessage: null,
+        lastCheckedAt: 123456789,
+        resolvedOwner: 'genteure',
+        resolvedRepo: 'zmk-config',
+      };
+
+      const html = renderToString(
+        <HeaderBar {...baseProps} config={mismatchedConfig} connection={connection} isSettingsOpen={true} />
+      );
+
+      expect(html).toContain('Unverified Selection');
+      expect(html).not.toContain('Push Permission Verified');
+    });
+
+    it('renders Push Permission Verified chip when target repo matches verified repo with push access', () => {
+      const verifiedConfig: GitHubRepoConfig = {
+        owner: 'genteure',
+        repo: 'zmk-config',
+        branch: 'main',
+        token: 'github_pat_test',
+      };
+
+      const connection: GitHubConnectionState = {
+        status: 'connected',
+        user: { login: 'genteure', name: 'Genteure', avatarUrl: 'https://example.com/avatar.png' },
+        repo: { name: 'zmk-config', fullName: 'genteure/zmk-config', isPrivate: false, hasPushAccess: true, defaultBranch: 'main', description: null },
+        errorMessage: null,
+        lastCheckedAt: 123456789,
+        resolvedOwner: 'genteure',
+        resolvedRepo: 'zmk-config',
+      };
+
+      const html = renderToString(
+        <HeaderBar {...baseProps} config={verifiedConfig} connection={connection} isSettingsOpen={true} />
+      );
+
+      expect(html).toContain('Push Permission Verified');
+      expect(html).not.toContain('No Repository Selected');
+      expect(html).not.toContain('Unverified Selection');
+    });
+  });
 });

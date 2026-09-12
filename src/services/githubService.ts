@@ -139,17 +139,26 @@ export async function verifyGitHubConnection(config: GitHubRepoConfig): Promise<
           affiliation: 'owner,collaborator',
         });
         if (listRes.data.length > 0) {
-          const zmkRepo = listRes.data.find(r =>
+          const isZmk = (r: (typeof listRes.data)[0]) =>
             r.name.toLowerCase().includes('zmk') ||
-            Boolean(r.description && r.description.toLowerCase().includes('zmk'))
-          ) || listRes.data[0];
+            r.name.toLowerCase().includes('keymap') ||
+            Boolean(r.description && r.description.toLowerCase().includes('zmk'));
 
-          if (!owner) owner = zmkRepo.owner.login;
-          if (!repo) repo = zmkRepo.name;
-          if (!user.avatarUrl) {
-            user.login = zmkRepo.owner.login;
-            user.name = zmkRepo.owner.login;
-            user.avatarUrl = zmkRepo.owner.avatar_url;
+          // Prioritize: 1) ZMK repo with push access, 2) Any repo with push access, 3) Any ZMK repo, 4) Most recently updated repo
+          const zmkRepoWithPush = listRes.data.find(r => Boolean(r.permissions?.push) && isZmk(r));
+          const anyRepoWithPush = listRes.data.find(r => Boolean(r.permissions?.push));
+          const zmkRepo = listRes.data.find(r => isZmk(r));
+
+          const candidate = zmkRepoWithPush || anyRepoWithPush || zmkRepo || listRes.data[0];
+
+          if (candidate) {
+            if (!owner) owner = candidate.owner.login;
+            if (!repo) repo = candidate.name;
+            if (!user.avatarUrl) {
+              user.login = candidate.owner.login;
+              user.name = candidate.owner.login;
+              user.avatarUrl = candidate.owner.avatar_url;
+            }
           }
         }
       } catch (listErr) {
@@ -487,7 +496,7 @@ export async function fetchUserRepositories(token: string): Promise<GitHubReposi
       affiliation: 'owner,collaborator',
     });
 
-    return res.data.map(repo => {
+    const items: GitHubRepositoryItem[] = res.data.map(repo => {
       const isZmk =
         repo.name.toLowerCase().includes('zmk') ||
         repo.name.toLowerCase().includes('keymap') ||
@@ -506,6 +515,15 @@ export async function fetchUserRepositories(token: string): Promise<GitHubReposi
         isZmkConfig: Boolean(isZmk),
       };
     });
+
+    // When fine-grained tokens are used or when write-accessible repositories exist,
+    // restrict selection to repositories where push access is verified so the selector
+    // does not list unrelated public read-only repositories.
+    const pushAccessible = items.filter(r => r.hasPushAccess);
+    if (pushAccessible.length > 0) {
+      return pushAccessible;
+    }
+    return items;
   } catch (err) {
     console.error('Failed to list user repositories:', err);
     return [];
@@ -857,16 +875,77 @@ export async function installScyanStudioToRepo(
 }
 
 /**
+ * Removes a named entry from a YAML list (e.g. under `projects:` or `remotes:` in west.yml),
+ * safely preserving sibling items, comments, and following sections.
+ */
+export function removeYamlListItem(content: string, itemName: string): string {
+  const lines = content.split(/\r?\n/);
+  const result: string[] = [];
+  let skipping = false;
+  let targetIndent = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const match = line.match(/^(\s*)-\s+name:\s*['"]?([^\s'"]+)['"]?\s*(?:#.*)?$/i);
+
+    if (match && match[2].toLowerCase() === itemName.toLowerCase()) {
+      skipping = true;
+      targetIndent = match[1].length;
+      continue;
+    }
+
+    if (skipping) {
+      if (line.trim() === '') {
+        // Look ahead to check if the next non-empty line still belongs to this item
+        let nextNonEmptyIndent = -1;
+        let nextIsListItem = false;
+        for (let j = i + 1; j < lines.length; j++) {
+          if (lines[j].trim() !== '') {
+            const nextMatch = lines[j].match(/^(\s*)/);
+            nextNonEmptyIndent = nextMatch ? nextMatch[1].length : 0;
+            nextIsListItem = /^\s*-\s+/.test(lines[j]);
+            break;
+          }
+        }
+        if (nextNonEmptyIndent > targetIndent && !nextIsListItem) {
+          continue;
+        }
+        skipping = false;
+        targetIndent = -1;
+        result.push(line);
+        continue;
+      }
+
+      const indentMatch = line.match(/^(\s*)/);
+      const currentIndent = indentMatch ? indentMatch[1].length : 0;
+      const isListItem = /^\s*-\s+/.test(line);
+
+      // Lines indented strictly deeper than the '-' list bullet and not a sibling list item
+      // belong to the item being removed.
+      if (currentIndent > targetIndent && !isListItem) {
+        continue;
+      }
+
+      // Sibling list item or parent/sibling block encountered
+      skipping = false;
+      targetIndent = -1;
+    }
+
+    result.push(line);
+  }
+
+  return result.join('\n');
+}
+
+/**
  * Removes scyan-zmk-module and its remote (if unused by other projects) from west.yml.
  */
 export function removeScyanFromWest(content: string): string {
-  const projectRegex = /^[ \t]*-[ \t]+name:[ \t]*scyan-zmk-module[^\n]*\n(?:[ \t]+[^\n]*\n)*/gm;
-  let updated = content.replace(projectRegex, '');
+  let updated = removeYamlListItem(content, 'scyan-zmk-module');
 
   const hasOtherBrunowb = /remote:[ \t]*brunowb\b/i.test(updated);
   if (!hasOtherBrunowb) {
-    const remoteRegex = /^[ \t]*-[ \t]+name:[ \t]*brunowb[^\n]*\n(?:[ \t]+[^\n]*\n)*/gmi;
-    updated = updated.replace(remoteRegex, '');
+    updated = removeYamlListItem(updated, 'brunowb');
   }
 
   return updated.replace(/\n{3,}/g, '\n\n');

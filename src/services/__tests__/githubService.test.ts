@@ -202,6 +202,45 @@ describe('githubService Kconfig timeout synchronization', () => {
       expect(result).not.toContain('brunowb');
       expect(result).toContain('name: zmk');
       expect(result).toContain('url-base: https://github.com/zmkfirmware');
+      expect(result).toContain('self:');
+      expect(result).toContain('path: config');
+    });
+
+    it('safely removes scyan when it is listed first without eating subsequent projects or self (regression)', () => {
+      // Exact scenario from user bug report where brunowb and scyan are the first items
+      const westYml = [
+        'manifest:',
+        '  defaults:',
+        '    revision: v0.3',
+        '  remotes:',
+        '    - name: brunowb',
+        '      url-base: https://github.com/BrunoWB',
+        '    - name: zmkfirmware',
+        '      url-base: https://github.com/zmkfirmware',
+        '    # Additional modules containing boards/shields/custom code can be listed here as well',
+        '    # See https://docs.zephyrproject.org/3.2.0/develop/west/manifest.html#projects',
+        '  projects:',
+        '    - name: scyan-zmk-module',
+        '      remote: brunowb',
+        '      revision: main',
+        '    - name: zmk',
+        '      remote: zmkfirmware',
+        '      import: app/west.yml',
+        '  self:',
+        '    path: config',
+      ].join('\n');
+
+      const result = removeScyanFromWest(westYml);
+      expect(result).not.toContain('scyan-zmk-module');
+      expect(result).not.toContain('brunowb');
+      expect(result).toContain('name: zmkfirmware');
+      expect(result).toContain('url-base: https://github.com/zmkfirmware');
+      expect(result).toContain('# Additional modules');
+      expect(result).toContain('name: zmk');
+      expect(result).toContain('remote: zmkfirmware');
+      expect(result).toContain('import: app/west.yml');
+      expect(result).toContain('self:');
+      expect(result).toContain('path: config');
     });
 
     it('preserves brunowb remote if another project uses it', () => {

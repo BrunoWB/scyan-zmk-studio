@@ -14,6 +14,22 @@
     ],
     "patches": [
       {
+        "patch": "1.0.8",
+        "date": "2026-09-12",
+        "commitHash": "540f155",
+        "changes": [
+          "fix(github): resolve empty repo targets & false push permissions with fine-grained PATs (closes #2)"
+        ]
+      },
+      {
+        "patch": "1.0.7",
+        "date": "2026-09-12",
+        "commitHash": "912d953",
+        "changes": [
+          "fix(github): prevent uninstall from removing zmk manifest entries"
+        ]
+      },
+      {
         "patch": "1.0.6",
         "date": "2026-09-12",
         "commitHash": "aa8bb28",
