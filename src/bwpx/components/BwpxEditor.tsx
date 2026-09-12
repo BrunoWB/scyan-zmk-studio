@@ -213,14 +213,30 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
   const onViewportChangeRef = useRef(onViewportChange);
   onViewportChangeRef.current = onViewportChange;
+  const debouncedViewportNotifyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notifyViewportChange = useCallback((vp: EditorViewport) => {
+    if (debouncedViewportNotifyRef.current) {
+      clearTimeout(debouncedViewportNotifyRef.current);
+    }
+    debouncedViewportNotifyRef.current = setTimeout(() => {
+      debouncedViewportNotifyRef.current = null;
+      onViewportChangeRef.current?.(vp);
+    }, 120);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (debouncedViewportNotifyRef.current) {
+        clearTimeout(debouncedViewportNotifyRef.current);
+      }
+    };
+  }, []);
 
   const setPan = useCallback((action: { x: number; y: number } | ((prev: { x: number; y: number }) => { x: number; y: number })) => {
     setViewport(v => {
       const nextPan = typeof action === 'function' ? action(v.pan) : action;
       panRef.current = nextPan;
-      const nextViewport = { ...v, pan: nextPan };
-      onViewportChangeRef.current?.(nextViewport);
-      return nextViewport;
+      return { ...v, pan: nextPan };
     });
   }, []);
 
@@ -305,6 +321,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const canvasRectRef = useRef<DOMRect | null>(null);
 
   // Sync when initialGrid changes from outside (e.g. discard changes or repo sync)
   const lastCommittedRef = useRef<BwpxGrid | null>(null);
@@ -700,17 +717,23 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     return () => clearTimeout(timer);
   }, [fitToView, initialViewport]);
 
-  // Coordinate conversion helper
+  // Coordinate conversion helper (zero-layout cached DOM queries)
   const getGridCoords = useCallback((clientX: number, clientY: number): { x: number; y: number } | null => {
-    if (!canvasRef.current) return null;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const canvasX = clientX - rect.left - pan.x;
-    const canvasY = clientY - rect.top - pan.y;
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    let rect = canvasRectRef.current;
+    if (!rect) {
+      rect = canvas.getBoundingClientRect();
+      canvasRectRef.current = rect;
+    }
+    const canvasX = clientX - rect.left - panRef.current.x;
+    const canvasY = clientY - rect.top - panRef.current.y;
+    const z = zoomRef.current;
     return {
-      x: Math.floor(canvasX / zoom),
-      y: Math.floor(canvasY / zoom),
+      x: Math.floor(canvasX / z),
+      y: Math.floor(canvasY / z),
     };
-  }, [pan, zoom]);
+  }, []);
 
   const pastePixelsAsGhost = useCallback((width: number, height: number, pixels: [number, number][]) => {
     const canvas = canvasRef.current;
@@ -1087,6 +1110,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
         if (w > 0 && h > 0) {
           canvasRef.current.width = w;
           canvasRef.current.height = h;
+          canvasRectRef.current = canvasRef.current.getBoundingClientRect();
           if (overlayCanvasRef.current) {
             overlayCanvasRef.current.width = w;
             overlayCanvasRef.current.height = h;
@@ -1384,12 +1408,12 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
     // Quick move zone-select marquee drag
     if (isDrawing && quickMoveMode === 'zone-select' && startPos) {
-      setDragCurrentPos(coords);
       const minX = Math.min(startPos.x, coords.x);
       const minY = Math.min(startPos.y, coords.y);
       const w = Math.abs(coords.x - startPos.x) + 1;
       const h = Math.abs(coords.y - startPos.y) + 1;
-      setSelection({ x: minX, y: minY, w, h, active: true });
+      selectionRef.current = { x: minX, y: minY, w, h, active: true };
+      requestOverlayRender();
       return;
     }
 
@@ -1411,7 +1435,6 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
     if (isSelect) {
       if (isDrawing && startPos) {
-        setDragCurrentPos(coords);
         const dx = coords.x - startPos.x;
         const dy = coords.y - startPos.y;
         const hasMoved = Math.abs(dx) > 0 || Math.abs(dy) > 0;
@@ -1471,28 +1494,24 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
               sliceRects,
             });
           } else if (movingPixels) {
-            setMovingPixels(prev => (prev ? { ...prev, offset: { dx, dy } } : null));
+            pendingMovingOffsetRef.current = { dx, dy };
+            if (movingPixelsRef.current) {
+              movingPixelsRef.current = { ...movingPixelsRef.current, offset: { dx, dy } };
+            }
+            requestOverlayRender();
+            scheduleMovingPixelsRender();
           }
-
-          setSelection(prev =>
-            prev
-              ? {
-                  ...prev,
-                  x: (movingPixels ? movingPixels.originalRect.x : selection.x) + dx,
-                  y: (movingPixels ? movingPixels.originalRect.y : selection.y) + dy,
-                }
-              : null
-          );
           return;
         }
 
-        // Free select marquee
+        // Free select marquee: update selectionRef directly and redraw overlay without React re-render
         if (hasMoved) {
           const minX = Math.min(startPos.x, coords.x);
           const minY = Math.min(startPos.y, coords.y);
           const w = Math.abs(coords.x - startPos.x) + 1;
           const h = Math.abs(coords.y - startPos.y) + 1;
-          setSelection({ x: minX, y: minY, w, h, active: true });
+          selectionRef.current = { x: minX, y: minY, w, h, active: true };
+          requestOverlayRender();
         }
         return;
       }
@@ -1525,12 +1544,14 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
         cancelAnimationFrame(panRafId.current);
         panRafId.current = null;
       }
+      const finalPan = pendingPanRef.current || panRef.current;
       if (pendingPanRef.current) {
         setPan(pendingPanRef.current);
         pendingPanRef.current = null;
       }
       setIsPanning(false);
       isPanningRef.current = false;
+      notifyViewportChange({ zoom: zoomRef.current, pan: finalPan });
       return;
     }
 
@@ -1538,7 +1559,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     if (quickMoveMode === 'zone-select') {
       setQuickMoveMode(null);
       setIsDrawing(false);
-      const endCoords = dragCurrentPos || startPos;
+      const endCoords = hoverPosRef.current || dragCurrentPos || startPos;
       if (startPos && endCoords) {
         const minX = Math.min(startPos.x, endCoords.x);
         const minY = Math.min(startPos.y, endCoords.y);
@@ -1716,7 +1737,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     const isSelect = !isErasing && (isControlHeldRef.current || e?.ctrlKey || e?.metaKey || activeTool === 'select');
 
     if (isDrawing && isSelect) {
-      const endCoords = dragCurrentPos || startPos;
+      const endCoords = hoverPosRef.current || dragCurrentPos || startPos;
       const hasDragged =
         startPos && endCoords &&
         (Math.abs(endCoords.x - startPos.x) > 0 || Math.abs(endCoords.y - startPos.y) > 0);
@@ -1867,13 +1888,11 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
       if (step === 0) return;
 
-      setViewport(prev => {
-        const next = calculateZoomAtPoint(prev.zoom, prev.pan, mouseX, mouseY, step);
-        zoomRef.current = next.zoom;
-        panRef.current = next.pan;
-        onViewportChangeRef.current?.(next);
-        return next;
-      });
+      const next = calculateZoomAtPoint(zoomRef.current, panRef.current, mouseX, mouseY, step);
+      zoomRef.current = next.zoom;
+      panRef.current = next.pan;
+      setViewport(next);
+      notifyViewportChange(next);
     };
 
     target.addEventListener('wheel', onWheelNative as EventListener, { passive: false });
@@ -2133,16 +2152,21 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       coordsDisplayRef.current.textContent = '--';
     }
     requestOverlayRender();
+    const wasPanning = isPanningRef.current;
     if (panRafId.current !== null) {
       cancelAnimationFrame(panRafId.current);
       panRafId.current = null;
     }
+    const finalPan = pendingPanRef.current || panRef.current;
     if (pendingPanRef.current) {
       setPan(pendingPanRef.current);
       pendingPanRef.current = null;
     }
     setIsPanning(false);
     isPanningRef.current = false;
+    if (wasPanning) {
+      notifyViewportChange({ zoom: zoomRef.current, pan: finalPan });
+    }
     drawButtonRef.current = 0;
     setDrawButton(0);
     if (movingPixels && movingPixels.active) {
@@ -2515,6 +2539,11 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
             ref={canvasRef}
             className="bwpx-base-canvas"
             style={{ cursor: getCanvasCursor() }}
+            onMouseEnter={() => {
+              if (canvasRef.current) {
+                canvasRectRef.current = canvasRef.current.getBoundingClientRect();
+              }
+            }}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={(e) => handleMouseUp(e)}
