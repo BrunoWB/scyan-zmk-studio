@@ -14,6 +14,14 @@
     ],
     "patches": [
       {
+        "patch": "1.0.9",
+        "date": "2026-09-12",
+        "commitHash": "a42a608",
+        "changes": [
+          "perf(renderer): viewport-cull sprite slices and badge labels (closes #3)"
+        ]
+      },
+      {
         "patch": "1.0.8",
         "date": "2026-09-12",
         "commitHash": "540f155",
