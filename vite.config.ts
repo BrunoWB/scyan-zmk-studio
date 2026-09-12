@@ -28,10 +28,28 @@ function devFaviconPlugin(): Plugin {
   }
 }
 
+function nightlyFaviconPlugin(): Plugin {
+  return {
+    name: 'nightly-favicon',
+    apply: 'build',
+    transformIndexHtml(html: string) {
+      return html
+        .replace(/href="(\.\/)?favicon\.svg"/g, 'href="./favicon-nightly.svg"')
+        .replace(/href="(\.\/)?favicon-32x32\.png"/g, 'href="./favicon-nightly-32x32.png"')
+        .replace(/href="(\.\/)?favicon-16x16\.png"/g, 'href="./favicon-nightly-16x16.png"')
+        .replace(/href="(\.\/)?apple-touch-icon\.png"/g, 'href="./apple-touch-icon-nightly.png"')
+        .replace(/href="(\.\/)?favicon\.ico"/g, 'href="./favicon-nightly.ico"')
+        .replace(/<title>Scyan ZMK Studio<\/title>/, '<title>Scyan ZMK Studio — Nightly</title>')
+    },
+  }
+}
+
+const isNightly = !!process.env.VITE_BASE_PATH
+
 // https://vite.dev/config/
 export default defineConfig({
   base: process.env.VITE_BASE_PATH ?? './',
-  plugins: [tailwindcss(), react(), devFaviconPlugin()],
+  plugins: [tailwindcss(), react(), devFaviconPlugin(), ...(isNightly ? [nightlyFaviconPlugin()] : [])],
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version || '1.0.0'),
     __GIT_COMMIT_HASH__: JSON.stringify(gitHash),
