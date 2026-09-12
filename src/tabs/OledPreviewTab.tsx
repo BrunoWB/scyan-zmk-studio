@@ -41,7 +41,7 @@ import {
   DEFAULT_DONGLE_LAYOUT_BLOCKS,
   DEFAULT_IDLE_DONGLE_BLOCKS,
 } from '../types/zmk';
-import { KNOWN_SHIELDS } from '../data/shieldsData';
+import { getShieldDefinition } from '../data/shieldsData';
 
 const BLOCK_COLORS: Record<string, string> = {
   'status-bar': '#38bdf8',
@@ -163,7 +163,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   const activeDongleBlocks = dongleBlocks ?? DEFAULT_DONGLE_LAYOUT_BLOCKS;
 
   const activeShield = useMemo(() => {
-    return KNOWN_SHIELDS.find(s => s.id === shieldId) || KNOWN_SHIELDS[0];
+    return getShieldDefinition(shieldId);
   }, [shieldId]);
 
   const effectiveEnabledScreens = useMemo(() => {
@@ -1036,9 +1036,165 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
       </div>
 
       {/* =========================================================================
-          TOP: CUTE MINIMALIST CORNE 5X3 SPLIT VISUALIZATION WITH DUAL DISPLAYS
+          TOP: KEYBOARD / SHIELD VISUALIZATION WITH OLED DISPLAYS
           ========================================================================= */}
-      <div className="corne-keyboard-split">
+      {activeShield.layoutGeometry.type === 'unknown' ? (
+        <div className="flex items-center justify-center gap-8 my-6">
+          {/* CENTRAL DISPLAY (UNKNOWN SHIELD PURPLE WRAPPER, NO USB CONNECTOR) */}
+          {showLeftKeyboard && (
+            <div className="unknown-shield-unit-case">
+              <div className="unknown-shield-body">
+                <div className="unknown-shield-header-badge">
+                  <span className="live-dot" />
+                  <span>{showRightKeyboard ? `${activeShield.name} (Central)` : activeShield.name}</span>
+                </div>
+
+                {/* OLED Display Housing */}
+                <div
+                  className="oled-glass-housing"
+                  style={{
+                    width: `${leftDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
+                    height: `${leftDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
+                    borderColor: 'rgba(169, 83, 246, 0.4)',
+                    boxShadow: '0 0 12px rgba(169, 83, 246, 0.15)',
+                  }}
+                  onMouseEnter={() => setHoveredSide('left')}
+                  onMouseLeave={() => setHoveredSide(null)}
+                  onClick={() => setSelectedBlockId(null)}
+                >
+                  <div
+                    ref={leftScreenContainerRef}
+                    style={{
+                      position: 'relative',
+                      width: `${leftDisplayDim.displayW}px`,
+                      height: `${leftDisplayDim.displayH}px`,
+                    }}
+                  >
+                    <canvas
+                      ref={leftCanvasRef}
+                      className="corne-oled-canvas"
+                      style={{
+                        width: `${leftDisplayDim.displayW}px`,
+                        height: `${leftDisplayDim.displayH}px`,
+                        display: 'block',
+                      }}
+                    />
+                    <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
+                      {leftDisplayBlocks.map(block =>
+                        renderBlockOverlay(block, 'left', leftVWidth, leftVHeight)
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* DONGLE MASTER UNIT CASE (Rendered if dongle is present) */}
+          {hasDongle && (
+            <div className="dongle-unit-case">
+              <div className="dongle-usb-connector">
+                <div className="dongle-usb-metal">
+                  <div className="dongle-usb-pin" />
+                  <div className="dongle-usb-pin" />
+                </div>
+              </div>
+              <div className="dongle-body">
+                <div className="dongle-header-badge">
+                  <span className="live-dot" />
+                  <span>Dongle Master</span>
+                </div>
+                <div
+                  className="oled-glass-housing"
+                  style={{
+                    width: `${dongleDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
+                    height: `${dongleDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
+                    borderColor: 'rgba(169, 83, 246, 0.4)',
+                    boxShadow: '0 0 12px rgba(169, 83, 246, 0.15)',
+                  }}
+                  onMouseEnter={() => setHoveredSide('dongle')}
+                  onMouseLeave={() => setHoveredSide(null)}
+                  onClick={() => setSelectedBlockId(null)}
+                >
+                  <div
+                    ref={dongleScreenContainerRef}
+                    style={{
+                      position: 'relative',
+                      width: `${dongleDisplayDim.displayW}px`,
+                      height: `${dongleDisplayDim.displayH}px`,
+                    }}
+                  >
+                    <canvas
+                      ref={dongleCanvasRef}
+                      className="corne-oled-canvas"
+                      style={{
+                        width: `${dongleDisplayDim.displayW}px`,
+                        height: `${dongleDisplayDim.displayH}px`,
+                        display: 'block',
+                      }}
+                    />
+                    <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
+                      {dongleDisplayBlocks.map(block =>
+                        renderBlockOverlay(block, 'dongle', dongleVWidth, dongleVHeight)
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* PERIPHERAL DISPLAY (UNKNOWN SHIELD PURPLE WRAPPER, NO USB CONNECTOR) */}
+          {showRightKeyboard && (
+            <div className="unknown-shield-unit-case">
+              <div className="unknown-shield-body">
+                <div className="unknown-shield-header-badge">
+                  <span className="live-dot" />
+                  <span>{`${activeShield.name} (Peripheral)`}</span>
+                </div>
+
+                <div
+                  className="oled-glass-housing"
+                  style={{
+                    width: `${rightDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
+                    height: `${rightDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
+                    borderColor: 'rgba(169, 83, 246, 0.4)',
+                    boxShadow: '0 0 12px rgba(169, 83, 246, 0.15)',
+                  }}
+                  onMouseEnter={() => setHoveredSide('right')}
+                  onMouseLeave={() => setHoveredSide(null)}
+                  onClick={() => setSelectedBlockId(null)}
+                >
+                  <div
+                    ref={rightScreenContainerRef}
+                    style={{
+                      position: 'relative',
+                      width: `${rightDisplayDim.displayW}px`,
+                      height: `${rightDisplayDim.displayH}px`,
+                    }}
+                  >
+                    <canvas
+                      ref={rightCanvasRef}
+                      className="corne-oled-canvas"
+                      style={{
+                        width: `${rightDisplayDim.displayW}px`,
+                        height: `${rightDisplayDim.displayH}px`,
+                        display: 'block',
+                      }}
+                    />
+                    <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
+                      {rightDisplayBlocks.map(block =>
+                        renderBlockOverlay(block, 'right', rightVWidth, rightVHeight)
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="corne-keyboard-split">
           {/* LEFT HALF (MASTER / PERIPHERAL) */}
           {showLeftKeyboard && (
             <div className="corne-half-case left-half">
@@ -1292,6 +1448,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* =========================================================================
           BOTTOM: REACTIVE FIRMWARE SIMULATOR CONTROLS

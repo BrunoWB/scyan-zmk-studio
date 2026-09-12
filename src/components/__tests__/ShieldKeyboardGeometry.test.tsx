@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { ShieldKeyboardGeometry } from '../ShieldKeyboardGeometry';
-import { KNOWN_SHIELDS } from '../../data/shieldsData';
+import { KNOWN_SHIELDS, UNKNOWN_SHIELD } from '../../data/shieldsData';
 import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
 
 describe('ShieldKeyboardGeometry', () => {
@@ -266,5 +266,31 @@ describe('ShieldKeyboardGeometry', () => {
     expect(html).toContain('shield-half-case left-half compact');
     expect(html).toContain('shield-blank-keycap compact');
     expect(html).not.toContain('case-screw');
+  });
+
+  it('renders purple wrapper without USB connector for unknown/custom shields', () => {
+    const html = renderToString(
+      <ShieldKeyboardGeometry
+        shield={UNKNOWN_SHIELD}
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        activeLeftBlocks={[]}
+        activeRightBlocks={[]}
+        activeDongleBlocks={[]}
+      />
+    );
+
+    // Purple wrapper case and body
+    expect(html).toContain('unknown-shield-unit-case');
+    expect(html).toContain('unknown-shield-body');
+    expect(html).toContain('unknown-shield-header-badge');
+    expect(html).toContain('Custom / Unknown Shield');
+    expect(html).toContain('oled-glass-housing');
+
+    // Strictly NO USB connector
+    expect(html).not.toContain('dongle-usb-connector');
+    expect(html).not.toContain('dongle-usb-metal');
+    expect(html).not.toContain('dongle-usb-pin');
   });
 });

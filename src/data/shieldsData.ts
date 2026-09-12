@@ -15,7 +15,7 @@ export interface ShieldDisplayConfig {
 }
 
 export interface ShieldLayoutGeometry {
-  type: 'split-pair' | 'unibody' | 'dongle' | 'numpad';
+  type: 'split-pair' | 'unibody' | 'dongle' | 'numpad' | 'unknown';
   columns: number;
   rows: number;
   columnStaggers: number[];
@@ -27,7 +27,8 @@ export interface ShieldLayoutGeometry {
     | 'center-notch'
     | 'top-center'
     | 'top-horizontal'
-    | 'dongle-center';
+    | 'dongle-center'
+    | 'unknown-center';
   oledLabel: string;
   hasEncoder?: boolean;
   encoderCount?: number;
@@ -591,7 +592,69 @@ CONFIG_SSD1306=y`,
     behaviorNotes:
       'Displays active macropad mode (Numpad, Blender, Photoshop, Terminal navigation) and encoder scrubbing values.',
   },
+  {
+    id: 'unknown',
+    name: 'Custom / Unknown Shield',
+    author: 'Generic ZMK Device',
+    category: 'single-piece',
+    keysCount: 'Custom Hardware',
+    formFactor: 'Enclosure / Custom PCB',
+    layoutDesc: 'Generic standalone OLED display mount with direct telemetry for custom shields and handwired keyboards.',
+    displayConfig: {
+      screenCount: 1,
+      nativeResolution: { width: 32, height: 128 },
+      defaultOrientation: 'vertical',
+      physicalMount: 'Direct custom PCB mounting with isolated OLED enclosure.',
+      displayType: '0.91" SSD1306 OLED (128x32 physical)',
+      bus: 'I2C',
+      rotation: 90,
+      pinout: {
+        sda: 'SDA',
+        scl: 'SCL',
+        vcc: '3.3V',
+        gnd: 'GND',
+      },
+    },
+    layoutGeometry: {
+      type: 'unknown',
+      columns: 0,
+      rows: 0,
+      columnStaggers: [],
+      thumbCount: 0,
+      oledMount: 'unknown-center',
+      oledLabel: 'Generic Display Enclosure',
+      description: 'Generic purple enclosure wrapper for custom/unknown shields without USB connector.',
+    },
+    features: [
+      'Custom shield and handwired keyboard compatibility',
+      'Direct 1bpp OLED display telemetry',
+      'Supports arbitrary screen dimensions',
+      'Automatic fallback for unrecognized shields',
+    ],
+    controllerCompatibility: ['Any ZMK Supported MCU (Pro Micro, nice!nano, XIAO, RP2040)'],
+    zmkTarget: '-DSHIELD=custom',
+    kconfigSnippet: `# Generic ZMK Display Configuration
+CONFIG_ZMK_DISPLAY=y
+CONFIG_SSD1306=y`,
+    mountingNotes: 'Compact standalone purple enclosure wrapper for OLED display monitoring.',
+    behaviorNotes: 'Displays telemetry on custom hardware not present in the pre-defined catalog.',
+  },
 ];
+
+export const UNKNOWN_SHIELD: ShieldDefinition = KNOWN_SHIELDS[KNOWN_SHIELDS.length - 1];
+
+export function getShieldDefinition(shieldId?: string | null): ShieldDefinition {
+  if (!shieldId) return KNOWN_SHIELDS[0];
+  const normalized = shieldId.toLowerCase().replace(/_/g, '-');
+  const found = KNOWN_SHIELDS.find((s) => s.id === shieldId || s.id === normalized);
+  if (found) return found;
+
+  return {
+    ...UNKNOWN_SHIELD,
+    id: shieldId,
+    name: shieldId === 'unknown' ? 'Custom / Unknown Shield' : `${shieldId} (Custom Shield)`,
+  };
+}
 
 export type ShieldPartSide = 'left' | 'right' | 'single' | 'dongle';
 
@@ -663,6 +726,16 @@ export function getShieldParts(): ShieldPartItem[] {
         side: 'single',
         shield,
         keyCount: count,
+      });
+    } else if (shield.layoutGeometry.type === 'unknown') {
+      parts.push({
+        id: shield.id,
+        shieldId: shield.id,
+        name: shield.name,
+        category: 'single-piece',
+        side: 'single',
+        shield,
+        keyCount: 0,
       });
     }
   }

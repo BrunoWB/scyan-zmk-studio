@@ -229,4 +229,34 @@ describe('OledPreviewTab dynamic screen dimensions & widget moving', () => {
     expect(html).toContain('Dongle WPM');
     expect(html).toContain('Dongle Display');
   });
+
+  it('renders purple wrapper without USB connector for unknown shields in preview tab', () => {
+    const html = renderToString(
+      <OledPreviewTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText="TEST"
+        onCustomTextChange={() => {}}
+        leftBlocks={sampleLeftBlocks}
+        rightBlocks={sampleRightBlocks}
+        shieldId="unknown"
+        enabledScreens={['central', 'peripheral']}
+      />
+    );
+
+    // Purple wrapper cases and bodies for both displays
+    expect(html).toContain('unknown-shield-unit-case');
+    expect(html).toContain('unknown-shield-body');
+    expect(html).toContain('unknown-shield-header-badge');
+    expect(html).toContain('Custom / Unknown Shield (Central)');
+    expect(html).toContain('Custom / Unknown Shield (Peripheral)');
+
+    // Corne half cases are NOT rendered
+    expect(html).not.toContain('corne-half-case');
+    // Strictly NO USB connector
+    expect(html).not.toContain('dongle-usb-connector');
+    expect(html).not.toContain('dongle-usb-metal');
+    expect(html).not.toContain('dongle-usb-pin');
+  });
 });

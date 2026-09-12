@@ -95,7 +95,7 @@ describe('ShieldsTab', () => {
     const singlePieces = KNOWN_SHIELDS.filter((s) => s.category === 'single-piece');
 
     expect(splitPairs.length).toBe(6);
-    expect(singlePieces.length).toBe(4);
+    expect(singlePieces.length).toBe(5);
 
     for (const shield of KNOWN_SHIELDS) {
       expect(shield.id).toBeTruthy();
@@ -129,10 +129,10 @@ describe('ShieldsTab', () => {
     expect(html).toContain('5-Col Snap-off (36k)');
   });
 
-  it('validates layoutGeometry on all 10 shields in KNOWN_SHIELDS catalog', () => {
+  it('validates layoutGeometry on all shields in KNOWN_SHIELDS catalog', () => {
     for (const shield of KNOWN_SHIELDS) {
       expect(shield.layoutGeometry).toBeDefined();
-      expect(shield.layoutGeometry.type).toMatch(/^(split-pair|unibody|dongle|numpad)$/);
+      expect(shield.layoutGeometry.type).toMatch(/^(split-pair|unibody|dongle|numpad|unknown)$/);
       expect(shield.layoutGeometry.oledMount).toBeTruthy();
       expect(shield.layoutGeometry.oledLabel).toBeTruthy();
       expect(shield.layoutGeometry.description).toBeTruthy();
@@ -153,6 +153,9 @@ describe('ShieldsTab', () => {
         expect(shield.layoutGeometry.columns).toBe(4);
         expect(shield.layoutGeometry.rows).toBe(5);
         expect(shield.layoutGeometry.hasEncoder).toBe(true);
+      } else if (shield.layoutGeometry.type === 'unknown') {
+        expect(shield.layoutGeometry.columns).toBe(0);
+        expect(shield.layoutGeometry.rows).toBe(0);
       }
     }
   });

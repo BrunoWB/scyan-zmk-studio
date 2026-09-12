@@ -826,12 +826,16 @@ export function parseZmkKeymap(rawContent: string, filename = 'keymap.keymap'): 
 
   const detectedShield = detectShieldFromRepo('', filename, undefined);
   let finalShieldId = detectedShield;
-  if (finalShieldId === 'corne') {
-    if (rawContent.includes('lily58')) finalShieldId = 'lily58';
+  if (finalShieldId === 'corne' || finalShieldId === 'unknown') {
+    if (rawContent.includes('corne') || rawContent.includes('crkbd')) finalShieldId = 'corne';
+    else if (rawContent.includes('lily58')) finalShieldId = 'lily58';
     else if (rawContent.includes('sofle')) finalShieldId = 'sofle';
-    else if (rawContent.includes('sweep') || rawContent.includes('cradio') || rawContent.includes('ferris')) finalShieldId = 'ferris_sweep';
+    else if (rawContent.includes('sweep') || rawContent.includes('cradio') || rawContent.includes('ferris')) finalShieldId = 'ferris-sweep';
+    else if (rawContent.includes('kyria')) finalShieldId = 'kyria';
+    else if (rawContent.includes('iris')) finalShieldId = 'iris';
     else if (rawContent.includes('reviung41')) finalShieldId = 'reviung41';
     else if (rawContent.includes('reviung34')) finalShieldId = 'reviung34';
+    else if (rawContent.includes('xiao') || rawContent.includes('dongle')) finalShieldId = 'xiao-dongle';
     else if (rawContent.includes('tidbit')) finalShieldId = 'tidbit';
   }
 
@@ -847,7 +851,7 @@ export function parseZmkKeymap(rawContent: string, filename = 'keymap.keymap'): 
     rightMatrix: layer0.rightMatrix,
     leftThumbs: layer0.leftThumbs,
     rightThumbs: layer0.rightThumbs,
-    layerNames: layerNames.length > 0 ? layerNames : ['DEFAULT', 'LOWER', 'RAISE', 'ADJUST'],
+    layerNames: parsedLayers.map((l, i) => l.name || `LAYER_${i}`),
     layers: parsedLayers,
     shieldId: finalShieldId,
   };
@@ -855,17 +859,25 @@ export function parseZmkKeymap(rawContent: string, filename = 'keymap.keymap'): 
 
 export function detectShieldFromRepo(repoName: string, keymapFilename?: string, confFilenames?: string[]): string {
   const haystack = [repoName, keymapFilename, ...(confFilenames || [])].filter(Boolean).join(' ').toLowerCase();
+  if (!haystack.trim()) return 'corne';
+
   if (haystack.includes('corne') || haystack.includes('crkbd')) return 'corne';
   if (haystack.includes('lily58')) return 'lily58';
   if (haystack.includes('sofle')) return 'sofle';
-  if (haystack.includes('sweep') || haystack.includes('ferris') || haystack.includes('cradio')) return 'ferris_sweep';
+  if (haystack.includes('sweep') || haystack.includes('ferris') || haystack.includes('cradio')) return 'ferris-sweep';
   if (haystack.includes('kyria')) return 'kyria';
   if (haystack.includes('iris')) return 'iris';
   if (haystack.includes('reviung41')) return 'reviung41';
   if (haystack.includes('reviung34')) return 'reviung34';
-  if (haystack.includes('xiao') || haystack.includes('dongle')) return 'xiao_dongle';
+  if (haystack.includes('xiao') || haystack.includes('dongle')) return 'xiao-dongle';
   if (haystack.includes('tidbit')) return 'tidbit';
-  return 'corne';
+
+  // If a filename or repo name is given but not recognized, detect as unknown
+  if (keymapFilename) {
+    const base = keymapFilename.replace(/^.*[/\\]/, '').replace(/\.keymap$/, '');
+    if (base && base !== 'keymap') return base.toLowerCase();
+  }
+  return 'unknown';
 }
 
 /**

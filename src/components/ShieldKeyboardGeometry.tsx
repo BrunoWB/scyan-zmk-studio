@@ -673,7 +673,28 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
   }
 
   // ==========================================
-  // TYPE 4: NUMPAD / MACROPAD (Tidbit 19-key)
+  // TYPE 4: UNKNOWN / CUSTOM SHIELD ENCLOSURE
+  // ==========================================
+  if (geom.type === 'unknown') {
+    return (
+      <div className={`shield-sandbox-container ${compact ? 'compact' : ''}`}>
+        <div className={`unknown-shield-unit-case ${compact ? 'compact' : ''}`}>
+          {/* Purple wrapper like Seeed Xiao, but NO USB connector */}
+          <div className="unknown-shield-body">
+            <div className="unknown-shield-header-badge">
+              <span className="live-dot" />
+              <span>{shield.name || 'Custom Shield'}</span>
+            </div>
+
+            {renderOledBay(activeLeftBlocks, 'left', oledScale * 1.05)}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // TYPE 5: NUMPAD / MACROPAD (Tidbit 19-key)
   // ==========================================
   if (geom.type === 'numpad') {
     return (

@@ -10,7 +10,7 @@ import {
   DEFAULT_FONT_MAPPINGS,
 } from '../types/zmk';
 import type { WidgetInstanceMap } from '../types/widget';
-import { KNOWN_SHIELDS, type ShieldDefinition } from '../data/shieldsData';
+import { KNOWN_SHIELDS, getShieldDefinition, type ShieldDefinition } from '../data/shieldsData';
 import { ShieldKeyboardGeometry } from '../components/ShieldKeyboardGeometry';
 import {
   Layers,
@@ -96,7 +96,7 @@ export const ShieldsTab: React.FC<ShieldsTabProps> = ({
   }, [handleKeystroke]);
 
   const selectedShield = useMemo(() => {
-    return KNOWN_SHIELDS.find((s) => s.id === selectedShieldId) || KNOWN_SHIELDS[0];
+    return getShieldDefinition(selectedShieldId);
   }, [selectedShieldId]);
 
   const effectiveSymbolSlices = useMemo(

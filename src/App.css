@@ -230,6 +230,59 @@
   box-shadow: 0 0 6px #a953f6;
 }
 
+/* Unknown / Custom Shield Enclosure (Purple wrapper like Seeed Xiao without USB connector) */
+.unknown-shield-unit-case {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  z-index: 10;
+  transition: transform 0.2s ease;
+  margin: 0 4px;
+}
+
+.unknown-shield-body {
+  background: rgba(13, 16, 23, 0.92);
+  border: 1.5px solid #a953f6;
+  border-radius: 14px;
+  padding: 10px 12px 14px 12px;
+  position: relative;
+  box-shadow:
+    0 0 16px rgba(169, 83, 246, 0.22),
+    0 0 2px rgba(169, 83, 246, 0.5),
+    inset 0 0 12px rgba(169, 83, 246, 0.04);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.unknown-shield-body:hover {
+  border-color: #bf84fd;
+  box-shadow:
+    0 0 24px rgba(169, 83, 246, 0.38),
+    0 0 4px rgba(169, 83, 246, 0.7),
+    inset 0 0 16px rgba(169, 83, 246, 0.06);
+}
+
+.unknown-shield-header-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  color: #a953f6;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.unknown-shield-header-badge .live-dot {
+  background: #a953f6;
+  box-shadow: 0 0 6px #a953f6;
+}
+
 /* Half Layout Structure */
 .half-inner-layout {
   display: flex;
