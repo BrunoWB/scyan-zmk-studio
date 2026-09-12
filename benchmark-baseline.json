@@ -1,0 +1,93 @@
+{
+  "timestamp": "2026-09-12T07:39:27.582Z",
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+  "devicePixelRatio": 1.5,
+  "canvasResolution": {
+    "width": 863,
+    "height": 473
+  },
+  "scenarios": [
+    {
+      "name": "Hover Sweep",
+      "description": "Rapid continuous pointer movement across canvas, measuring React hoverPos updates & canvas redraws",
+      "frameCount": 60,
+      "totalDurationMs": 945.5000000029804,
+      "meanFrameMs": 15.758333333383007,
+      "medianFrameMs": 16.600000000000136,
+      "p95FrameMs": 25,
+      "p99FrameMs": 25.09999999999991,
+      "maxFrameMs": 25.09999999999991,
+      "fps": 63.45848757251282,
+      "droppedFrames": 27,
+      "droppedFramesPct": 45,
+      "longTasksCount": 0
+    },
+    {
+      "name": "Freehand Pencil Stroke",
+      "description": "Continuous pencil stroke dragging, stressing grid.clone(), lineDraw algorithm, setGrid, and pixel redraws",
+      "frameCount": 80,
+      "totalDurationMs": 3508.2000000029802,
+      "meanFrameMs": 43.85250000003725,
+      "medianFrameMs": 45.69999999999982,
+      "p95FrameMs": 50,
+      "p99FrameMs": 62.5,
+      "maxFrameMs": 62.5,
+      "fps": 22.803717005852587,
+      "droppedFrames": 80,
+      "droppedFramesPct": 100,
+      "longTasksCount": 2
+    },
+    {
+      "name": "Viewport Pan Drag",
+      "description": "Continuous pan dragging across frames, stressing setPan, grid line recalculation, and transform redraws",
+      "frameCount": 90,
+      "totalDurationMs": 2299.8,
+      "meanFrameMs": 25.553333333333335,
+      "medianFrameMs": 25,
+      "p95FrameMs": 33.399999999999636,
+      "p99FrameMs": 33.5,
+      "maxFrameMs": 33.5,
+      "fps": 39.13383772501956,
+      "droppedFrames": 87,
+      "droppedFramesPct": 96.66666666666667,
+      "longTasksCount": 0
+    },
+    {
+      "name": "Marquee Select & Move",
+      "description": "Box selection drag and moving extracted pixel slice with active ghost preview overlay",
+      "frameCount": 75,
+      "totalDurationMs": 2249.2000000014905,
+      "meanFrameMs": 29.989333333353205,
+      "medianFrameMs": 29.200000000000728,
+      "p95FrameMs": 37.600000000000364,
+      "p99FrameMs": 191.59999999999854,
+      "maxFrameMs": 191.59999999999854,
+      "fps": 33.3451894006537,
+      "droppedFrames": 70,
+      "droppedFramesPct": 93.33333333333333,
+      "longTasksCount": 1
+    },
+    {
+      "name": "Zoom Scaling",
+      "description": "Stepping through zoom levels from 1x to 32x, stressing pixel batching, coordinate culling, and grid lines",
+      "frameCount": 36,
+      "totalDurationMs": 286,
+      "meanFrameMs": 7.944444444444445,
+      "medianFrameMs": 8.300000000001091,
+      "p95FrameMs": 12.5,
+      "p99FrameMs": 15.600000000000364,
+      "maxFrameMs": 15.600000000000364,
+      "fps": 125.87412587412588,
+      "droppedFrames": 0,
+      "droppedFramesPct": 0,
+      "longTasksCount": 0
+    }
+  ],
+  "summary": {
+    "overallScore": 4,
+    "averageFrameMs": 24.62,
+    "overallFps": 40.6,
+    "totalDroppedFrames": 264,
+    "totalLongTasks": 3
+  }
+}

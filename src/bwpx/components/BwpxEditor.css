@@ -342,6 +342,19 @@
   image-rendering: crisp-edges;
 }
 
+.bwpx-base-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.bwpx-overlay-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
 /* 3. STATUS BAR */
 .bwpx-statusbar {
   height: 26px;

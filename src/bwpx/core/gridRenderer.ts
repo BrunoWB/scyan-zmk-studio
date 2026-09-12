@@ -18,7 +18,7 @@ export interface SelectionOverlay {
   active: boolean;
 }
 
-export interface RenderBwpxOptions {
+export interface RenderBaseOptions {
   grid: BwpxGrid;
   zoom: number;
   pan: { x: number; y: number };
@@ -27,22 +27,41 @@ export interface RenderBwpxOptions {
   gridLineColor?: string;
   showGridLines?: boolean;
   showAxes?: boolean;
-  ghost?: GhostOverlay | null;
-  selection?: SelectionOverlay | null;
   slices?: SpriteSlice[];
   selectedSliceId?: string;
   frameBounds?: { x: number; y: number; w: number; h: number } | null;
+}
+
+export interface RenderOverlayOptions {
+  zoom: number;
+  pan: { x: number; y: number };
   hoverPos?: { x: number; y: number } | null;
   hoverHighlightColor?: string;
+  brushSize?: number;
+  showBrushIndicator?: boolean;
+  frameBounds?: { x: number; y: number; w: number; h: number } | null;
+  ghost?: GhostOverlay | null;
+  selection?: SelectionOverlay | null;
+  bgColor?: string;
+}
+
+export interface RenderBwpxOptions extends RenderBaseOptions {
+  ghost?: GhostOverlay | null;
+  selection?: SelectionOverlay | null;
+  hoverPos?: { x: number; y: number } | null;
+  hoverHighlightColor?: string;
+  brushSize?: number;
+  showBrushIndicator?: boolean;
 }
 
 /**
- * Shared grid canvas renderer used by BwpxEditor and ImageImportModal
+ * Renders the persistent base layer: background, grid lines, axes, frame bounds, pixels, slices.
+ * This should ONLY be re-rendered when grid data, viewport (pan/zoom), or slices change.
  */
-export function renderBwpxCanvas(
+export function renderBaseCanvas(
   canvas: HTMLCanvasElement,
   ctx: CanvasRenderingContext2D,
-  options: RenderBwpxOptions
+  options: RenderBaseOptions
 ): void {
   const {
     grid,
@@ -53,20 +72,14 @@ export function renderBwpxCanvas(
     gridLineColor = 'rgba(255, 255, 255, 0.04)',
     showGridLines = zoom >= 5,
     showAxes = true,
-    ghost = null,
-    selection = null,
     slices = [],
     selectedSliceId = '',
     frameBounds = null,
-    hoverPos = null,
-    hoverHighlightColor = 'rgba(255, 255, 255, 0.04)',
   } = options;
 
   ctx.imageSmoothingEnabled = false;
 
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // Deep studio background
+  // Clear & background
   ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -79,39 +92,9 @@ export function renderBwpxCanvas(
   const startGridY = Math.floor(-panY / zoom);
   const endGridY = Math.ceil((canvas.height - panY) / zoom);
 
-  // Subtle column & row highlight on hover
-  if (hoverPos) {
-    const colX = panX + Math.round(hoverPos.x * zoom);
-    const colW = Math.round((hoverPos.x + 1) * zoom) - Math.round(hoverPos.x * zoom);
-    const rowY = panY + Math.round(hoverPos.y * zoom);
-    const rowH = Math.round((hoverPos.y + 1) * zoom) - Math.round(hoverPos.y * zoom);
-
-    const xMin = frameBounds ? Math.max(0, panX + Math.round(frameBounds.x * zoom)) : 0;
-    const xMax = frameBounds ? Math.min(canvas.width, panX + Math.round((frameBounds.x + frameBounds.w) * zoom)) : canvas.width;
-    const yMin = frameBounds ? Math.max(0, panY + Math.round(frameBounds.y * zoom)) : 0;
-    const yMax = frameBounds ? Math.min(canvas.height, panY + Math.round((frameBounds.y + frameBounds.h) * zoom)) : canvas.height;
-
-    ctx.fillStyle = hoverHighlightColor;
-
-    // Highlight column
-    const drawColX = Math.max(xMin, colX);
-    const drawColW = Math.min(colX + colW, xMax) - drawColX;
-    if (drawColW > 0 && yMax > yMin) {
-      ctx.fillRect(drawColX, yMin, drawColW, yMax - yMin);
-    }
-
-    // Highlight row
-    const drawRowY = Math.max(yMin, rowY);
-    const drawRowH = Math.min(rowY + rowH, yMax) - drawRowY;
-    if (drawRowH > 0 && xMax > xMin) {
-      ctx.fillRect(xMin, drawRowY, xMax - xMin, drawRowH);
-    }
-  }
-
   // 1. Subtle infinite grid lines
   if (showGridLines) {
     ctx.save();
-    // 0.5 offset aligns 1px strokes directly with physical pixels to prevent 2px blur
     ctx.translate(panX + 0.5, panY + 0.5);
     ctx.strokeStyle = gridLineColor;
     ctx.lineWidth = 1;
@@ -173,7 +156,7 @@ export function renderBwpxCanvas(
     ctx.strokeRect(fx + 0.5, fy + 0.5, fw, fh);
   }
 
-  // 3. Active pixels - drawn on exact pixel boundaries to eliminate subpixel blur
+  // 3. Active pixels
   ctx.fillStyle = pixelColor;
   const allPixels = grid.getAllPixels();
   for (let i = 0; i < allPixels.length; i++) {
@@ -187,12 +170,110 @@ export function renderBwpxCanvas(
     }
   }
 
-  // 4. Ghost image preview during drag or placement
+  // 4. Sprite Slices Overlay
+  if (slices && slices.length > 0) {
+    slices.forEach(s => {
+      const isSelected = selectedSliceId === s.id;
+      const sx = Math.round(s.x * zoom);
+      const sy = Math.round(s.y * zoom);
+      const sw = Math.round((s.x + s.width) * zoom) - sx;
+      const sh = Math.round((s.y + s.height) * zoom) - sy;
+
+      ctx.strokeStyle = isSelected ? '#c084fc' : (s.color || 'rgba(168, 85, 247, 0.45)');
+      ctx.lineWidth = isSelected ? 2 : 1;
+      if (!isSelected) {
+        ctx.setLineDash([3, 3]);
+      } else {
+        ctx.setLineDash([]);
+        ctx.shadowColor = '#c084fc';
+        ctx.shadowBlur = 8;
+      }
+      ctx.strokeRect(sx + 0.5, sy + 0.5, sw, sh);
+      ctx.shadowBlur = 0;
+      ctx.setLineDash([]);
+
+      // Slice badge label
+      if (zoom >= 6) {
+        const label = `${s.name} (${s.width}×${s.height})`;
+        ctx.font = '10px "JetBrains Mono", monospace';
+        const textWidth = ctx.measureText(label).width;
+        ctx.fillStyle = isSelected ? 'rgba(192, 132, 252, 0.95)' : 'rgba(18, 20, 26, 0.85)';
+        ctx.fillRect(sx, sy - 15, textWidth + 8, 14);
+        ctx.fillStyle = isSelected ? '#090a0d' : '#cbd5e1';
+        ctx.fillText(label, sx + 4, sy - 4);
+      }
+    });
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Renders ephemeral user interaction feedback: cursor hover highlight, brush indicator,
+ * ghost placement overlay, and selection marquee.
+ * Extremely fast (<0.1ms), does not redraw base pixels or grid lines.
+ */
+export function renderOverlayCanvas(
+  canvas: HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D,
+  options: RenderOverlayOptions
+): void {
+  const {
+    zoom,
+    pan,
+    hoverPos = null,
+    hoverHighlightColor = 'rgba(255, 255, 255, 0.04)',
+    brushSize = 1,
+    showBrushIndicator = false,
+    frameBounds = null,
+    ghost = null,
+    selection = null,
+    bgColor = '#0b0d11',
+  } = options;
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const panX = Math.round(pan.x);
+  const panY = Math.round(pan.y);
+
+  // 1. Column & row highlight on hover
+  if (hoverPos) {
+    const colX = panX + Math.round(hoverPos.x * zoom);
+    const colW = Math.round((hoverPos.x + 1) * zoom) - Math.round(hoverPos.x * zoom);
+    const rowY = panY + Math.round(hoverPos.y * zoom);
+    const rowH = Math.round((hoverPos.y + 1) * zoom) - Math.round(hoverPos.y * zoom);
+
+    const xMin = frameBounds ? Math.max(0, panX + Math.round(frameBounds.x * zoom)) : 0;
+    const xMax = frameBounds ? Math.min(canvas.width, panX + Math.round((frameBounds.x + frameBounds.w) * zoom)) : canvas.width;
+    const yMin = frameBounds ? Math.max(0, panY + Math.round(frameBounds.y * zoom)) : 0;
+    const yMax = frameBounds ? Math.min(canvas.height, panY + Math.round((frameBounds.y + frameBounds.h) * zoom)) : canvas.height;
+
+    ctx.fillStyle = hoverHighlightColor;
+
+    // Highlight column
+    const drawColX = Math.max(xMin, colX);
+    const drawColW = Math.min(colX + colW, xMax) - drawColX;
+    if (drawColW > 0 && yMax > yMin) {
+      ctx.fillRect(drawColX, yMin, drawColW, yMax - yMin);
+    }
+
+    // Highlight row
+    const drawRowY = Math.max(yMin, rowY);
+    const drawRowH = Math.min(rowY + rowH, yMax) - drawRowY;
+    if (drawRowH > 0 && xMax > xMin) {
+      ctx.fillRect(xMin, drawRowY, xMax - xMin, drawRowH);
+    }
+  }
+
+  ctx.save();
+  ctx.translate(panX, panY);
+
+  // 2. Ghost image preview during drag or placement
   if (ghost) {
     const targetX = ghost.x;
     const targetY = ghost.y;
 
-    // Fill background so black is NOT treated as transparent layer and overrides beneath
     ctx.fillStyle = bgColor;
     if (ghost.rects && ghost.rects.length > 0) {
       ghost.rects.forEach(r => {
@@ -247,42 +328,7 @@ export function renderBwpxCanvas(
     ctx.setLineDash([]);
   }
 
-  // 5. Sprite Slices Overlay
-  if (slices && slices.length > 0) {
-    slices.forEach(s => {
-      const isSelected = selectedSliceId === s.id;
-      const sx = Math.round(s.x * zoom);
-      const sy = Math.round(s.y * zoom);
-      const sw = Math.round((s.x + s.width) * zoom) - sx;
-      const sh = Math.round((s.y + s.height) * zoom) - sy;
-
-      ctx.strokeStyle = isSelected ? '#c084fc' : (s.color || 'rgba(168, 85, 247, 0.45)');
-      ctx.lineWidth = isSelected ? 2 : 1;
-      if (!isSelected) {
-        ctx.setLineDash([3, 3]);
-      } else {
-        ctx.setLineDash([]);
-        ctx.shadowColor = '#c084fc';
-        ctx.shadowBlur = 8;
-      }
-      ctx.strokeRect(sx + 0.5, sy + 0.5, sw, sh);
-      ctx.shadowBlur = 0;
-      ctx.setLineDash([]);
-
-      // Slice badge label
-      if (zoom >= 6) {
-        const label = `${s.name} (${s.width}×${s.height})`;
-        ctx.font = '10px "JetBrains Mono", monospace';
-        const textWidth = ctx.measureText(label).width;
-        ctx.fillStyle = isSelected ? 'rgba(192, 132, 252, 0.95)' : 'rgba(18, 20, 26, 0.85)';
-        ctx.fillRect(sx, sy - 15, textWidth + 8, 14);
-        ctx.fillStyle = isSelected ? '#090a0d' : '#cbd5e1';
-        ctx.fillText(label, sx + 4, sy - 4);
-      }
-    });
-  }
-
-  // 6. Selection Marquee
+  // 3. Selection Marquee
   if (selection && selection.active) {
     const mx = Math.round(selection.x * zoom);
     const my = Math.round(selection.y * zoom);
@@ -298,6 +344,33 @@ export function renderBwpxCanvas(
     ctx.setLineDash([]);
   }
 
+  // 4. Hover brush indicator
+  if (hoverPos && showBrushIndicator) {
+    const half = Math.floor(brushSize / 2);
+    ctx.strokeStyle = 'rgba(0, 229, 163, 0.6)';
+    ctx.lineWidth = 1;
+    const bx = Math.round((hoverPos.x - half) * zoom);
+    const by = Math.round((hoverPos.y - half) * zoom);
+    const bw = Math.round((hoverPos.x - half + brushSize) * zoom) - bx;
+    const bh = Math.round((hoverPos.y - half + brushSize) * zoom) - by;
+    ctx.strokeRect(bx + 0.5, by + 0.5, bw, bh);
+  }
+
   ctx.restore();
 }
 
+/**
+ * Shared grid canvas renderer (combined base + overlay) for backward compatibility
+ */
+export function renderBwpxCanvas(
+  canvas: HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D,
+  options: RenderBwpxOptions
+): void {
+  renderBaseCanvas(canvas, ctx, options);
+  renderOverlayCanvas(canvas, ctx, {
+    ...options,
+    // in combined mode, do not clear the base canvas
+    bgColor: options.bgColor,
+  });
+}

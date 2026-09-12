@@ -35,12 +35,14 @@ import {
   FileCode,
   Check,
   Copy,
+  Activity,
 } from 'lucide-react';
 import type { SpriteSlice } from '../../types/zmk';
-import { renderBwpxCanvas } from '../core/gridRenderer';
+import { renderBaseCanvas, renderOverlayCanvas } from '../core/gridRenderer';
 import { ImageImportModal } from './ImageImportModal';
 import { CanvasContextMenu } from './CanvasContextMenu';
 import { findAvailableSpot } from '../core/canvasPacking';
+import { BenchmarkOverlay } from '../benchmarks/BenchmarkOverlay';
 import './BwpxEditor.css';
 
 export type ToolType =
@@ -222,7 +224,14 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     });
   }, []);
 
-  const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
+  const hoverPosRef = useRef<{ x: number; y: number } | null>(null);
+  const coordsDisplayRef = useRef<HTMLSpanElement | null>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const overlayRafId = useRef<number | null>(null);
+  const [isBenchmarkOpen, setIsBenchmarkOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.location.search.includes('bench=true') || window.location.hash.includes('bench');
+  });
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
   const [drawButton, setDrawButton] = useState<number>(0);
   const drawButtonRef = useRef<number>(0);
@@ -503,6 +512,73 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   onAddSlicesRef.current = onAddSlices;
   const onSlicesChangeRef = useRef(onSlicesChange);
   onSlicesChangeRef.current = onSlicesChange;
+
+  const activeToolRef = useRef<ToolType>(activeTool);
+  activeToolRef.current = activeTool;
+  const brushSizeRef = useRef<number>(brushSize);
+  brushSizeRef.current = brushSize;
+  const isPanningRef = useRef<boolean>(isPanning);
+  isPanningRef.current = isPanning;
+
+  const requestOverlayRender = useCallback(() => {
+    if (overlayRafId.current !== null) return;
+    overlayRafId.current = requestAnimationFrame(() => {
+      overlayRafId.current = null;
+      const overlayCanvas = overlayCanvasRef.current;
+      if (!overlayCanvas) return;
+      const ctx = overlayCanvas.getContext('2d');
+      if (!ctx) return;
+
+      const isInteractingTool = isControlHeldRef.current || isShiftHeldRef.current || activeToolRef.current === 'select';
+      const showBrush = Boolean(
+        hoverPosRef.current &&
+        !ghostPlacementRef.current &&
+        !isPanningRef.current &&
+        !isInteractingTool
+      );
+
+      const movingPx = movingPixelsRef.current;
+      const ghost = ghostPlacementRef.current;
+      const sel = selectionRef.current;
+
+      const activeGhost =
+        movingPx && movingPx.active
+          ? {
+              pixels: movingPx.pixels,
+              x: movingPx.originalRect.x + movingPx.offset.dx,
+              y: movingPx.originalRect.y + movingPx.offset.dy,
+              w: movingPx.originalRect.w,
+              h: movingPx.originalRect.h,
+              rects: movingPx.sliceRects
+                ? movingPx.sliceRects.map(r => ({
+                    x: r.x + movingPx.offset.dx,
+                    y: r.y + movingPx.offset.dy,
+                    w: r.w,
+                    h: r.h,
+                  }))
+                : undefined,
+            }
+          : ghost
+          ? {
+              pixels: ghost.pixels,
+              x: ghost.x,
+              y: ghost.y,
+              w: ghost.width,
+              h: ghost.height,
+            }
+          : null;
+
+      renderOverlayCanvas(overlayCanvas, ctx, {
+        zoom: zoomRef.current,
+        pan: panRef.current,
+        hoverPos: !isPanningRef.current ? hoverPosRef.current : null,
+        brushSize: brushSizeRef.current,
+        showBrushIndicator: showBrush,
+        ghost: activeGhost,
+        selection: !movingPx || !movingPx.active ? sel : null,
+      });
+    });
+  }, []);
 
   // Clear free marquee selections when selection tool is deactivated
   const clearFreeSelections = useCallback(() => {
@@ -899,34 +975,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       displayGrid = temp;
     }
 
-    const activeGhost =
-      movingPixels && movingPixels.active
-        ? {
-            pixels: movingPixels.pixels,
-            x: movingPixels.originalRect.x + movingPixels.offset.dx,
-            y: movingPixels.originalRect.y + movingPixels.offset.dy,
-            w: movingPixels.originalRect.w,
-            h: movingPixels.originalRect.h,
-            rects: movingPixels.sliceRects
-              ? movingPixels.sliceRects.map(r => ({
-                  x: r.x + movingPixels.offset.dx,
-                  y: r.y + movingPixels.offset.dy,
-                  w: r.w,
-                  h: r.h,
-                }))
-              : undefined,
-          }
-        : ghostPlacement
-        ? {
-            pixels: ghostPlacement.pixels,
-            x: ghostPlacement.x,
-            y: ghostPlacement.y,
-            w: ghostPlacement.width,
-            h: ghostPlacement.height,
-          }
-        : null;
-
-    renderBwpxCanvas(canvas, ctx, {
+    renderBaseCanvas(canvas, ctx, {
       grid: displayGrid,
       zoom,
       pan,
@@ -934,28 +983,9 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       bgColor: '#0b0d11',
       showAxes: true,
       showGridLines: zoom >= 5,
-      ghost: activeGhost,
-      selection: !movingPixels || !movingPixels.active ? selection : null,
       slices,
       selectedSliceId,
-      hoverPos: !isPanning ? hoverPos : null,
     });
-
-    // Hover brush indicator (when not panning, not placing ghost, and using drawing tool)
-    const isInteractingTool = isControlHeld || isShiftHeld || activeTool === 'select';
-    if (hoverPos && !ghostPlacement && !isPanning && !isInteractingTool) {
-      ctx.save();
-      ctx.translate(Math.round(pan.x), Math.round(pan.y));
-      const half = Math.floor(brushSize / 2);
-      ctx.strokeStyle = 'rgba(0, 229, 163, 0.6)';
-      ctx.lineWidth = 1;
-      const bx = Math.round((hoverPos.x - half) * zoom);
-      const by = Math.round((hoverPos.y - half) * zoom);
-      const bw = Math.round((hoverPos.x - half + brushSize) * zoom) - bx;
-      const bh = Math.round((hoverPos.y - half + brushSize) * zoom) - by;
-      ctx.strokeRect(bx + 0.5, by + 0.5, bw, bh);
-      ctx.restore();
-    }
   }, [
     grid,
     pan,
@@ -964,22 +994,19 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     startPos,
     dragCurrentPos,
     activeTool,
-    drawButton,
     brushSize,
-    selection,
-    movingPixels,
-    ghostPlacement,
     slices,
     selectedSliceId,
-    hoverPos,
-    isPanning,
-    isControlHeld,
-    isShiftHeld,
   ]);
 
   useEffect(() => {
     renderCanvas();
-  }, [renderCanvas]);
+    requestOverlayRender();
+  }, [renderCanvas, requestOverlayRender]);
+
+  useEffect(() => {
+    requestOverlayRender();
+  }, [selection, movingPixels, ghostPlacement, requestOverlayRender]);
 
   // Handle Resize of canvas container with ResizeObserver
   useEffect(() => {
@@ -990,7 +1017,12 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
         if (w > 0 && h > 0) {
           canvasRef.current.width = w;
           canvasRef.current.height = h;
+          if (overlayCanvasRef.current) {
+            overlayCanvasRef.current.width = w;
+            overlayCanvasRef.current.height = h;
+          }
           renderCanvas();
+          requestOverlayRender();
         }
       }
     };
@@ -1006,7 +1038,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       ro.disconnect();
       window.removeEventListener('resize', updateCanvasSize);
     };
-  }, [renderCanvas]);
+  }, [renderCanvas, requestOverlayRender]);
 
   // Mouse Handlers
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -1251,11 +1283,13 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     }
 
     const coords = getGridCoords(e.clientX, e.clientY);
-    setHoverPos(prev => {
-      if (!prev && !coords) return null;
-      if (prev && coords && prev.x === coords.x && prev.y === coords.y) return prev;
-      return coords;
-    });
+    hoverPosRef.current = coords;
+    if (coordsDisplayRef.current) {
+      coordsDisplayRef.current.textContent = coords
+        ? `${coords.x >= 0 ? '+' : ''}${coords.x}, ${coords.y >= 0 ? '+' : ''}${coords.y}`
+        : '--';
+    }
+    requestOverlayRender();
 
     if (!coords) return;
 
@@ -1773,14 +1807,15 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     }
     if (effectiveTool === 'select') {
       if (movingPixels && movingPixels.active) return 'grabbing';
+      const hp = hoverPosRef.current;
       if (
-        hoverPos &&
+        hp &&
         selection &&
         selection.active &&
-        hoverPos.x >= selection.x &&
-        hoverPos.x < selection.x + selection.w &&
-        hoverPos.y >= selection.y &&
-        hoverPos.y < selection.y + selection.h
+        hp.x >= selection.x &&
+        hp.x < selection.x + selection.w &&
+        hp.y >= selection.y &&
+        hp.y < selection.y + selection.h
       ) {
         return 'grab';
       }
@@ -2006,6 +2041,30 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     });
   };
 
+  const handleMouseLeave = useCallback(() => {
+    hoverPosRef.current = null;
+    if (coordsDisplayRef.current) {
+      coordsDisplayRef.current.textContent = '--';
+    }
+    requestOverlayRender();
+    setIsPanning(false);
+    drawButtonRef.current = 0;
+    setDrawButton(0);
+    if (movingPixels && movingPixels.active) {
+      handleMouseUp();
+    } else {
+      if (strokeModifiedRef.current) {
+        commitGridState(grid);
+        strokeModifiedRef.current = false;
+      }
+      setIsDrawing(false);
+      setIsInsideSelectionOnDown(false);
+      setStartPos(null);
+      setDragCurrentPos(null);
+      lastDrawPosRef.current = null;
+    }
+  }, [movingPixels, handleMouseUp, grid, commitGridState, requestOverlayRender]);
+
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     if (ghostPlacement) {
@@ -2186,6 +2245,15 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           >
             <Maximize2 size={15} />
           </button>
+
+          <button
+            onClick={() => setIsBenchmarkOpen(true)}
+            className="bwpx-btn-icon"
+            title="Performance Benchmark (W3C Profiler)"
+            style={{ color: '#34d399' }}
+          >
+            <Activity size={15} />
+          </button>
         </div>
       </header>
 
@@ -2343,29 +2411,16 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
         >
           <canvas
             ref={canvasRef}
+            className="bwpx-base-canvas"
             style={{ cursor: getCanvasCursor() }}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={(e) => handleMouseUp(e)}
-            onMouseLeave={() => {
-              setHoverPos(null);
-              setIsPanning(false);
-              drawButtonRef.current = 0;
-              setDrawButton(0);
-              if (movingPixels && movingPixels.active) {
-                handleMouseUp();
-              } else {
-                if (strokeModifiedRef.current) {
-                  commitGridState(grid);
-                  strokeModifiedRef.current = false;
-                }
-                setIsDrawing(false);
-                setIsInsideSelectionOnDown(false);
-                setStartPos(null);
-                setDragCurrentPos(null);
-                lastDrawPosRef.current = null;
-              }
-            }}
+            onMouseLeave={handleMouseLeave}
+          />
+          <canvas
+            ref={overlayCanvasRef}
+            className="bwpx-overlay-canvas"
           />
         </main>
       </div>
@@ -2384,8 +2439,8 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           )}
           <span>
             Pos:{' '}
-            <strong className="bwpx-status-val">
-              {hoverPos ? `${hoverPos.x >= 0 ? '+' : ''}${hoverPos.x}, ${hoverPos.y >= 0 ? '+' : ''}${hoverPos.y}` : '--'}
+            <strong ref={coordsDisplayRef} className="bwpx-status-val">
+              --
             </strong>
           </span>
           <span>
@@ -2494,6 +2549,12 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           hasSelection={Boolean(selection && selection.active)}
         />
       )}
+
+      {/* Performance Benchmark Modal */}
+      <BenchmarkOverlay
+        isOpen={isBenchmarkOpen}
+        onClose={() => setIsBenchmarkOpen(false)}
+      />
     </div>
   );
 };
