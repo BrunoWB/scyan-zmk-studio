@@ -37,24 +37,29 @@ jobs:
       - name: Ensure .nojekyll present
         run: touch dist/.nojekyll
 
-      - name: Clone brunowb.github.io
+      - name: Clone brunowb.github.io (full, not shallow)
         run: |
-          git clone --depth=1 \
+          git clone \
             "https://x-access-token:${{ secrets.GH_PAT_PAGES }}@github.com/BrunoWB/brunowb.github.io.git" \
             /tmp/user-site
 
-      - name: Sync dist into nightly subfolder
+      - name: Wipe and replace nightly subfolder
         run: |
-          rm -rf /tmp/user-site/nightly/scyan-zmk-studio
-          mkdir -p /tmp/user-site/nightly/scyan-zmk-studio
-          cp -r dist/. /tmp/user-site/nightly/scyan-zmk-studio/
+          cd /tmp/user-site
+          # Remove entire nightly/scyan-zmk-studio subtree from git index AND disk
+          git rm -rf nightly/scyan-zmk-studio/ --ignore-unmatch
+          mkdir -p nightly/scyan-zmk-studio
+          cp -r $GITHUB_WORKSPACE/dist/. nightly/scyan-zmk-studio/
+          # Force-add everything including assets/
+          git add -f nightly/scyan-zmk-studio/
 
       - name: Commit and push
         run: |
           cd /tmp/user-site
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add nightly/
+          echo "=== Staged files ==="
+          git diff --cached --name-only | head -20
           git diff --cached --quiet && echo "No changes" && exit 0
           git commit -m "chore(nightly): deploy scyan-zmk-studio ${{ github.sha }} [skip ci]"
           git push origin main
