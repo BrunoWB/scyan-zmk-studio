@@ -124,6 +124,11 @@ export function calculateFitViewport(
   return { zoom: snapZoom, pan };
 }
 
+export interface EditorViewport {
+  zoom: number;
+  pan: { x: number; y: number };
+}
+
 export interface HistoryEntry {
   grid: BwpxGrid;
   selection: { x: number; y: number; w: number; h: number; active: boolean } | null;
@@ -149,6 +154,8 @@ export interface BwpxEditorProps {
   onAddSlices?: (slices: SpriteSlice[]) => void;
   onSlicesChange?: (slices: SpriteSlice[]) => void;
   externalTool?: ToolType;
+  initialViewport?: EditorViewport;
+  onViewportChange?: (viewport: EditorViewport) => void;
 }
 
 export const BwpxEditor: React.FC<BwpxEditorProps> = ({
@@ -170,6 +177,8 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   onAddSlices,
   onSlicesChange,
   externalTool,
+  initialViewport,
+  onViewportChange,
 }) => {
   const [grid, setGrid] = useState<BwpxGrid>(
     () => initialGrid?.clone() ?? new BwpxGrid(initialWidth, initialHeight)
@@ -192,17 +201,24 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     }
   }, [externalTool]);
   const [brushSize, setBrushSize] = useState<number>(1);
-  const [viewport, setViewport] = useState<{ zoom: number; pan: { x: number; y: number } }>({
-    zoom: 10,
-    pan: { x: 300, y: 200 },
-  });
+  const [viewport, setViewport] = useState<EditorViewport>(
+    () => initialViewport ?? {
+      zoom: 10,
+      pan: { x: 300, y: 200 },
+    }
+  );
   const { zoom, pan } = viewport;
+
+  const onViewportChangeRef = useRef(onViewportChange);
+  onViewportChangeRef.current = onViewportChange;
 
   const setPan = useCallback((action: { x: number; y: number } | ((prev: { x: number; y: number }) => { x: number; y: number })) => {
     setViewport(v => {
       const nextPan = typeof action === 'function' ? action(v.pan) : action;
       panRef.current = nextPan;
-      return { ...v, pan: nextPan };
+      const nextViewport = { ...v, pan: nextPan };
+      onViewportChangeRef.current?.(nextViewport);
+      return nextViewport;
     });
   }, []);
 
@@ -521,19 +537,22 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       targetH
     );
 
+    const nextViewport = { zoom: fitZoom, pan: newPan };
     zoomRef.current = fitZoom;
     panRef.current = newPan;
-    setViewport({ zoom: fitZoom, pan: newPan });
+    setViewport(nextViewport);
+    onViewportChangeRef.current?.(nextViewport);
   }, [initialWidth, initialHeight]);
 
-  // Always reset to (0, 0) origin when entering the editor / mounting
+  // Reset to (0, 0) origin when entering the editor / mounting only if no initialViewport is provided
   useEffect(() => {
+    if (initialViewport) return;
     fitToView();
     const timer = setTimeout(() => {
       fitToView();
     }, 40);
     return () => clearTimeout(timer);
-  }, [fitToView]);
+  }, [fitToView, initialViewport]);
 
   // Coordinate conversion helper
   const getGridCoords = useCallback((clientX: number, clientY: number): { x: number; y: number } | null => {
@@ -1732,6 +1751,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
         const next = calculateZoomAtPoint(prev.zoom, prev.pan, mouseX, mouseY, step);
         zoomRef.current = next.zoom;
         panRef.current = next.pan;
+        onViewportChangeRef.current?.(next);
         return next;
       });
     };

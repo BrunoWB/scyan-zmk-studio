@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { BwpxGrid } from '../bwpx/core/BwpxGrid';
-import { BwpxEditor } from '../bwpx/components/BwpxEditor';
+import { BwpxEditor, type EditorViewport } from '../bwpx';
 import type { SpriteSlice } from '../types/zmk';
 import { Chip } from '@heroui/react';
 import { StepperControl } from '../components/ScreenSizePopover';
@@ -12,6 +12,7 @@ import {
   Move,
   Layers,
   MoreVertical,
+  X,
 } from 'lucide-react';
 import { SymbolGroupContextMenu } from '../components/SymbolGroupContextMenu';
 import {
@@ -26,6 +27,9 @@ export interface SymbolsAtlasTabProps {
   onSymbolsGridChange: (grid: BwpxGrid) => void;
   slices: SpriteSlice[];
   onSlicesChange: (slices: SpriteSlice[]) => void;
+  initialSelectedSliceId?: string;
+  viewport?: EditorViewport;
+  onViewportChange?: (viewport: EditorViewport) => void;
 }
 
 export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
@@ -33,8 +37,13 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
   onSymbolsGridChange,
   slices,
   onSlicesChange,
+  initialSelectedSliceId,
+  viewport,
+  onViewportChange,
 }) => {
-  const [selectedSliceIds, setSelectedSliceIds] = useState<Set<string>>(new Set(slices[0] ? [slices[0].id] : []));
+  const [selectedSliceIds, setSelectedSliceIds] = useState<Set<string>>(
+    () => new Set(initialSelectedSliceId ? [initialSelectedSliceId] : [])
+  );
   const selectedSliceId = Array.from(selectedSliceIds)[0] || '';
   const [newSliceName, setNewSliceName] = useState<string>('');
   const [pendingNewSlice, setPendingNewSlice] = useState<{
@@ -234,7 +243,6 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
     if (selectedSliceIds.has(id)) {
       const nextSet = new Set(selectedSliceIds);
       nextSet.delete(id);
-      if (nextSet.size === 0 && next[0]) nextSet.add(next[0].id);
       setSelectedSliceIds(nextSet);
     }
   };
@@ -355,6 +363,8 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
           selectedSliceId={selectedSliceId}
           selectedSliceIds={Array.from(selectedSliceIds)}
           pendingSelection={pendingNewSlice}
+          initialViewport={viewport}
+          onViewportChange={onViewportChange}
           onSelectSlice={(id, isMulti) => {
             if (!id) {
               setSelectedSliceIds(new Set());
@@ -561,6 +571,13 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
                     <Trash2 size={13} />
                   </button>
                 )}
+                <button
+                  onClick={() => setSelectedSliceIds(new Set())}
+                  className="size-7 rounded-lg text-[#555e6e] hover:text-white hover:bg-white/10 border border-transparent flex items-center justify-center transition-all cursor-pointer"
+                  title="Deselect slice"
+                >
+                  <X size={14} />
+                </button>
               </div>
             </div>
 
@@ -782,7 +799,11 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
                               else next.add(slice.id);
                               setSelectedSliceIds(next);
                             } else {
-                              setSelectedSliceIds(new Set([slice.id]));
+                              if (selectedSliceIds.size === 1 && selectedSliceIds.has(slice.id)) {
+                                setSelectedSliceIds(new Set());
+                              } else {
+                                setSelectedSliceIds(new Set([slice.id]));
+                              }
                             }
                             setPendingNewSlice(null);
                           }}
@@ -833,7 +854,11 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
                       else next.add(slice.id);
                       setSelectedSliceIds(next);
                     } else {
-                      setSelectedSliceIds(new Set([slice.id]));
+                      if (selectedSliceIds.size === 1 && selectedSliceIds.has(slice.id)) {
+                        setSelectedSliceIds(new Set());
+                      } else {
+                        setSelectedSliceIds(new Set([slice.id]));
+                      }
                     }
                     setPendingNewSlice(null);
                   }}

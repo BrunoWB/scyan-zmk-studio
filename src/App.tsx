@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { BwpxGrid } from './bwpx/core/BwpxGrid';
+import type { EditorViewport } from './bwpx';
 import type {
   SpriteSlice,
   FontGlyph,
@@ -230,6 +231,37 @@ export function App() {
     const def = getDefaultAssets();
     return def.metadata?.rightScreenOffTimeoutSec ?? def.metadata?.screenOffTimeoutSec ?? 60;
   });
+
+  // Track last editor grid looking position in the session (viewport: zoom & pan)
+  const [symbolsViewport, setSymbolsViewport] = useState<EditorViewport | undefined>(() => {
+    try {
+      const saved = sessionStorage.getItem('zmk-symbols-viewport');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return undefined;
+  });
+
+  const [fontViewport, setFontViewport] = useState<EditorViewport | undefined>(() => {
+    try {
+      const saved = sessionStorage.getItem('zmk-font-viewport');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return undefined;
+  });
+
+  const handleSymbolsViewportChange = useCallback((vp: EditorViewport) => {
+    setSymbolsViewport(vp);
+    try {
+      sessionStorage.setItem('zmk-symbols-viewport', JSON.stringify(vp));
+    } catch {}
+  }, []);
+
+  const handleFontViewportChange = useCallback((vp: EditorViewport) => {
+    setFontViewport(vp);
+    try {
+      sessionStorage.setItem('zmk-font-viewport', JSON.stringify(vp));
+    } catch {}
+  }, []);
 
   useEffect(() => {
     try {
@@ -1341,6 +1373,8 @@ export function App() {
                 onSymbolsGridChange={setSymbolsGrid}
                 slices={symbolSlices}
                 onSlicesChange={setSymbolSlices}
+                viewport={symbolsViewport}
+                onViewportChange={handleSymbolsViewportChange}
               />
             )}
 
@@ -1350,6 +1384,8 @@ export function App() {
                 onFontGridChange={setFontGrid}
                 fontMappings={fontMappings}
                 onFontMappingsChange={setFontMappings}
+                viewport={fontViewport}
+                onViewportChange={handleFontViewportChange}
               />
             )}
 

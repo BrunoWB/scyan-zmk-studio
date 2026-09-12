@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { BwpxGrid } from '../bwpx/core/BwpxGrid';
-import { BwpxEditor } from '../bwpx/components/BwpxEditor';
+import { BwpxEditor, type EditorViewport } from '../bwpx';
 import type { FontCharMapping, GlyphSlot, SpriteSlice } from '../types/zmk';
 import {
   Type,
@@ -18,6 +18,9 @@ export interface FontAtlasTabProps {
   onFontGridChange: (grid: BwpxGrid) => void;
   fontMappings: FontCharMapping[];
   onFontMappingsChange: (mappings: FontCharMapping[]) => void;
+  initialSelectedMappingId?: string;
+  viewport?: EditorViewport;
+  onViewportChange?: (viewport: EditorViewport) => void;
 }
 
 export const GHOST_SENTENCES = [
@@ -38,10 +41,13 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
   onFontGridChange,
   fontMappings,
   onFontMappingsChange,
+  initialSelectedMappingId,
+  viewport,
+  onViewportChange,
 }) => {
-  const [selectedMappingId, setSelectedMappingId] = useState<string>(fontMappings[0]?.id || '');
+  const [selectedMappingId, setSelectedMappingId] = useState<string>(initialSelectedMappingId || '');
   const [selectedMappingIds, setSelectedMappingIds] = useState<Set<string>>(
-    new Set(fontMappings[0]?.id ? [fontMappings[0].id] : [])
+    () => new Set(initialSelectedMappingId ? [initialSelectedMappingId] : [])
   );
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [newCharsInput, setNewCharsInput] = useState<string>('');
@@ -57,7 +63,7 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
 
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const selectedMapping = fontMappings.find(m => m.id === selectedMappingId) || fontMappings[0];
+  const selectedMapping = selectedMappingId ? fontMappings.find(m => m.id === selectedMappingId) : undefined;
 
   const filteredMappings = useMemo(() => {
     if (!searchQuery.trim()) return fontMappings;
@@ -145,7 +151,10 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
     if (fontMappings.length <= 1) return;
     const next = fontMappings.filter(m => m.id !== id);
     onFontMappingsChange(next);
-    if (selectedMappingId === id) setSelectedMappingId(next[0]?.id || '');
+    if (selectedMappingId === id) {
+      setSelectedMappingId('');
+      setSelectedMappingIds(new Set());
+    }
   };
 
   const handleUpdateMapping = (id: string, updated: Partial<FontCharMapping>) => {
@@ -385,6 +394,8 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
             showPresets={false}
             slices={glyphSlices}
             selectedSliceId={selectedSliceId}
+            initialViewport={viewport}
+            onViewportChange={onViewportChange}
             selectedSliceIds={Array.from(selectedMappingIds).flatMap(mid => {
               const m = fontMappings.find(fm => fm.id === mid);
               if (!m) return [];
@@ -490,6 +501,16 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
               >
                 <Trash2 size={13} />
               </button>
+              <button
+                className="text-slate-400 hover:text-white p-1 rounded hover:bg-white/10 transition-colors cursor-pointer"
+                onClick={() => {
+                  setSelectedMappingId('');
+                  setSelectedMappingIds(new Set());
+                }}
+                title="Deselect mapping"
+              >
+                <X size={14} />
+              </button>
             </div>
 
             <div className="font-mapping-slots-grid">
@@ -583,14 +604,19 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
         {/* Compact Scrollable List */}
         <div className="slices-list-scroll mt-2">
           {filteredMappings.map(mapping => {
-            const isSelected = selectedMappingIds.has(mapping.id) || mapping.id === selectedMappingId;
+            const isSelected = Boolean(selectedMappingId) && (selectedMappingIds.has(mapping.id) || mapping.id === selectedMappingId);
             const isAssigningThis = assigningSlot?.mappingId === mapping.id;
             return (
               <div
                 key={mapping.id}
                 onClick={() => {
-                  setSelectedMappingId(mapping.id);
-                  setSelectedMappingIds(new Set([mapping.id]));
+                  if (selectedMappingId === mapping.id) {
+                    setSelectedMappingId('');
+                    setSelectedMappingIds(new Set());
+                  } else {
+                    setSelectedMappingId(mapping.id);
+                    setSelectedMappingIds(new Set([mapping.id]));
+                  }
                 }}
                 className="relative mb-2 rounded-xl p-2 px-3 flex items-center justify-between border transition-all cursor-pointer"
                 style={{

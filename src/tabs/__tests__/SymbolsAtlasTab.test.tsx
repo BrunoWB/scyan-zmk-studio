@@ -32,6 +32,21 @@ describe('SymbolsAtlasTab selected-slice-card', () => {
     },
   ];
 
+  it('does not pre-select slices when entering the tab', () => {
+    const html = renderToString(
+      <SymbolsAtlasTab
+        symbolsGrid={dummyGrid}
+        onSymbolsGridChange={() => {}}
+        slices={sampleSlices}
+        onSlicesChange={() => {}}
+      />
+    );
+
+    expect(html).not.toContain('selected-slice-card');
+    expect(html).toContain('Sprite Slices');
+    expect(html).toContain('Bluetooth Connected');
+  });
+
   it('renders selected-slice-card adhering to Element Reference design specifications', () => {
     const html = renderToString(
       <SymbolsAtlasTab
@@ -39,6 +54,7 @@ describe('SymbolsAtlasTab selected-slice-card', () => {
         onSymbolsGridChange={() => {}}
         slices={sampleSlices}
         onSlicesChange={() => {}}
+        initialSelectedSliceId="SYMBOL_BLUETOOTH"
       />
     );
 
