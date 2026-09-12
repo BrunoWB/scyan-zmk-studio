@@ -382,10 +382,24 @@ export function parseCHeader(cCode: string): ParsedAssets {
     const parsedRightScreenOffTimeoutSec = rightSleepTimeoutMsMatch ? Math.round(parseInt(rightSleepTimeoutMsMatch[1], 10) / 1000) : undefined;
     const parsedRightIdleScreensEnabled = rightIdleScreensMatch ? (parseInt(rightIdleScreensMatch[1], 10) !== 0) : undefined;
 
+    // 6d. Parse dongle-specific dimensions & power timers (if defined)
+    const dongleVirtWidthMatch = cCode.match(/#define\s+DISPLAY_VIRTUAL_WIDTH_DONGLE\s+(\d+)/);
+    const dongleVirtHeightMatch = cCode.match(/#define\s+DISPLAY_VIRTUAL_HEIGHT_DONGLE\s+(\d+)/);
+    const dongleScreenDims = (dongleVirtWidthMatch && dongleVirtHeightMatch)
+      ? { width: parseInt(dongleVirtWidthMatch[1], 10), height: parseInt(dongleVirtHeightMatch[1], 10) }
+      : undefined;
+
+    const dongleIdleTimeoutMsMatch = cCode.match(/#define\s+(?:SCYAN_IDLE_TIMEOUT_MS_DONGLE|CONFIG_SCYAN_IDLE_TIMEOUT_MS_DONGLE)\s+(\d+)/);
+    const dongleSleepTimeoutMsMatch = cCode.match(/#define\s+(?:SCYAN_SLEEP_TIMEOUT_MS_DONGLE|CONFIG_SCYAN_SLEEP_TIMEOUT_MS_DONGLE)\s+(\d+)/);
+    const dongleIdleScreensMatch = cCode.match(/#define\s+SCYAN_IDLE_SCREENS_ENABLED_DONGLE\s+(\d+)/);
+    const parsedDongleIdleTimeoutSec = dongleIdleTimeoutMsMatch ? Math.round(parseInt(dongleIdleTimeoutMsMatch[1], 10) / 1000) : undefined;
+    const parsedDongleScreenOffTimeoutSec = dongleSleepTimeoutMsMatch ? Math.round(parseInt(dongleSleepTimeoutMsMatch[1], 10) / 1000) : undefined;
+    const parsedDongleIdleScreensEnabled = dongleIdleScreensMatch ? (parseInt(dongleIdleScreensMatch[1], 10) !== 0) : undefined;
+
     const isAsymmetricC = !!(rightScreenDims || parsedRightIdleTimeoutSec !== undefined || parsedRightScreenOffTimeoutSec !== undefined || parsedRightIdleScreensEnabled !== undefined);
 
     // 7. If metadata JSON was missing or incomplete, reconstruct from C layout block arrays
-    if (!metadata || (!metadata.leftBlocks && !metadata.rightBlocks)) {
+    if (!metadata || (!metadata.leftBlocks && !metadata.rightBlocks && !metadata.dongleBlocks)) {
       const parseCBlocks = (arrayName: string, side: 'left' | 'right' | 'dongle' | string) => {
         const arrMatch = cCode.match(new RegExp(`${arrayName}\\[[^\\]]*\\]\\s*=\\s*\\{([\\s\\S]*?)\\};`));
         if (!arrMatch || !arrMatch[1]) return undefined;
@@ -616,10 +630,10 @@ export function parseCHeader(cCode: string): ParsedAssets {
           rightIdleTimeoutSec: metadata?.rightIdleTimeoutSec ?? parsedRightIdleTimeoutSec,
           rightScreenOffTimeoutSec: metadata?.rightScreenOffTimeoutSec ?? parsedRightScreenOffTimeoutSec,
           rightIdleScreensEnabled: metadata?.rightIdleScreensEnabled ?? parsedRightIdleScreensEnabled,
-          dongleScreenDimensions: metadata?.dongleScreenDimensions,
-          dongleIdleScreensEnabled: metadata?.dongleIdleScreensEnabled,
-          dongleIdleTimeoutSec: metadata?.dongleIdleTimeoutSec,
-          dongleScreenOffTimeoutSec: metadata?.dongleScreenOffTimeoutSec,
+          dongleScreenDimensions: dongleScreenDims || metadata?.dongleScreenDimensions,
+          dongleIdleScreensEnabled: metadata?.dongleIdleScreensEnabled ?? parsedDongleIdleScreensEnabled,
+          dongleIdleTimeoutSec: metadata?.dongleIdleTimeoutSec ?? parsedDongleIdleTimeoutSec,
+          dongleScreenOffTimeoutSec: metadata?.dongleScreenOffTimeoutSec ?? parsedDongleScreenOffTimeoutSec,
           enabledScreens: metadata?.enabledScreens ?? (dongleBlocks ? ['left', 'dongle', 'right'] : ['left', 'right']),
           screenSetup: metadata?.screenSetup ?? (dongleBlocks ? 'split-dongle' : 'split'),
         };
@@ -657,6 +671,18 @@ export function parseCHeader(cCode: string): ParsedAssets {
       if (parsedRightIdleScreensEnabled !== undefined && metadata.rightIdleScreensEnabled === undefined) {
         metadata.rightIdleScreensEnabled = parsedRightIdleScreensEnabled;
       }
+      if (dongleScreenDims && !metadata.dongleScreenDimensions) {
+        metadata.dongleScreenDimensions = dongleScreenDims;
+      }
+      if (parsedDongleIdleTimeoutSec !== undefined && metadata.dongleIdleTimeoutSec === undefined) {
+        metadata.dongleIdleTimeoutSec = parsedDongleIdleTimeoutSec;
+      }
+      if (parsedDongleScreenOffTimeoutSec !== undefined && metadata.dongleScreenOffTimeoutSec === undefined) {
+        metadata.dongleScreenOffTimeoutSec = parsedDongleScreenOffTimeoutSec;
+      }
+      if (parsedDongleIdleScreensEnabled !== undefined && metadata.dongleIdleScreensEnabled === undefined) {
+        metadata.dongleIdleScreensEnabled = parsedDongleIdleScreensEnabled;
+      }
 
       // Reconcile blocks with widget instances for wpm-chart to prevent stale dimensions
       const reconcileChartBlocks = (blockList?: LayoutBlock[]) => {
@@ -677,8 +703,10 @@ export function parseCHeader(cCode: string): ParsedAssets {
       };
       reconcileChartBlocks(metadata.leftBlocks);
       reconcileChartBlocks(metadata.rightBlocks);
+      reconcileChartBlocks(metadata.dongleBlocks);
       reconcileChartBlocks(metadata.idleLeftBlocks);
       reconcileChartBlocks(metadata.idleRightBlocks);
+      reconcileChartBlocks(metadata.idleDongleBlocks);
 
       // Reconcile blocks with widget instances for wpm to prevent stale dimensions
       const reconcileWpmBlocks = (blockList?: LayoutBlock[]) => {
@@ -702,8 +730,10 @@ export function parseCHeader(cCode: string): ParsedAssets {
       };
       reconcileWpmBlocks(metadata.leftBlocks);
       reconcileWpmBlocks(metadata.rightBlocks);
+      reconcileWpmBlocks(metadata.dongleBlocks);
       reconcileWpmBlocks(metadata.idleLeftBlocks);
       reconcileWpmBlocks(metadata.idleRightBlocks);
+      reconcileWpmBlocks(metadata.idleDongleBlocks);
 
       // Reconcile blocks with widget instances for animation/loop to ensure natural dimensions
       const reconcileAnimationBlocks = (blockList?: LayoutBlock[]) => {
@@ -725,8 +755,10 @@ export function parseCHeader(cCode: string): ParsedAssets {
       };
       reconcileAnimationBlocks(metadata.leftBlocks);
       reconcileAnimationBlocks(metadata.rightBlocks);
+      reconcileAnimationBlocks(metadata.dongleBlocks);
       reconcileAnimationBlocks(metadata.idleLeftBlocks);
       reconcileAnimationBlocks(metadata.idleRightBlocks);
+      reconcileAnimationBlocks(metadata.idleDongleBlocks);
     }
 
   } catch (err) {
@@ -893,6 +925,15 @@ export function generateCHeader(
     ? metadata.rightIdleScreensEnabled
     : idleScreensEnabled;
 
+  const hasDongle = metadata?.screenSetup === 'split-dongle' || metadata?.screenSetup === 'dongle-only' || metadata?.enabledScreens?.includes('dongle') || !!metadata?.dongleBlocks || !!metadata?.dongleScreenDimensions;
+  const dongleVirtWidth = metadata?.dongleScreenDimensions?.width ?? 32;
+  const dongleVirtHeight = metadata?.dongleScreenDimensions?.height ?? 128;
+  const dongleHwWidth = dongleVirtHeight;
+  const dongleHwHeight = dongleVirtWidth;
+  const dongleIdleTimeoutMs = (metadata?.dongleIdleTimeoutSec ?? 30) * 1000;
+  const dongleScreenOffTimeoutMs = (metadata?.dongleScreenOffTimeoutSec ?? 60) * 1000;
+  const dongleIdleScreensEnabled = metadata?.dongleIdleScreensEnabled ?? true;
+
   let c = `/* Auto-generated 2-Atlas spritesheet architecture for Corne vertical OLED display */
 /* Generated by ZMK Display Studio */
 #pragma once
@@ -909,8 +950,11 @@ ${!isSymmetric ? `#define DISPLAY_VIRTUAL_WIDTH_RIGHT  ${rightVirtWidth}
 #define DISPLAY_VIRTUAL_HEIGHT_RIGHT ${rightVirtHeight}
 #define DISPLAY_HW_WIDTH_RIGHT       ${rightHwWidth}
 #define DISPLAY_HW_HEIGHT_RIGHT      ${rightHwHeight}
-` : ''}
-/* Display power-management timers & idle configuration */
+` : ''}${hasDongle ? `#define DISPLAY_VIRTUAL_WIDTH_DONGLE  ${dongleVirtWidth}
+#define DISPLAY_VIRTUAL_HEIGHT_DONGLE ${dongleVirtHeight}
+#define DISPLAY_HW_WIDTH_DONGLE       ${dongleHwWidth}
+#define DISPLAY_HW_HEIGHT_DONGLE      ${dongleHwHeight}
+` : ''}/* Display power-management timers & idle configuration */
 #define ZMK_DISPLAY_IDLE_SCREENS_ENABLED ${idleScreensEnabled ? 1 : 0}
 #define SCYAN_IDLE_SCREENS_ENABLED       ${idleScreensEnabled ? 1 : 0}
 #define ZMK_DISPLAY_IDLE_TIMEOUT_MS  ${idleTimeoutMs}
@@ -926,6 +970,9 @@ ${!isSymmetric ? `#define SCYAN_IDLE_SCREENS_ENABLED_LEFT  ${idleScreensEnabled 
 #define SCYAN_IDLE_SCREENS_ENABLED_RIGHT ${rightIdleScreensEnabled ? 1 : 0}
 #define SCYAN_IDLE_TIMEOUT_MS_RIGHT        ${rightIdleTimeoutMs}
 #define SCYAN_SLEEP_TIMEOUT_MS_RIGHT       ${rightScreenOffTimeoutMs}
+` : ''}${hasDongle ? `#define SCYAN_IDLE_SCREENS_ENABLED_DONGLE ${dongleIdleScreensEnabled ? 1 : 0}
+#define SCYAN_IDLE_TIMEOUT_MS_DONGLE        ${dongleIdleTimeoutMs}
+#define SCYAN_SLEEP_TIMEOUT_MS_DONGLE       ${dongleScreenOffTimeoutMs}
 ` : ''}
 
 /* Sprite slice descriptor */
@@ -1127,7 +1174,11 @@ static const struct display_font font_default = {
 };
 `;
 
-  if (metadata && (metadata.leftBlocks || metadata.rightBlocks || metadata.idleLeftBlocks || metadata.idleRightBlocks)) {
+  if (metadata && (
+    metadata.leftBlocks || metadata.rightBlocks || metadata.dongleBlocks ||
+    metadata.idleLeftBlocks || metadata.idleRightBlocks || metadata.idleDongleBlocks ||
+    metadata.screenSetup === 'split-dongle' || metadata.screenSetup === 'dongle-only'
+  )) {
     c += `\n/* Interactive Screen Layout & Widget Architecture */\n`;
     c += `#define HAS_CUSTOM_LAYOUT_BLOCKS 1\n\n`;
     c += `enum display_widget_type {\n`;

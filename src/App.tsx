@@ -709,12 +709,10 @@ export function App() {
       if (parsed.metadata.dongleScreenOffTimeoutSec !== undefined) {
         setDongleScreenOffTimeoutSec(parsed.metadata.dongleScreenOffTimeoutSec);
       }
-      if (parsed.metadata.screenSetup) {
-        setScreenSetup(parsed.metadata.screenSetup);
-      }
-      if (parsed.metadata.enabledScreens) {
-        setEnabledScreens(parsed.metadata.enabledScreens);
-      }
+      const resolvedScreenSetup = parsed.metadata.screenSetup ?? (parsed.metadata.dongleBlocks && parsed.metadata.dongleBlocks.length > 0 ? 'split-dongle' : 'split');
+      setScreenSetup(resolvedScreenSetup);
+      const resolvedEnabledScreens = parsed.metadata.enabledScreens ?? (resolvedScreenSetup === 'split-dongle' ? ['left', 'dongle', 'right'] : resolvedScreenSetup === 'dongle-only' ? ['dongle'] : ['left', 'right']);
+      setEnabledScreens(resolvedEnabledScreens);
     }
   }, []);
 

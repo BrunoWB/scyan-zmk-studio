@@ -654,6 +654,113 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     expect(cCode).not.toContain('LAYOUT_DONGLE_ACTIVE_BLOCKS');
     expect(cCode).not.toContain('LAYOUT_DONGLE_IDLE_BLOCKS');
   });
+
+  it('should generate and parse dongle-only layouts with HAS_CUSTOM_LAYOUT_BLOCKS 1', () => {
+    const testGrid = new BwpxGrid(16, 16);
+    const metadata = {
+      version: 1 as const,
+      screenSetup: 'dongle-only' as const,
+      enabledScreens: ['dongle'],
+      dongleScreenDimensions: { width: 32, height: 128 },
+      dongleBlocks: [
+        { id: 'd-batt', widgetType: 'battery', name: 'Battery', x: 0, y: 0, width: 17, height: 10, enabled: true, side: 'dongle' as const }
+      ],
+      dongleIdleTimeoutSec: 15,
+      dongleScreenOffTimeoutSec: 45,
+    };
+
+    const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+    expect(cCode).toContain('#define HAS_CUSTOM_LAYOUT_BLOCKS 1');
+    expect(cCode).toContain('LAYOUT_DONGLE_ACTIVE_BLOCKS');
+    expect(cCode).toContain('#define DISPLAY_VIRTUAL_WIDTH_DONGLE  32');
+    expect(cCode).toContain('#define SCYAN_IDLE_TIMEOUT_MS_DONGLE        15000');
+    expect(cCode).toContain('#define SCYAN_SLEEP_TIMEOUT_MS_DONGLE       45000');
+
+    const parsed = parseCHeader(cCode);
+    expect(parsed.metadata).toBeDefined();
+    expect(parsed.metadata?.screenSetup).toBe('dongle-only');
+    expect(parsed.metadata?.dongleBlocks?.length).toBe(1);
+    expect(parsed.metadata?.dongleIdleTimeoutSec).toBe(15);
+    expect(parsed.metadata?.dongleScreenOffTimeoutSec).toBe(45);
+  });
+
+  it('should reconcile widget instances for dongleBlocks and idleDongleBlocks', () => {
+    const testGrid = new BwpxGrid(16, 16);
+    const metadata = {
+      version: 1 as const,
+      screenSetup: 'split-dongle' as const,
+      widgetInstances: {
+        'wpm-chart': [
+          {
+            id: 'inst_d_chart',
+            widgetTypeId: 'wpm-chart',
+            label: 'WPM Chart',
+            config: {
+              mode: 'symbol' as const,
+              wpmChart: { width: 32, height: 28, gridSize: 4, targetSpeed: 100, timeWindow: 30 },
+            },
+            slots: {},
+          },
+        ],
+      },
+      dongleBlocks: [
+        { id: 'd-chart', widgetType: 'wpm-chart', instanceId: 'inst_d_chart', name: 'Chart', x: 0, y: 10, width: 16, height: 16, enabled: true, side: 'dongle' as const }
+      ],
+    };
+
+    const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+    const parsed = parseCHeader(cCode);
+    expect(parsed.metadata?.dongleBlocks?.[0].width).toBe(32);
+    expect(parsed.metadata?.dongleBlocks?.[0].height).toBe(28);
+  });
+
+  it('should emit and parse raw C defines for dongle screen dimensions and power timers', () => {
+    const rawDongleC = `
+#define DISPLAY_VIRTUAL_WIDTH 32
+#define DISPLAY_VIRTUAL_HEIGHT 128
+#define DISPLAY_VIRTUAL_WIDTH_DONGLE 68
+#define DISPLAY_VIRTUAL_HEIGHT_DONGLE 160
+#define SCYAN_IDLE_SCREENS_ENABLED_DONGLE 1
+#define SCYAN_IDLE_TIMEOUT_MS_DONGLE 20000
+#define SCYAN_SLEEP_TIMEOUT_MS_DONGLE 50000
+static const struct display_layout_block LAYOUT_DONGLE_ACTIVE_BLOCKS[1] = {
+    { .type = 2, .x = 5, .y = 10, .width = 17, .height = 10, .enabled = true }
+};
+`;
+    const parsed = parseCHeader(rawDongleC);
+    expect(parsed.metadata).toBeDefined();
+    expect(parsed.metadata?.screenSetup).toBe('split-dongle');
+    expect(parsed.metadata?.dongleScreenDimensions).toEqual({ width: 68, height: 160 });
+    expect(parsed.metadata?.dongleIdleScreensEnabled).toBe(true);
+    expect(parsed.metadata?.dongleIdleTimeoutSec).toBe(20);
+    expect(parsed.metadata?.dongleScreenOffTimeoutSec).toBe(50);
+    expect(parsed.metadata?.dongleBlocks?.length).toBe(1);
+  });
+
+  it('should gracefully default legacy 2-screen C header to split screenSetup', () => {
+    const legacyC = `
+#define DISPLAY_VIRTUAL_WIDTH 32
+#define DISPLAY_VIRTUAL_HEIGHT 128
+static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
+    { .type = 1, .x = 0, .y = 0, .width = 12, .height = 10, .enabled = true }
+};
+static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
+    { .type = 2, .x = 0, .y = 0, .width = 17, .height = 10, .enabled = true }
+};
+/* ZMK_DISPLAY_STUDIO_METADATA
+{
+  "version": 1,
+  "leftBlocks": [{ "id": "l1", "widgetType": "connection", "name": "Output", "x": 0, "y": 0, "width": 12, "height": 10, "enabled": true, "side": "left" }],
+  "rightBlocks": [{ "id": "r1", "widgetType": "battery", "name": "Battery", "x": 0, "y": 0, "width": 17, "height": 10, "enabled": true, "side": "right" }]
+}
+*/
+`;
+    const parsed = parseCHeader(legacyC);
+    expect(parsed.metadata?.screenSetup).toBeUndefined(); // raw parsed metadata doesn't have it
+    // App's fallback logic resolves:
+    const resolvedScreenSetup = parsed.metadata?.screenSetup ?? (parsed.metadata?.dongleBlocks && parsed.metadata.dongleBlocks.length > 0 ? 'split-dongle' : 'split');
+    expect(resolvedScreenSetup).toBe('split');
+  });
 });
 
 

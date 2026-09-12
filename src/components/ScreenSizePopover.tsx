@@ -214,7 +214,7 @@ interface SideSettingsBlockProps {
   title?: string;
   badge?: string;
   sideName: string;
-  themeColor?: 'cyan' | 'purple';
+  themeColor?: 'cyan' | 'purple' | 'amber';
   screenDimensions: { width: number; height: number };
   onScreenDimensionsChange: (dims: { width: number; height: number }) => void;
   idleScreensEnabled: boolean;
@@ -275,6 +275,7 @@ const SideSettingsBlock: React.FC<SideSettingsBlockProps> = ({
   const minSleep = idleScreensEnabled ? idleTimeoutSec + 5 : 10;
   const idleWindowSec = idleScreensEnabled ? Math.max(0, screenOffTimeoutSec - idleTimeoutSec) : 0;
   const isPurple = themeColor === 'purple';
+  const isAmber = themeColor === 'amber';
   const isVertical = layout === 'vertical';
 
   return (
@@ -284,7 +285,11 @@ const SideSettingsBlock: React.FC<SideSettingsBlockProps> = ({
           <div className="flex items-center gap-2">
             <span
               className={`size-2 rounded-full ${
-                isPurple ? 'bg-[#a953f6] shadow-[0_0_8px_#a953f6]' : 'bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]'
+                isAmber
+                  ? 'bg-[#fbbf24] shadow-[0_0_8px_#fbbf24]'
+                  : isPurple
+                  ? 'bg-[#a953f6] shadow-[0_0_8px_#a953f6]'
+                  : 'bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]'
               }`}
             />
             <h4 className="text-xs font-semibold text-white tracking-wide">{title}</h4>
@@ -292,7 +297,9 @@ const SideSettingsBlock: React.FC<SideSettingsBlockProps> = ({
           {badge && (
             <span
               className={`text-[10px] font-mono px-2 py-0.5 rounded ${
-                isPurple
+                isAmber
+                  ? 'bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/30'
+                  : isPurple
                   ? 'bg-[#a953f6]/15 text-[#a953f6] border border-[#a953f6]/30'
                   : 'bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/30'
               }`}
@@ -1087,18 +1094,24 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
         {/* Scrollable Body */}
         <div className="side-settings-panel-body custom-scrollbar">
           {isDongle ? (
-            <SideSettingsBlock
-              sideName="Dongle Master"
-              themeColor="purple"
-              screenDimensions={screenDimensions}
-              onScreenDimensionsChange={onScreenDimensionsChange}
-              idleScreensEnabled={idleScreensEnabled}
-              onIdleScreensEnabledChange={onIdleScreensEnabledChange ?? (() => {})}
-              idleTimeoutSec={idleTimeoutSec}
-              onIdleTimeoutSecChange={onIdleTimeoutSecChange ?? (() => {})}
-              screenOffTimeoutSec={screenOffTimeoutSec}
-              onScreenOffTimeoutSecChange={onScreenOffTimeoutSecChange ?? (() => {})}
-            />
+            <>
+              <SideSettingsBlock
+                sideName="Dongle Master"
+                themeColor="amber"
+                screenDimensions={screenDimensions}
+                onScreenDimensionsChange={onScreenDimensionsChange}
+                idleScreensEnabled={idleScreensEnabled}
+                onIdleScreensEnabledChange={onIdleScreensEnabledChange ?? (() => {})}
+                idleTimeoutSec={idleTimeoutSec}
+                onIdleTimeoutSecChange={onIdleTimeoutSecChange ?? (() => {})}
+                screenOffTimeoutSec={screenOffTimeoutSec}
+                onScreenOffTimeoutSecChange={onScreenOffTimeoutSecChange ?? (() => {})}
+                layout="vertical"
+              />
+              <div className="pt-2 border-t border-white/10 text-[10px] text-[#64748b] font-mono shrink-0">
+                {`#define SCYAN_SLEEP_TIMEOUT_MS_DONGLE ${screenOffTimeoutSec * 1000}`}
+              </div>
+            </>
           ) : isLeft ? (
             <>
               {effectiveSymmetric && (

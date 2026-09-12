@@ -151,4 +151,84 @@ describe('OledPreviewTab dynamic screen dimensions & widget moving', () => {
     expect(html).toContain('Typing Speed (WPM)');
     expect(html).toContain('68 WPM');
   });
+
+  it('renders central dongle unit case in between keyboard halves for split-dongle topology', () => {
+    const sampleDongleBlocks: LayoutBlock[] = [
+      {
+        id: 'dongle-battery',
+        widgetType: 'battery',
+        name: 'Dongle Battery',
+        x: 0,
+        y: 0,
+        width: 17,
+        height: 10,
+        enabled: true,
+        side: 'dongle',
+      },
+    ];
+
+    const html = renderToString(
+      <OledPreviewTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText="TEST"
+        onCustomTextChange={() => {}}
+        leftBlocks={sampleLeftBlocks}
+        rightBlocks={sampleRightBlocks}
+        dongleBlocks={sampleDongleBlocks}
+        screenSetup="split-dongle"
+        enabledScreens={['left', 'dongle', 'right']}
+      />
+    );
+
+    // Left keyboard half is rendered
+    expect(html).toContain('corne-half-case left-half');
+    // Central dongle case is rendered
+    expect(html).toContain('dongle-unit-case');
+    expect(html).toContain('Dongle Master');
+    expect(html).toContain('Dongle Battery');
+    // Right keyboard half is rendered
+    expect(html).toContain('corne-half-case right-half');
+    // Simulator control reflects 3-screen mode
+    expect(html).toContain('3-Screen Multi-Display');
+  });
+
+  it('renders standalone dongle unit case without keyboards for dongle-only topology', () => {
+    const sampleDongleBlocks: LayoutBlock[] = [
+      {
+        id: 'dongle-wpm',
+        widgetType: 'wpm',
+        name: 'Dongle WPM',
+        x: 0,
+        y: 0,
+        width: 28,
+        height: 16,
+        enabled: true,
+        side: 'dongle',
+      },
+    ];
+
+    const html = renderToString(
+      <OledPreviewTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText="TEST"
+        onCustomTextChange={() => {}}
+        dongleBlocks={sampleDongleBlocks}
+        screenSetup="dongle-only"
+        enabledScreens={['dongle']}
+      />
+    );
+
+    // Keyboards are not rendered
+    expect(html).not.toContain('corne-half-case left-half');
+    expect(html).not.toContain('corne-half-case right-half');
+    // Dongle case is rendered standalone
+    expect(html).toContain('dongle-unit-case');
+    expect(html).toContain('Dongle Master');
+    expect(html).toContain('Dongle WPM');
+    expect(html).toContain('Dongle Display');
+  });
 });
