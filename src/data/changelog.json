@@ -14,6 +14,14 @@
     ],
     "patches": [
       {
+        "patch": "1.0.7",
+        "date": "2026-09-12",
+        "commitHash": "912d953",
+        "changes": [
+          "fix(github): prevent uninstall from removing zmk manifest entries"
+        ]
+      },
+      {
         "patch": "1.0.6",
         "date": "2026-09-12",
         "commitHash": "aa8bb28",
