@@ -124,6 +124,31 @@ describe('gridRenderer Canvas Pipeline Benchmark', () => {
       })
     );
 
+    const fontAtlasSlices = Array.from({ length: 150 }, (_, i) => ({
+      id: `glyph_${i}`,
+      name: `öÕ (B)`,
+      groupId: `group_${i}`,
+      groupOrder: 1,
+      x: (i % 15) * 20,
+      y: Math.floor(i / 15) * 25,
+      width: 16,
+      height: 16,
+      color: '#c084fc',
+    }));
+
+    results.push(
+      benchmark('renderBwpxCanvas - font atlas (150 slices, zoom 16, zoomed-in view)', () => {
+        renderBwpxCanvas(canvas, ctx, {
+          grid: mediumGrid,
+          zoom: 16,
+          pan: { x: -500, y: -400 },
+          showAxes: true,
+          showGridLines: true,
+          slices: fontAtlasSlices,
+        });
+      })
+    );
+
     printBenchmarkTable('gridRenderer Canvas Pipeline', results);
   });
 });

@@ -170,13 +170,29 @@ export function renderBaseCanvas(
 
   // 4. Sprite Slices Overlay
   if (slices && slices.length > 0) {
+    if (zoom >= 6) {
+      ctx.font = '10px "JetBrains Mono", monospace';
+    }
+    const labelMarginTop = zoom >= 6 ? 18 : 0;
+    const labelWidthMargin = zoom >= 6 ? 220 : 0;
+
     slices.forEach(s => {
-      const isSelected = selectedSliceId === s.id;
       const sx = Math.round(s.x * zoom);
       const sy = Math.round(s.y * zoom);
       const sw = Math.round((s.x + s.width) * zoom) - sx;
       const sh = Math.round((s.y + s.height) * zoom) - sy;
 
+      // Viewport culling: skip any slice completely outside the canvas viewport
+      if (
+        panX + sx + Math.max(sw, labelWidthMargin) < -10 ||
+        panX + sx > canvas.width + 10 ||
+        panY + sy + sh < -10 ||
+        panY + sy - labelMarginTop > canvas.height + 10
+      ) {
+        return;
+      }
+
+      const isSelected = selectedSliceId === s.id;
       ctx.strokeStyle = isSelected ? '#c084fc' : (s.color || 'rgba(168, 85, 247, 0.45)');
       ctx.lineWidth = isSelected ? 2 : 1;
       if (!isSelected) {
@@ -192,8 +208,7 @@ export function renderBaseCanvas(
 
       // Slice badge label
       if (zoom >= 6) {
-        const label = `${s.name} (${s.width}×${s.height})`;
-        ctx.font = '10px "JetBrains Mono", monospace';
+        const label = `${s.name || ''} (${s.width}×${s.height})`;
         const textWidth = ctx.measureText(label).width;
         ctx.fillStyle = isSelected ? 'rgba(192, 132, 252, 0.95)' : 'rgba(18, 20, 26, 0.85)';
         ctx.fillRect(sx, sy - 15, textWidth + 8, 14);
