@@ -30,7 +30,7 @@ function devFaviconPlugin(): Plugin {
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: './',
+  base: process.env.VITE_BASE_PATH ?? './',
   plugins: [tailwindcss(), react(), devFaviconPlugin()],
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version || '1.0.0'),
