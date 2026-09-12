@@ -151,6 +151,85 @@
 .screw-bl { bottom: 8px; left: 8px; }
 .screw-br { bottom: 8px; right: 8px; }
 
+/* Dongle Unit Enclosure (Between Split Halves in Preview) */
+.dongle-unit-case {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  z-index: 10;
+  transition: transform 0.2s ease;
+  margin: 0 4px;
+}
+
+.dongle-usb-connector {
+  width: 28px;
+  height: 14px;
+  background: linear-gradient(180deg, #94a3b8, #475569);
+  border-radius: 4px 4px 0 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.dongle-usb-metal {
+  display: flex;
+  gap: 5px;
+}
+
+.dongle-usb-pin {
+  width: 4px;
+  height: 6px;
+  background: #eab308;
+  border-radius: 1px;
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.6);
+}
+
+.dongle-body {
+  background: rgba(13, 16, 23, 0.92);
+  border: 1.5px solid #f59e0b;
+  border-radius: 14px;
+  padding: 10px 12px 14px 12px;
+  position: relative;
+  box-shadow:
+    0 0 16px rgba(245, 158, 11, 0.22),
+    0 0 2px rgba(245, 158, 11, 0.5),
+    inset 0 0 12px rgba(245, 158, 11, 0.04);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.dongle-body:hover {
+  border-color: #fbbf24;
+  box-shadow:
+    0 0 24px rgba(245, 158, 11, 0.38),
+    0 0 4px rgba(245, 158, 11, 0.7),
+    inset 0 0 16px rgba(245, 158, 11, 0.06);
+}
+
+.dongle-header-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  color: #f59e0b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.dongle-header-badge .live-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b;
+}
+
 /* Half Layout Structure */
 .half-inner-layout {
   display: flex;
@@ -1774,6 +1853,69 @@
   position: relative;
 }
 
+.blocks-screen-topology-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 1800px;
+  padding: 6px 16px;
+  gap: 12px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.topology-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #94a3b8;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.topology-pills-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #12141a;
+  padding: 2px 4px;
+  border-radius: 6px;
+  border: 1px solid #232730;
+}
+
+.topology-pill-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #8b9bb4;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.topology-pill-btn:hover {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.topology-pill-btn.active {
+  color: var(--accent);
+  background: rgba(0, 210, 255, 0.12);
+  border-color: rgba(0, 210, 255, 0.3);
+}
+
+.topology-pill-btn.active.amber {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
 .blocks-settings-drawer-wrapper {
   width: 100%;
   max-width: 1160px;
@@ -2167,6 +2309,20 @@
   border-color: rgba(169, 83, 246, 0.6);
   color: #a953f6;
   box-shadow: 0 0 10px rgba(169, 83, 246, 0.4);
+}
+
+.btn-block-action.active-amber {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #f59e0b;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.25);
+}
+
+.btn-block-action.active-amber:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.25);
+  border-color: rgba(245, 158, 11, 0.6);
+  color: #f59e0b;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
 }
 
 /* OLED Screen Stage (Centered) */

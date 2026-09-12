@@ -899,7 +899,7 @@ export type ScreenSizePopoverProps = BlockSettingsSectionProps;
 export const ScreenSizePopover = BlockSettingsSection;
 
 export interface SideSettingsPanelProps {
-  side: 'left' | 'right';
+  side: 'left' | 'right' | 'dongle';
   isOpen: boolean;
   onClose: () => void;
   // Master / Left settings
@@ -1032,13 +1032,14 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
   };
 
   const isLeft = side === 'left';
+  const isDongle = side === 'dongle';
 
   return (
     <aside
       className={`side-settings-panel-container side-${side} ${isOpen ? 'open' : ''} ${className}`}
       aria-hidden={!isOpen}
       role="region"
-      aria-label={`${isLeft ? 'Left Active (Master)' : 'Right Active (Peripheral)'} Display & Power Settings`}
+      aria-label={`${isDongle ? 'Dongle Master' : isLeft ? 'Left Active (Master)' : 'Right Active (Peripheral)'} Display & Power Settings`}
     >
       <div className="side-settings-panel-inner">
         {/* Header */}
@@ -1046,7 +1047,9 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
           <div className="flex items-center gap-2">
             <div
               className={`size-6 rounded-lg flex items-center justify-center shrink-0 border ${
-                isLeft
+                isDongle
+                  ? 'bg-[#f59e0b]/15 border-[#f59e0b]/30 text-[#f59e0b] shadow-[0_0_8px_rgba(245,158,11,0.2)]'
+                  : isLeft
                   ? 'bg-[#00f0ff]/15 border-[#00f0ff]/30 text-[#00f0ff] shadow-[0_0_8px_rgba(0,240,255,0.2)]'
                   : 'bg-[#a953f6]/15 border-[#a953f6]/30 text-[#a953f6] shadow-[0_0_8px_rgba(169,83,246,0.2)]'
               }`}
@@ -1055,15 +1058,17 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
             </div>
             <div>
               <div className="text-xs font-semibold text-white flex items-center gap-1.5">
-                <span>{isLeft ? 'Master Settings' : 'Peripheral Settings'}</span>
+                <span>{isDongle ? 'Dongle Settings' : isLeft ? 'Master Settings' : 'Peripheral Settings'}</span>
                 <span
                   className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
-                    isLeft
+                    isDongle
+                      ? 'bg-[#f59e0b]/10 text-[#f59e0b] border-[#f59e0b]/20'
+                      : isLeft
                       ? 'bg-[#00f0ff]/10 text-[#00f0ff] border-[#00f0ff]/20'
                       : 'bg-[#a953f6]/10 text-[#a953f6] border-[#a953f6]/20'
                   }`}
                 >
-                  {isLeft ? 'Left Half' : 'Right Half'}
+                  {isDongle ? 'Dongle Master' : isLeft ? 'Left Half' : 'Right Half'}
                 </span>
               </div>
             </div>
@@ -1073,7 +1078,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
             onClick={onClose}
             className="text-[#94a3b8] hover:text-white hover:bg-white/5 transition-all p-1 rounded-md cursor-pointer flex items-center gap-1 text-xs"
             title="Close Settings (Esc)"
-            aria-label={`Close ${isLeft ? 'Master' : 'Peripheral'} Settings`}
+            aria-label={`Close ${isDongle ? 'Dongle' : isLeft ? 'Master' : 'Peripheral'} Settings`}
           >
             <X size={14} />
           </button>
@@ -1081,7 +1086,20 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
 
         {/* Scrollable Body */}
         <div className="side-settings-panel-body custom-scrollbar">
-          {isLeft ? (
+          {isDongle ? (
+            <SideSettingsBlock
+              sideName="Dongle Master"
+              themeColor="purple"
+              screenDimensions={screenDimensions}
+              onScreenDimensionsChange={onScreenDimensionsChange}
+              idleScreensEnabled={idleScreensEnabled}
+              onIdleScreensEnabledChange={onIdleScreensEnabledChange ?? (() => {})}
+              idleTimeoutSec={idleTimeoutSec}
+              onIdleTimeoutSecChange={onIdleTimeoutSecChange ?? (() => {})}
+              screenOffTimeoutSec={screenOffTimeoutSec}
+              onScreenOffTimeoutSecChange={onScreenOffTimeoutSecChange ?? (() => {})}
+            />
+          ) : isLeft ? (
             <>
               {effectiveSymmetric && (
                 <div className="p-2 rounded-lg bg-[#00f0ff]/10 border border-[#00f0ff]/20 text-[11px] text-[#e2f1ff] flex items-center gap-1.5 shrink-0">

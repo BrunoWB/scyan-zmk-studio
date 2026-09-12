@@ -31,7 +31,7 @@ export interface WidgetCatalogListProps {
   customText: string;
   instances?: import('../../types/widget').WidgetInstanceMap;
   onStartDrag: (widget: DisplayWidgetDefinition, clientX: number, clientY: number) => void;
-  onQuickAdd?: (widget: DisplayWidgetDefinition, side: 'left' | 'right') => void;
+  onQuickAdd?: (widget: DisplayWidgetDefinition, side: 'left' | 'right' | 'dongle' | string) => void;
 }
 
 export const WidgetMiniPreview: React.FC<{

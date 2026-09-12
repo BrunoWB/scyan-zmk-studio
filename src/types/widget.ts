@@ -89,7 +89,7 @@ export interface WidgetRenderContext {
   splitConnected?: boolean;
   capsLock?: boolean;
   customText?: string;
-  side?: 'left' | 'right';
+  side?: 'left' | 'right' | 'dongle' | string;
   isIdle?: boolean;
   instances?: WidgetInstanceMap;
   activeInstanceId?: string;
@@ -117,7 +117,7 @@ export interface DisplayWidgetDefinition {
   associatedSliceIds: string[];
   slots: WidgetSlotDefinition[];
   defaultPlacement: {
-    side: 'left' | 'right' | 'both';
+    side: 'left' | 'right' | 'dongle' | 'both' | 'all';
     defaultX?: number;
     defaultY: number;
   };
@@ -133,7 +133,7 @@ export interface DragWidgetState {
   widget: DisplayWidgetDefinition;
   clientX: number;
   clientY: number;
-  targetSide: 'left' | 'right' | null;
+  targetSide: 'left' | 'right' | 'dongle' | string | null;
   targetX: number | null;
   targetY: number | null;
 }

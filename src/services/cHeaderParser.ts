@@ -9,8 +9,10 @@ export interface HeaderMetadata {
   version: 1;
   leftBlocks?: LayoutBlock[];
   rightBlocks?: LayoutBlock[];
+  dongleBlocks?: LayoutBlock[];
   idleLeftBlocks?: LayoutBlock[];
   idleRightBlocks?: LayoutBlock[];
+  idleDongleBlocks?: LayoutBlock[];
   screenDimensions?: { width: number; height: number };
   widgetInstances?: WidgetInstanceMap;
   /** Seconds of inactivity before switching to the idle layout (default 30) */
@@ -29,6 +31,18 @@ export interface HeaderMetadata {
   rightIdleTimeoutSec?: number;
   /** Right screen off timeout in seconds when asymmetric */
   rightScreenOffTimeoutSec?: number;
+  /** Dongle screen dimensions when dongle screen is present */
+  dongleScreenDimensions?: { width: number; height: number };
+  /** Dongle idle screens toggle */
+  dongleIdleScreensEnabled?: boolean;
+  /** Dongle idle timeout in seconds */
+  dongleIdleTimeoutSec?: number;
+  /** Dongle screen off timeout in seconds */
+  dongleScreenOffTimeoutSec?: number;
+  /** List of currently enabled screens (e.g. ['left', 'right'], ['left', 'dongle', 'right']) */
+  enabledScreens?: string[];
+  /** Screen setup layout preset ('split' | 'split-dongle' | 'dongle-only' | 'custom') */
+  screenSetup?: 'split' | 'split-dongle' | 'dongle-only' | 'custom';
   /** Bongo Cat tap animation duration in milliseconds (default 60, matches CONFIG_SCYAN_BONGO_TAP_MS) */
   bongoTapMs?: number;
   /** Bongo Cat debounce interval in milliseconds (default 100) */
@@ -372,7 +386,7 @@ export function parseCHeader(cCode: string): ParsedAssets {
 
     // 7. If metadata JSON was missing or incomplete, reconstruct from C layout block arrays
     if (!metadata || (!metadata.leftBlocks && !metadata.rightBlocks)) {
-      const parseCBlocks = (arrayName: string, side: 'left' | 'right') => {
+      const parseCBlocks = (arrayName: string, side: 'left' | 'right' | 'dongle' | string) => {
         const arrMatch = cCode.match(new RegExp(`${arrayName}\\[[^\\]]*\\]\\s*=\\s*\\{([\\s\\S]*?)\\};`));
         if (!arrMatch || !arrMatch[1]) return undefined;
         const blocks: LayoutBlock[] = [];
@@ -578,16 +592,20 @@ export function parseCHeader(cCode: string): ParsedAssets {
 
       const leftBlocks = parseCBlocks('LAYOUT_LEFT_ACTIVE_BLOCKS', 'left');
       const rightBlocks = parseCBlocks('LAYOUT_RIGHT_ACTIVE_BLOCKS', 'right');
+      const dongleBlocks = parseCBlocks('LAYOUT_DONGLE_ACTIVE_BLOCKS', 'dongle');
       const idleLeftBlocks = parseCBlocks('LAYOUT_LEFT_IDLE_BLOCKS', 'left');
       const idleRightBlocks = parseCBlocks('LAYOUT_RIGHT_IDLE_BLOCKS', 'right');
+      const idleDongleBlocks = parseCBlocks('LAYOUT_DONGLE_IDLE_BLOCKS', 'dongle');
 
-      if (leftBlocks || rightBlocks || idleLeftBlocks || idleRightBlocks || screenDims) {
+      if (leftBlocks || rightBlocks || dongleBlocks || idleLeftBlocks || idleRightBlocks || idleDongleBlocks || screenDims) {
         metadata = {
           version: 1,
           leftBlocks: leftBlocks || metadata?.leftBlocks,
           rightBlocks: rightBlocks || metadata?.rightBlocks,
+          dongleBlocks: dongleBlocks || metadata?.dongleBlocks,
           idleLeftBlocks: idleLeftBlocks || metadata?.idleLeftBlocks,
           idleRightBlocks: idleRightBlocks || metadata?.idleRightBlocks,
+          idleDongleBlocks: idleDongleBlocks || metadata?.idleDongleBlocks,
           screenDimensions: screenDims || metadata?.screenDimensions,
           widgetInstances: metadata?.widgetInstances,
           idleTimeoutSec: metadata?.idleTimeoutSec ?? parsedIdleTimeoutSec,
@@ -598,6 +616,12 @@ export function parseCHeader(cCode: string): ParsedAssets {
           rightIdleTimeoutSec: metadata?.rightIdleTimeoutSec ?? parsedRightIdleTimeoutSec,
           rightScreenOffTimeoutSec: metadata?.rightScreenOffTimeoutSec ?? parsedRightScreenOffTimeoutSec,
           rightIdleScreensEnabled: metadata?.rightIdleScreensEnabled ?? parsedRightIdleScreensEnabled,
+          dongleScreenDimensions: metadata?.dongleScreenDimensions,
+          dongleIdleScreensEnabled: metadata?.dongleIdleScreensEnabled,
+          dongleIdleTimeoutSec: metadata?.dongleIdleTimeoutSec,
+          dongleScreenOffTimeoutSec: metadata?.dongleScreenOffTimeoutSec,
+          enabledScreens: metadata?.enabledScreens ?? (dongleBlocks ? ['left', 'dongle', 'right'] : ['left', 'right']),
+          screenSetup: metadata?.screenSetup ?? (dongleBlocks ? 'split-dongle' : 'split'),
         };
       }
     } else if (screenDims && !metadata.screenDimensions) {
@@ -1402,6 +1426,10 @@ static const struct display_font font_default = {
     emitBlockArray('LAYOUT_LEFT_IDLE_BLOCKS', 'LAYOUT_LEFT_IDLE_COUNT', metadata.idleLeftBlocks);
     emitBlockArray('LAYOUT_RIGHT_ACTIVE_BLOCKS', 'LAYOUT_RIGHT_ACTIVE_COUNT', metadata.rightBlocks);
     emitBlockArray('LAYOUT_RIGHT_IDLE_BLOCKS', 'LAYOUT_RIGHT_IDLE_COUNT', metadata.idleRightBlocks);
+    if (metadata.dongleBlocks || metadata.idleDongleBlocks || metadata.enabledScreens?.includes('dongle')) {
+      emitBlockArray('LAYOUT_DONGLE_ACTIVE_BLOCKS', 'LAYOUT_DONGLE_ACTIVE_COUNT', metadata.dongleBlocks);
+      emitBlockArray('LAYOUT_DONGLE_IDLE_BLOCKS', 'LAYOUT_DONGLE_IDLE_COUNT', metadata.idleDongleBlocks);
+    }
   }
 
   if (metadata) {

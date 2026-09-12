@@ -12,6 +12,9 @@ import { WIDGET_REGISTRY } from './services/widgetRegistry';
 import {
   DEFAULT_LEFT_LAYOUT_BLOCKS,
   DEFAULT_RIGHT_LAYOUT_BLOCKS,
+  DEFAULT_DONGLE_LAYOUT_BLOCKS,
+  DEFAULT_IDLE_DONGLE_BLOCKS,
+  type ScreenSetupType,
 } from './types/zmk';
 import {
   parseCHeader,
@@ -232,6 +235,78 @@ export function App() {
     return def.metadata?.rightScreenOffTimeoutSec ?? def.metadata?.screenOffTimeoutSec ?? 60;
   });
 
+  const [dongleBlocks, setDongleBlocks] = useState<LayoutBlock[]>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-dongle-blocks');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.dongleBlocks?.length ? def.metadata.dongleBlocks : DEFAULT_DONGLE_LAYOUT_BLOCKS;
+  });
+
+  const [idleDongleBlocks, setIdleDongleBlocks] = useState<LayoutBlock[]>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-idle-dongle-blocks');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.idleDongleBlocks?.length ? def.metadata.idleDongleBlocks : DEFAULT_IDLE_DONGLE_BLOCKS;
+  });
+
+  const [dongleScreenDimensions, setDongleScreenDimensions] = useState<{ width: number; height: number }>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-dongle-screen-dimensions');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.dongleScreenDimensions || { width: 32, height: 128 };
+  });
+
+  const [dongleIdleScreensEnabled, setDongleIdleScreensEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-dongle-idle-screens-enabled');
+      if (saved !== null) return JSON.parse(saved);
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.dongleIdleScreensEnabled ?? true;
+  });
+
+  const [dongleIdleTimeoutSec, setDongleIdleTimeoutSec] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-dongle-idle-timeout-sec');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.dongleIdleTimeoutSec ?? 30;
+  });
+
+  const [dongleScreenOffTimeoutSec, setDongleScreenOffTimeoutSec] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-dongle-screen-off-timeout-sec');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.dongleScreenOffTimeoutSec ?? 60;
+  });
+
+  const [screenSetup, setScreenSetup] = useState<ScreenSetupType>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-screen-setup');
+      if (saved) return saved as ScreenSetupType;
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.screenSetup ?? 'split';
+  });
+
+  const [enabledScreens, setEnabledScreens] = useState<('left' | 'right' | 'dongle' | string)[]>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-enabled-screens');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.enabledScreens ?? ['left', 'right'];
+  });
+
   // Track last editor grid looking position in the session (viewport: zoom & pan)
   const [symbolsViewport, setSymbolsViewport] = useState<EditorViewport | undefined>(() => {
     try {
@@ -340,6 +415,54 @@ export function App() {
       localStorage.setItem('zmk-right-screen-off-timeout-sec', JSON.stringify(rightScreenOffTimeoutSec));
     } catch {}
   }, [rightScreenOffTimeoutSec]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-dongle-blocks', JSON.stringify(dongleBlocks));
+    } catch {}
+  }, [dongleBlocks]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-idle-dongle-blocks', JSON.stringify(idleDongleBlocks));
+    } catch {}
+  }, [idleDongleBlocks]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-dongle-screen-dimensions', JSON.stringify(dongleScreenDimensions));
+    } catch {}
+  }, [dongleScreenDimensions]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-dongle-idle-screens-enabled', JSON.stringify(dongleIdleScreensEnabled));
+    } catch {}
+  }, [dongleIdleScreensEnabled]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-dongle-idle-timeout-sec', JSON.stringify(dongleIdleTimeoutSec));
+    } catch {}
+  }, [dongleIdleTimeoutSec]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-dongle-screen-off-timeout-sec', JSON.stringify(dongleScreenOffTimeoutSec));
+    } catch {}
+  }, [dongleScreenOffTimeoutSec]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-screen-setup', screenSetup);
+    } catch {}
+  }, [screenSetup]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-enabled-screens', JSON.stringify(enabledScreens));
+    } catch {}
+  }, [enabledScreens]);
 
   const [customText, setCustomText] = useState<string>('BRUNOWB');
   const [_clearedTemplates, setClearedTemplates] = useState<string[]>(() => {
@@ -568,6 +691,30 @@ export function App() {
       if (parsed.metadata.rightScreenOffTimeoutSec !== undefined) {
         setRightScreenOffTimeoutSec(parsed.metadata.rightScreenOffTimeoutSec);
       }
+      if (parsed.metadata.dongleBlocks && parsed.metadata.dongleBlocks.length > 0) {
+        setDongleBlocks(parsed.metadata.dongleBlocks);
+      }
+      if (parsed.metadata.idleDongleBlocks && parsed.metadata.idleDongleBlocks.length > 0) {
+        setIdleDongleBlocks(parsed.metadata.idleDongleBlocks);
+      }
+      if (parsed.metadata.dongleScreenDimensions) {
+        setDongleScreenDimensions(parsed.metadata.dongleScreenDimensions);
+      }
+      if (parsed.metadata.dongleIdleScreensEnabled !== undefined) {
+        setDongleIdleScreensEnabled(parsed.metadata.dongleIdleScreensEnabled);
+      }
+      if (parsed.metadata.dongleIdleTimeoutSec !== undefined) {
+        setDongleIdleTimeoutSec(parsed.metadata.dongleIdleTimeoutSec);
+      }
+      if (parsed.metadata.dongleScreenOffTimeoutSec !== undefined) {
+        setDongleScreenOffTimeoutSec(parsed.metadata.dongleScreenOffTimeoutSec);
+      }
+      if (parsed.metadata.screenSetup) {
+        setScreenSetup(parsed.metadata.screenSetup);
+      }
+      if (parsed.metadata.enabledScreens) {
+        setEnabledScreens(parsed.metadata.enabledScreens);
+      }
     }
   }, []);
 
@@ -576,17 +723,25 @@ export function App() {
     const keysToRemove = [
       'zmk-left-blocks',
       'zmk-right-blocks',
+      'zmk-dongle-blocks',
       'zmk-idle-left-blocks',
       'zmk-idle-right-blocks',
+      'zmk-idle-dongle-blocks',
       'zmk-screen-dimensions',
+      'zmk-dongle-screen-dimensions',
       'zmk-idle-screens-enabled',
+      'zmk-dongle-idle-screens-enabled',
       'zmk-idle-timeout-sec',
+      'zmk-dongle-idle-timeout-sec',
       'zmk-screen-off-timeout-sec',
+      'zmk-dongle-screen-off-timeout-sec',
       'zmk-symmetric-settings',
       'zmk-right-screen-dimensions',
       'zmk-right-idle-screens-enabled',
       'zmk-right-idle-timeout-sec',
       'zmk-right-screen-off-timeout-sec',
+      'zmk-screen-setup',
+      'zmk-enabled-screens',
       'zmk-widget-instances',
       'zmk-cleared-templates',
       'zmk_builder_cached_header',
@@ -1028,6 +1183,14 @@ export function App() {
         rightIdleScreensEnabled: symmetricSettings ? undefined : rightIdleScreensEnabled,
         rightIdleTimeoutSec: symmetricSettings ? undefined : rightIdleTimeoutSec,
         rightScreenOffTimeoutSec: symmetricSettings ? undefined : rightScreenOffTimeoutSec,
+        dongleBlocks: screenSetup !== 'split' ? dongleBlocks : undefined,
+        idleDongleBlocks: screenSetup !== 'split' ? idleDongleBlocks : undefined,
+        dongleScreenDimensions: screenSetup !== 'split' ? dongleScreenDimensions : undefined,
+        dongleIdleScreensEnabled: screenSetup !== 'split' ? dongleIdleScreensEnabled : undefined,
+        dongleIdleTimeoutSec: screenSetup !== 'split' ? dongleIdleTimeoutSec : undefined,
+        dongleScreenOffTimeoutSec: screenSetup !== 'split' ? dongleScreenOffTimeoutSec : undefined,
+        screenSetup,
+        enabledScreens,
         layerNames: keymapLayout.layerNames,
       };
 
@@ -1141,6 +1304,14 @@ export function App() {
         rightIdleScreensEnabled: symmetricSettings ? undefined : rightIdleScreensEnabled,
         rightIdleTimeoutSec: symmetricSettings ? undefined : rightIdleTimeoutSec,
         rightScreenOffTimeoutSec: symmetricSettings ? undefined : rightScreenOffTimeoutSec,
+        dongleBlocks: screenSetup !== 'split' ? dongleBlocks : undefined,
+        idleDongleBlocks: screenSetup !== 'split' ? idleDongleBlocks : undefined,
+        dongleScreenDimensions: screenSetup !== 'split' ? dongleScreenDimensions : undefined,
+        dongleIdleScreensEnabled: screenSetup !== 'split' ? dongleIdleScreensEnabled : undefined,
+        dongleIdleTimeoutSec: screenSetup !== 'split' ? dongleIdleTimeoutSec : undefined,
+        dongleScreenOffTimeoutSec: screenSetup !== 'split' ? dongleScreenOffTimeoutSec : undefined,
+        screenSetup,
+        enabledScreens,
         layerNames: keymapLayout.layerNames,
       };
       const generatedC = generateCHeader(symbolsGrid, symbolSlices, fontGrid, fontMappings, metadata);
@@ -1344,16 +1515,25 @@ export function App() {
                 fontMappings={fontMappings}
                 leftBlocks={leftBlocks}
                 rightBlocks={rightBlocks}
+                dongleBlocks={dongleBlocks}
                 layoutBlocks={leftBlocks}
                 idleLeftBlocks={idleLeftBlocks}
                 idleRightBlocks={idleRightBlocks}
+                idleDongleBlocks={idleDongleBlocks}
                 onLeftBlocksChange={setLeftBlocks}
                 onRightBlocksChange={setRightBlocks}
+                onDongleBlocksChange={setDongleBlocks}
                 onIdleLeftBlocksChange={setIdleLeftBlocks}
                 onIdleRightBlocksChange={setIdleRightBlocks}
+                onIdleDongleBlocksChange={setIdleDongleBlocks}
                 screenDimensions={screenDimensions}
                 rightScreenDimensions={rightScreenDimensions}
+                dongleScreenDimensions={dongleScreenDimensions}
                 symmetricSettings={symmetricSettings}
+                screenSetup={screenSetup}
+                onScreenSetupChange={setScreenSetup}
+                enabledScreens={enabledScreens}
+                onEnabledScreensChange={setEnabledScreens}
                 customText={customText}
                 onCustomTextChange={setCustomText}
                 instances={widgetInstances}
@@ -1416,13 +1596,17 @@ export function App() {
               <BlocksTab
                 leftBlocks={leftBlocks}
                 rightBlocks={rightBlocks}
+                dongleBlocks={dongleBlocks}
                 onLeftBlocksChange={setLeftBlocks}
                 onRightBlocksChange={setRightBlocks}
+                onDongleBlocksChange={setDongleBlocks}
                 idleLeftBlocks={idleLeftBlocks}
                 idleRightBlocks={idleRightBlocks}
+                idleDongleBlocks={idleDongleBlocks}
                 layerNames={keymapLayout.layerNames}
                 onIdleLeftBlocksChange={setIdleLeftBlocks}
                 onIdleRightBlocksChange={setIdleRightBlocks}
+                onIdleDongleBlocksChange={setIdleDongleBlocks}
                 screenDimensions={screenDimensions}
                 onScreenDimensionsChange={setScreenDimensions}
                 idleScreensEnabled={idleScreensEnabled}
@@ -1441,6 +1625,18 @@ export function App() {
                 onRightIdleTimeoutSecChange={setRightIdleTimeoutSec}
                 rightScreenOffTimeoutSec={rightScreenOffTimeoutSec}
                 onRightScreenOffTimeoutSecChange={setRightScreenOffTimeoutSec}
+                dongleScreenDimensions={dongleScreenDimensions}
+                onDongleScreenDimensionsChange={setDongleScreenDimensions}
+                dongleIdleScreensEnabled={dongleIdleScreensEnabled}
+                onDongleIdleScreensEnabledChange={setDongleIdleScreensEnabled}
+                dongleIdleTimeoutSec={dongleIdleTimeoutSec}
+                onDongleIdleTimeoutSecChange={setDongleIdleTimeoutSec}
+                dongleScreenOffTimeoutSec={dongleScreenOffTimeoutSec}
+                onDongleScreenOffTimeoutSecChange={setDongleScreenOffTimeoutSec}
+                screenSetup={screenSetup}
+                onScreenSetupChange={setScreenSetup}
+                enabledScreens={enabledScreens}
+                onEnabledScreensChange={setEnabledScreens}
                 symbolsGrid={symbolsGrid}
                 symbolSlices={symbolSlices}
                 fontGrid={fontGrid}

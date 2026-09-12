@@ -35,6 +35,8 @@ export interface FontGlyph {
   advanceX: number;
 }
 
+export type ScreenSetupType = 'split' | 'split-dongle' | 'dongle-only' | 'custom';
+
 export interface LayoutBlock {
   id: string;
   widgetType?: string;
@@ -46,7 +48,7 @@ export interface LayoutBlock {
   height: number;
   enabled: boolean;
   description?: string;
-  side?: 'left' | 'right';
+  side?: 'left' | 'right' | 'dongle' | string;
 }
 
 export interface DisplaySettings {
@@ -114,6 +116,19 @@ export const DEFAULT_IDLE_LEFT_BLOCKS: LayoutBlock[] = [
 
 export const DEFAULT_IDLE_RIGHT_BLOCKS: LayoutBlock[] = [
   { id: 'idle-right-art', widgetType: 'screensaver', name: 'Mascot Image', x: 3, y: 35, width: 26, height: 26, enabled: true, side: 'right' }
+];
+
+export const DEFAULT_DONGLE_LAYOUT_BLOCKS: LayoutBlock[] = [
+  { id: 'dongle-connection', widgetType: 'connection', name: 'Output Status', x: 10, y: 0, width: 12, height: 10, enabled: true, description: 'Active keystroke output (USB / Bluetooth)', side: 'dongle' },
+  { id: 'dongle-battery', widgetType: 'battery', name: 'Battery Meter', x: 7, y: 11, width: 17, height: 10, enabled: true, description: 'Peripheral battery charge level', side: 'dongle' },
+  { id: 'dongle-layer', widgetType: 'layer-banner', name: 'Layer Banner / Brackets', x: 4, y: 22, width: 24, height: 12, enabled: true, description: 'Active keyboard layer', side: 'dongle' },
+  { id: 'dongle-branding', widgetType: 'branding', name: 'Dongle Model Text', x: 9, y: 73, width: 14, height: 5, enabled: true, description: 'Custom dongle branding', side: 'dongle' },
+  { id: 'dongle-wpm', widgetType: 'wpm', name: 'WPM Speed & Arrow Gauge', x: 2, y: 85, width: 28, height: 18, enabled: true, description: '3-digit WPM readout and progress meter', side: 'dongle' },
+  { id: 'dongle-split', widgetType: 'split', name: 'Split Peripheral Link', x: 9, y: 114, width: 13, height: 9, enabled: true, description: 'Split connection status', side: 'dongle' },
+];
+
+export const DEFAULT_IDLE_DONGLE_BLOCKS: LayoutBlock[] = [
+  { id: 'idle-dongle-art', widgetType: 'screensaver', name: 'Mascot Image', x: 3, y: 35, width: 26, height: 26, enabled: true, side: 'dongle' }
 ];
 
 export const DEFAULT_LAYOUT_BLOCKS: LayoutBlock[] = DEFAULT_LEFT_LAYOUT_BLOCKS;

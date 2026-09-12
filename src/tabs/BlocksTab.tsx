@@ -6,6 +6,8 @@ import {
   DEFAULT_RIGHT_LAYOUT_BLOCKS,
   DEFAULT_IDLE_LEFT_BLOCKS,
   DEFAULT_IDLE_RIGHT_BLOCKS,
+  DEFAULT_DONGLE_LAYOUT_BLOCKS,
+  DEFAULT_IDLE_DONGLE_BLOCKS,
 } from '../types/zmk';
 import type { DisplayWidgetDefinition, DragWidgetState } from '../types/widget';
 import { getWidgetNaturalSize, resolveWidgetInstance } from '../services/widgetRegistry';
@@ -19,12 +21,16 @@ import { trackEvent } from '../services/analytics';
 export interface BlocksTabProps {
   leftBlocks?: LayoutBlock[];
   rightBlocks?: LayoutBlock[];
+  dongleBlocks?: LayoutBlock[];
   onLeftBlocksChange?: (blocks: LayoutBlock[]) => void;
   onRightBlocksChange?: (blocks: LayoutBlock[]) => void;
+  onDongleBlocksChange?: (blocks: LayoutBlock[]) => void;
   idleLeftBlocks?: LayoutBlock[];
   idleRightBlocks?: LayoutBlock[];
+  idleDongleBlocks?: LayoutBlock[];
   onIdleLeftBlocksChange?: (blocks: LayoutBlock[]) => void;
   onIdleRightBlocksChange?: (blocks: LayoutBlock[]) => void;
+  onIdleDongleBlocksChange?: (blocks: LayoutBlock[]) => void;
   screenDimensions?: { width: number; height: number };
   onScreenDimensionsChange?: (dimensions: { width: number; height: number }) => void;
   idleScreensEnabled?: boolean;
@@ -43,16 +49,31 @@ export interface BlocksTabProps {
   onRightIdleTimeoutSecChange?: (sec: number) => void;
   rightScreenOffTimeoutSec?: number;
   onRightScreenOffTimeoutSecChange?: (sec: number) => void;
+  dongleScreenDimensions?: { width: number; height: number };
+  onDongleScreenDimensionsChange?: (dimensions: { width: number; height: number }) => void;
+  dongleIdleScreensEnabled?: boolean;
+  onDongleIdleScreensEnabledChange?: (enabled: boolean) => void;
+  dongleIdleTimeoutSec?: number;
+  onDongleIdleTimeoutSecChange?: (sec: number) => void;
+  dongleScreenOffTimeoutSec?: number;
+  onDongleScreenOffTimeoutSecChange?: (sec: number) => void;
   isSettingsOpen?: boolean;
   onToggleSettings?: () => void;
   onCloseSettings?: () => void;
-  // Independent left/right side settings props
+  // Independent left/right/dongle side settings props
   isLeftSettingsOpen?: boolean;
   onToggleLeftSettings?: () => void;
   onCloseLeftSettings?: () => void;
   isRightSettingsOpen?: boolean;
   onToggleRightSettings?: () => void;
   onCloseRightSettings?: () => void;
+  isDongleSettingsOpen?: boolean;
+  onToggleDongleSettings?: () => void;
+  onCloseDongleSettings?: () => void;
+  enabledScreens?: string[];
+  onEnabledScreensChange?: (screens: string[]) => void;
+  screenSetup?: 'split' | 'split-dongle' | 'dongle-only' | 'custom';
+  onScreenSetupChange?: (setup: 'split' | 'split-dongle' | 'dongle-only' | 'custom') => void;
   onResetDefaults?: () => void;
   symbolsGrid: BwpxGrid;
   symbolSlices: SpriteSlice[];
@@ -72,12 +93,16 @@ export interface BlocksTabProps {
 export const BlocksTab: React.FC<BlocksTabProps> = ({
   leftBlocks,
   rightBlocks,
+  dongleBlocks,
   onLeftBlocksChange,
   onRightBlocksChange,
+  onDongleBlocksChange,
   idleLeftBlocks,
   idleRightBlocks,
+  idleDongleBlocks,
   onIdleLeftBlocksChange,
   onIdleRightBlocksChange,
+  onIdleDongleBlocksChange,
   layerNames,
   screenDimensions = { width: 32, height: 128 },
   onScreenDimensionsChange,
@@ -97,6 +122,14 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   onRightIdleTimeoutSecChange,
   rightScreenOffTimeoutSec,
   onRightScreenOffTimeoutSecChange,
+  dongleScreenDimensions,
+  onDongleScreenDimensionsChange,
+  dongleIdleScreensEnabled,
+  onDongleIdleScreensEnabledChange,
+  dongleIdleTimeoutSec,
+  onDongleIdleTimeoutSecChange,
+  dongleScreenOffTimeoutSec,
+  onDongleScreenOffTimeoutSecChange,
   isSettingsOpen,
   onToggleSettings,
   onCloseSettings,
@@ -106,6 +139,13 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   isRightSettingsOpen,
   onToggleRightSettings,
   onCloseRightSettings,
+  isDongleSettingsOpen,
+  onToggleDongleSettings,
+  onCloseDongleSettings,
+  enabledScreens,
+  onEnabledScreensChange,
+  screenSetup,
+  onScreenSetupChange,
   onResetDefaults: _onResetDefaults,
   symbolsGrid,
   symbolSlices,
@@ -121,17 +161,36 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   // Active screen blocks
   const effectiveLeftBlocks = leftBlocks ?? layoutBlocks ?? DEFAULT_LEFT_LAYOUT_BLOCKS;
   const effectiveRightBlocks = rightBlocks ?? DEFAULT_RIGHT_LAYOUT_BLOCKS;
+  const effectiveDongleBlocks = dongleBlocks ?? DEFAULT_DONGLE_LAYOUT_BLOCKS;
 
   // Idle screen blocks
   const effectiveIdleLeftBlocks = idleLeftBlocks ?? DEFAULT_IDLE_LEFT_BLOCKS;
   const effectiveIdleRightBlocks = idleRightBlocks ?? DEFAULT_IDLE_RIGHT_BLOCKS;
+  const effectiveIdleDongleBlocks = idleDongleBlocks ?? DEFAULT_IDLE_DONGLE_BLOCKS;
+
+  // Screen setup & enabled screens state
+  const [localEnabledScreens, setLocalEnabledScreens] = useState<string[]>(['left', 'right']);
+  const effectiveEnabledScreens = enabledScreens ?? localEnabledScreens;
+  const handleEnabledScreensChange = onEnabledScreensChange || setLocalEnabledScreens;
+
+  const [localScreenSetup, setLocalScreenSetup] = useState<'split' | 'split-dongle' | 'dongle-only' | 'custom'>('split');
+  const effectiveScreenSetup = screenSetup ?? localScreenSetup;
+  const handleScreenSetupChange = onScreenSetupChange || setLocalScreenSetup;
+
+  const isLeftEnabled = effectiveEnabledScreens.includes('left');
+  const isRightEnabled = effectiveEnabledScreens.includes('right');
+  const isDongleEnabled = effectiveEnabledScreens.includes('dongle');
+
+  // Multi-screen view mode for Blocks tab when 3 screens exist: 'all' | 'left' | 'dongle' | 'right'
+  const [activeScreenView, setActiveScreenView] = useState<'all' | 'left' | 'dongle' | 'right'>('all');
 
   // Screen focus mode: 'active' or 'idle'
   const [focusedScreenMode, setFocusedScreenMode] = useState<'active' | 'idle'>('active');
 
-  // Independent left & right settings state
+  // Independent left, right & dongle settings state
   const [internalLeftSettingsOpen, setInternalLeftSettingsOpen] = useState(false);
   const [internalRightSettingsOpen, setInternalRightSettingsOpen] = useState(false);
+  const [internalDongleSettingsOpen, setInternalDongleSettingsOpen] = useState(false);
 
   const effectiveLeftSettingsOpen = isLeftSettingsOpen !== undefined
     ? isLeftSettingsOpen
@@ -139,12 +198,18 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   const effectiveRightSettingsOpen = isRightSettingsOpen !== undefined
     ? isRightSettingsOpen
     : internalRightSettingsOpen;
+  const effectiveDongleSettingsOpen = isDongleSettingsOpen !== undefined
+    ? isDongleSettingsOpen
+    : internalDongleSettingsOpen;
 
   const toggleLeftSettings = onToggleLeftSettings || onToggleSettings || (() => setInternalLeftSettingsOpen(prev => !prev));
   const closeLeftSettings = onCloseLeftSettings || onCloseSettings || (() => setInternalLeftSettingsOpen(false));
 
   const toggleRightSettings = onToggleRightSettings || (() => setInternalRightSettingsOpen(prev => !prev));
   const closeRightSettings = onCloseRightSettings || (() => setInternalRightSettingsOpen(false));
+
+  const toggleDongleSettings = onToggleDongleSettings || (() => setInternalDongleSettingsOpen(prev => !prev));
+  const closeDongleSettings = onCloseDongleSettings || (() => setInternalDongleSettingsOpen(false));
 
   const [localSymmetricSettings, setLocalSymmetricSettings] = useState(true);
   const effectiveSymmetricSettings = symmetricSettings !== undefined ? symmetricSettings : localSymmetricSettings;
@@ -187,6 +252,39 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     : (rightScreenOffTimeoutSec !== undefined ? rightScreenOffTimeoutSec : localRightScreenOffTimeoutSec);
   const handleRightScreenOffTimeoutSecChange = onRightScreenOffTimeoutSecChange || setLocalRightScreenOffTimeoutSec;
 
+  // Dongle effective settings
+  const [localDongleScreenDimensions, setLocalDongleScreenDimensions] = useState(screenDimensions);
+  const effectiveDongleScreenDimensions = dongleScreenDimensions ?? localDongleScreenDimensions;
+  const handleDongleScreenDimensionsChange = onDongleScreenDimensionsChange || setLocalDongleScreenDimensions;
+
+  const [localDongleIdleScreensEnabled, setLocalDongleIdleScreensEnabled] = useState(true);
+  const effectiveDongleIdleScreensEnabled = dongleIdleScreensEnabled !== undefined ? dongleIdleScreensEnabled : localDongleIdleScreensEnabled;
+  const handleDongleIdleScreensEnabledChange = onDongleIdleScreensEnabledChange || setLocalDongleIdleScreensEnabled;
+
+  const [localDongleIdleTimeoutSec, setLocalDongleIdleTimeoutSec] = useState(30);
+  const effectiveDongleIdleTimeoutSec = dongleIdleTimeoutSec !== undefined ? dongleIdleTimeoutSec : localDongleIdleTimeoutSec;
+  const handleDongleIdleTimeoutSecChange = onDongleIdleTimeoutSecChange || setLocalDongleIdleTimeoutSec;
+
+  const [localDongleScreenOffTimeoutSec, setLocalDongleScreenOffTimeoutSec] = useState(60);
+  const effectiveDongleScreenOffTimeoutSec = dongleScreenOffTimeoutSec !== undefined ? dongleScreenOffTimeoutSec : localDongleScreenOffTimeoutSec;
+  const handleDongleScreenOffTimeoutSecChange = onDongleScreenOffTimeoutSecChange || setLocalDongleScreenOffTimeoutSec;
+
+  const handleDongleDimensionsChange = (dims: { width: number; height: number }) => {
+    handleDongleScreenDimensionsChange(dims);
+  };
+
+  const handleDongleIdleEnabledChange = (enabled: boolean) => {
+    handleDongleIdleScreensEnabledChange(enabled);
+  };
+
+  const handleDongleIdleTimeoutChange = (sec: number) => {
+    handleDongleIdleTimeoutSecChange(sec);
+  };
+
+  const handleDongleScreenOffTimeoutChange = (sec: number) => {
+    handleDongleScreenOffTimeoutSecChange(sec);
+  };
+
   // Change handlers for Left half: automatically updates Right half when symmetricSettings is true
   const handleLeftDimensionsChange = (dims: { width: number; height: number }) => {
     onScreenDimensionsChange?.(dims);
@@ -226,18 +324,37 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     }
   };
 
-  // Reset focus to active if idle screens are disabled on both sides
+  // Topology preset helpers
+  const handleSelectPreset = (preset: 'split' | 'split-dongle' | 'dongle-only') => {
+    handleScreenSetupChange(preset);
+    if (preset === 'split') {
+      handleEnabledScreensChange(['left', 'right']);
+      if (activeScreenView === 'dongle') setActiveScreenView('all');
+    } else if (preset === 'split-dongle') {
+      handleEnabledScreensChange(['left', 'dongle', 'right']);
+    } else if (preset === 'dongle-only') {
+      handleEnabledScreensChange(['dongle']);
+      setActiveScreenView('all');
+    }
+  };
+
+  // Reset focus to active if idle screens are disabled on all enabled sides
   useEffect(() => {
-    if (!effectiveIdleScreensEnabled && !effectiveRightIdleScreensEnabled && focusedScreenMode === 'idle') {
+    const idleAllowed = (isLeftEnabled && effectiveIdleScreensEnabled) ||
+                        (isRightEnabled && effectiveRightIdleScreensEnabled) ||
+                        (isDongleEnabled && effectiveDongleIdleScreensEnabled);
+    if (!idleAllowed && focusedScreenMode === 'idle') {
       setFocusedScreenMode('active');
     }
-  }, [effectiveIdleScreensEnabled, effectiveRightIdleScreensEnabled, focusedScreenMode]);
+  }, [isLeftEnabled, isRightEnabled, isDongleEnabled, effectiveIdleScreensEnabled, effectiveRightIdleScreensEnabled, effectiveDongleIdleScreensEnabled, focusedScreenMode]);
 
   // Undo history stacks (one per block list)
   const undoLeftRef = useRef<LayoutBlock[][]>([]);
   const undoRightRef = useRef<LayoutBlock[][]>([]);
+  const undoDongleRef = useRef<LayoutBlock[][]>([]);
   const undoIdleLeftRef = useRef<LayoutBlock[][]>([]);
   const undoIdleRightRef = useRef<LayoutBlock[][]>([]);
+  const undoIdleDongleRef = useRef<LayoutBlock[][]>([]);
 
   const handleLeftBlocksChange = (newBlocks: LayoutBlock[]) => {
     undoLeftRef.current.push([...effectiveLeftBlocks]);
@@ -250,6 +367,11 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     if (onRightBlocksChange) onRightBlocksChange(newBlocks);
   };
 
+  const handleDongleBlocksChange = (newBlocks: LayoutBlock[]) => {
+    undoDongleRef.current.push([...effectiveDongleBlocks]);
+    if (onDongleBlocksChange) onDongleBlocksChange(newBlocks);
+  };
+
   const handleIdleLeftBlocksChange = (newBlocks: LayoutBlock[]) => {
     undoIdleLeftRef.current.push([...effectiveIdleLeftBlocks]);
     if (onIdleLeftBlocksChange) onIdleLeftBlocksChange(newBlocks);
@@ -258,6 +380,11 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   const handleIdleRightBlocksChange = (newBlocks: LayoutBlock[]) => {
     undoIdleRightRef.current.push([...effectiveIdleRightBlocks]);
     if (onIdleRightBlocksChange) onIdleRightBlocksChange(newBlocks);
+  };
+
+  const handleIdleDongleBlocksChange = (newBlocks: LayoutBlock[]) => {
+    undoIdleDongleRef.current.push([...effectiveIdleDongleBlocks]);
+    if (onIdleDongleBlocksChange) onIdleDongleBlocksChange(newBlocks);
   };
 
   // Undo handlers per panel
@@ -274,6 +401,11 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     if (prev && onRightBlocksChange) onRightBlocksChange(prev);
   }, [onRightBlocksChange]);
 
+  const handleUndoDongle = useCallback(() => {
+    const prev = undoDongleRef.current.pop();
+    if (prev && onDongleBlocksChange) onDongleBlocksChange(prev);
+  }, [onDongleBlocksChange]);
+
   const handleUndoIdleLeft = useCallback(() => {
     const prev = undoIdleLeftRef.current.pop();
     if (prev && onIdleLeftBlocksChange) onIdleLeftBlocksChange(prev);
@@ -283,6 +415,11 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     const prev = undoIdleRightRef.current.pop();
     if (prev && onIdleRightBlocksChange) onIdleRightBlocksChange(prev);
   }, [onIdleRightBlocksChange]);
+
+  const handleUndoIdleDongle = useCallback(() => {
+    const prev = undoIdleDongleRef.current.pop();
+    if (prev && onIdleDongleBlocksChange) onIdleDongleBlocksChange(prev);
+  }, [onIdleDongleBlocksChange]);
 
   // Global Ctrl+Z handler (undoes the most recent change across all panels)
   useEffect(() => {
@@ -294,8 +431,10 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         // Find the most recently modified stack and pop it
         const stacks = [
           { ref: undoLeftRef, fn: handleUndoLeft },
+          { ref: undoDongleRef, fn: handleUndoDongle },
           { ref: undoRightRef, fn: handleUndoRight },
           { ref: undoIdleLeftRef, fn: handleUndoIdleLeft },
+          { ref: undoIdleDongleRef, fn: handleUndoIdleDongle },
           { ref: undoIdleRightRef, fn: handleUndoIdleRight },
         ];
         // Pop the stack with the most entries (last changed)
@@ -321,8 +460,12 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   const [selectedRightBlockId, setSelectedRightBlockId] = useState<string | null>(
     effectiveRightBlocks[0]?.id || null
   );
+  const [selectedDongleBlockId, setSelectedDongleBlockId] = useState<string | null>(
+    effectiveDongleBlocks[0]?.id || null
+  );
   const [selectedIdleLeftBlockId, setSelectedIdleLeftBlockId] = useState<string | null>(null);
   const [selectedIdleRightBlockId, setSelectedIdleRightBlockId] = useState<string | null>(null);
+  const [selectedIdleDongleBlockId, setSelectedIdleDongleBlockId] = useState<string | null>(null);
 
   // Drag-and-drop state from center list to OLED panels
   const [dragState, setDragState] = useState<DragWidgetState | null>(null);
@@ -336,7 +479,8 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   } | null>(null);
 
   const checkPeripheralMasterWarning = useCallback(
-    (widget: DisplayWidgetDefinition, side: 'left' | 'right', blockId: string, targetMode: 'active' | 'idle') => {
+    (widget: DisplayWidgetDefinition, side: 'left' | 'right' | 'dongle' | string, blockId: string, targetMode: 'active' | 'idle') => {
+      // In ZMK, a Dongle is Central (Master), so requiresMaster widgets are fully supported on Dongle!
       if (side === 'right' && widget.requiresMaster) {
         const isSuppressed = typeof window !== 'undefined' && localStorage.getItem('scyan_suppress_peripheral_master_modal') === 'true';
         if (!isSuppressed) {
@@ -376,16 +520,11 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       }
       setWarningModalState(null);
     },
-    [warningModalState, effectiveRightBlocks, effectiveIdleRightBlocks, selectedRightBlockId, selectedIdleRightBlockId, handleRightBlocksChange, handleIdleRightBlocksChange]
+    [warningModalState, effectiveRightBlocks, effectiveIdleRightBlocks, selectedRightBlockId, selectedIdleRightBlockId]
   );
 
-  // References to the screen HTML elements for drop hit-testing
-  const screenElementsRef = useRef<Record<string, HTMLDivElement | null>>({
-    'left-active': null,
-    'right-active': null,
-    'left-idle': null,
-    'right-idle': null,
-  });
+  // Screen DOM element registration for precise drag hit-testing
+  const screenElementsRef = useRef<Record<string, HTMLDivElement | null>>({});
 
   const handleRegisterScreenElement = useCallback(
     (screenKey: string, el: HTMLDivElement | null) => {
@@ -416,16 +555,16 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   const screenW = screenDimensions.width || 32;
   const screenH = screenDimensions.height || 128;
 
-  // Quick add helper (clicks "+ Left" or "+ Right" on card)
+  // Quick add helper (clicks "+ Left", "+ Dongle", or "+ Right" on card)
   const handleQuickAdd = useCallback(
-    (widget: DisplayWidgetDefinition, side: 'left' | 'right') => {
+    (widget: DisplayWidgetDefinition, side: 'left' | 'right' | 'dongle' | string) => {
       const targetMode = effectiveIdleScreensEnabled ? focusedScreenMode : 'active';
       const targetList = targetMode === 'active'
-        ? (side === 'left' ? effectiveLeftBlocks : effectiveRightBlocks)
-        : (side === 'left' ? effectiveIdleLeftBlocks : effectiveIdleRightBlocks);
+        ? (side === 'left' ? effectiveLeftBlocks : side === 'dongle' ? effectiveDongleBlocks : effectiveRightBlocks)
+        : (side === 'left' ? effectiveIdleLeftBlocks : side === 'dongle' ? effectiveIdleDongleBlocks : effectiveIdleRightBlocks);
 
-      const targetSideW = side === 'left' ? screenW : (effectiveRightScreenDimensions.width || 32);
-      const targetSideH = side === 'left' ? screenH : (effectiveRightScreenDimensions.height || 128);
+      const targetSideW = side === 'left' ? screenW : side === 'dongle' ? (effectiveDongleScreenDimensions.width || 32) : (effectiveRightScreenDimensions.width || 32);
+      const targetSideH = side === 'left' ? screenH : side === 'dongle' ? (effectiveDongleScreenDimensions.height || 128) : (effectiveRightScreenDimensions.height || 128);
 
       const patchedWidget = widget as DisplayWidgetDefinition & { instanceId?: string };
       const activeInstance = resolveWidgetInstance(instances, widget.id, patchedWidget.instanceId);
@@ -466,27 +605,41 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         if (side === 'left') {
           handleLeftBlocksChange([...targetList, newBlock]);
           setSelectedLeftBlockId(newBlock.id);
+          setSelectedDongleBlockId(null);
+          setSelectedRightBlockId(null);
+        } else if (side === 'dongle') {
+          handleDongleBlocksChange([...targetList, newBlock]);
+          setSelectedDongleBlockId(newBlock.id);
+          setSelectedLeftBlockId(null);
           setSelectedRightBlockId(null);
         } else {
           handleRightBlocksChange([...targetList, newBlock]);
           setSelectedRightBlockId(newBlock.id);
           setSelectedLeftBlockId(null);
+          setSelectedDongleBlockId(null);
           checkPeripheralMasterWarning(widget, side, newBlock.id, targetMode);
         }
       } else {
         if (side === 'left') {
           handleIdleLeftBlocksChange([...targetList, newBlock]);
           setSelectedIdleLeftBlockId(newBlock.id);
+          setSelectedIdleDongleBlockId(null);
+          setSelectedIdleRightBlockId(null);
+        } else if (side === 'dongle') {
+          handleIdleDongleBlocksChange([...targetList, newBlock]);
+          setSelectedIdleDongleBlockId(newBlock.id);
+          setSelectedIdleLeftBlockId(null);
           setSelectedIdleRightBlockId(null);
         } else {
           handleIdleRightBlocksChange([...targetList, newBlock]);
           setSelectedIdleRightBlockId(newBlock.id);
           setSelectedIdleLeftBlockId(null);
+          setSelectedIdleDongleBlockId(null);
           checkPeripheralMasterWarning(widget, side, newBlock.id, targetMode);
         }
       }
     },
-    [focusedScreenMode, effectiveIdleScreensEnabled, effectiveLeftBlocks, effectiveRightBlocks, effectiveIdleLeftBlocks, effectiveIdleRightBlocks, symbolSlices, instances, screenW, screenH, effectiveRightScreenDimensions, checkPeripheralMasterWarning]
+    [focusedScreenMode, effectiveIdleScreensEnabled, effectiveLeftBlocks, effectiveRightBlocks, effectiveDongleBlocks, effectiveIdleLeftBlocks, effectiveIdleRightBlocks, effectiveIdleDongleBlocks, symbolSlices, instances, screenW, screenH, effectiveRightScreenDimensions, effectiveDongleScreenDimensions, checkPeripheralMasterWarning]
   );
 
   // Window listeners during active ghost drag
@@ -498,7 +651,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       const clientX = e.clientX;
       const clientY = e.clientY;
 
-      let targetSide: 'left' | 'right' | null = null;
+      let targetSide: 'left' | 'right' | 'dongle' | null = null;
       let targetX: number | null = null;
       let targetY: number | null = null;
 
@@ -512,6 +665,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       // Hit-test targeting the active/focused screens
       const targetScreenSuffix = effectiveIdleScreensEnabled ? focusedScreenMode : 'active';
       const leftEl = screenElementsRef.current[`left-${targetScreenSuffix}`];
+      const dongleEl = screenElementsRef.current[`dongle-${targetScreenSuffix}`];
       const rightEl = screenElementsRef.current[`right-${targetScreenSuffix}`];
 
       if (leftEl) {
@@ -531,6 +685,28 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
           );
           targetX = Math.max(0, Math.min(screenW - naturalSize.width, relX));
           targetY = Math.max(0, Math.min(screenH - naturalSize.height, relY));
+        }
+      }
+
+      if (!targetSide && dongleEl) {
+        const rect = dongleEl.getBoundingClientRect();
+        if (
+          clientX >= rect.left - 40 &&
+          clientX <= rect.right + 40 &&
+          clientY >= rect.top - 20 &&
+          clientY <= rect.bottom + 20
+        ) {
+          targetSide = 'dongle';
+          const dongleW = effectiveDongleScreenDimensions.width || 32;
+          const dongleH = effectiveDongleScreenDimensions.height || 128;
+          const relX = Math.round(
+            ((clientX - rect.left) / rect.width) * dongleW - naturalSize.width / 2
+          );
+          const relY = Math.round(
+            ((clientY - rect.top) / rect.height) * dongleH - naturalSize.height / 2
+          );
+          targetX = Math.max(0, Math.min(dongleW - naturalSize.width, relX));
+          targetY = Math.max(0, Math.min(dongleH - naturalSize.height, relY));
         }
       }
 
@@ -599,22 +775,36 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
           if (side === 'left') {
             handleLeftBlocksChange([...effectiveLeftBlocks, newBlock]);
             setSelectedLeftBlockId(newBlock.id);
+            setSelectedDongleBlockId(null);
+            setSelectedRightBlockId(null);
+          } else if (side === 'dongle') {
+            handleDongleBlocksChange([...effectiveDongleBlocks, newBlock]);
+            setSelectedDongleBlockId(newBlock.id);
+            setSelectedLeftBlockId(null);
             setSelectedRightBlockId(null);
           } else {
             handleRightBlocksChange([...effectiveRightBlocks, newBlock]);
             setSelectedRightBlockId(newBlock.id);
             setSelectedLeftBlockId(null);
+            setSelectedDongleBlockId(null);
             checkPeripheralMasterWarning(active.widget, side, newBlock.id, targetMode);
           }
         } else {
           if (side === 'left') {
             handleIdleLeftBlocksChange([...effectiveIdleLeftBlocks, newBlock]);
             setSelectedIdleLeftBlockId(newBlock.id);
+            setSelectedIdleDongleBlockId(null);
+            setSelectedIdleRightBlockId(null);
+          } else if (side === 'dongle') {
+            handleIdleDongleBlocksChange([...effectiveIdleDongleBlocks, newBlock]);
+            setSelectedIdleDongleBlockId(newBlock.id);
+            setSelectedIdleLeftBlockId(null);
             setSelectedIdleRightBlockId(null);
           } else {
             handleIdleRightBlocksChange([...effectiveIdleRightBlocks, newBlock]);
             setSelectedIdleRightBlockId(newBlock.id);
             setSelectedIdleLeftBlockId(null);
+            setSelectedIdleDongleBlockId(null);
             checkPeripheralMasterWarning(active.widget, side, newBlock.id, targetMode);
           }
         }
@@ -632,12 +822,40 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       window.removeEventListener('pointerup', handlePointerEnd);
       window.removeEventListener('pointercancel', handlePointerEnd);
     };
-  }, [isDragging, focusedScreenMode, effectiveIdleScreensEnabled, effectiveLeftBlocks, effectiveRightBlocks, effectiveIdleLeftBlocks, effectiveIdleRightBlocks, symbolSlices, instances, screenW, screenH, effectiveRightScreenDimensions, checkPeripheralMasterWarning]);
+  }, [
+    isDragging,
+    focusedScreenMode,
+    effectiveIdleScreensEnabled,
+    effectiveLeftBlocks,
+    effectiveRightBlocks,
+    effectiveDongleBlocks,
+    effectiveIdleLeftBlocks,
+    effectiveIdleRightBlocks,
+    effectiveIdleDongleBlocks,
+    symbolSlices,
+    instances,
+    screenW,
+    screenH,
+    effectiveRightScreenDimensions,
+    effectiveDongleScreenDimensions,
+    checkPeripheralMasterWarning,
+    handleLeftBlocksChange,
+    handleRightBlocksChange,
+    handleDongleBlocksChange,
+    handleIdleLeftBlocksChange,
+    handleIdleRightBlocksChange,
+    handleIdleDongleBlocksChange,
+  ]);
 
   // Active Screen Action Handlers
   const handleClearLeft = () => {
     handleLeftBlocksChange([]);
     setSelectedLeftBlockId(null);
+  };
+
+  const handleClearDongle = () => {
+    handleDongleBlocksChange([]);
+    setSelectedDongleBlockId(null);
   };
 
   const handleClearRight = () => {
@@ -651,13 +869,97 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     setSelectedIdleLeftBlockId(null);
   };
 
+  const handleClearIdleDongle = () => {
+    handleIdleDongleBlocksChange([]);
+    setSelectedIdleDongleBlockId(null);
+  };
+
   const handleClearIdleRight = () => {
     handleIdleRightBlocksChange([]);
     setSelectedIdleRightBlockId(null);
   };
 
+  const showLeft = isLeftEnabled && (activeScreenView === 'all' || activeScreenView === 'left');
+  const showDongle = isDongleEnabled && (activeScreenView === 'all' || activeScreenView === 'dongle');
+  const showRight = isRightEnabled && (activeScreenView === 'all' || activeScreenView === 'right');
+
   return (
     <div className="blocks-tab-wrapper">
+      {/* SCREEN TOPOLOGY & VIEW SELECTOR BAR */}
+      <div className="blocks-screen-topology-bar">
+        <div className="topology-section">
+          <span>Topology:</span>
+          <div className="topology-pills-group">
+            <button
+              type="button"
+              className={`topology-pill-btn ${effectiveScreenSetup === 'split' ? 'active' : ''}`}
+              onClick={() => handleSelectPreset('split')}
+              title="Dual Split: Left (Master) and Right (Peripheral)"
+            >
+              Dual Split (L + R)
+            </button>
+            <button
+              type="button"
+              className={`topology-pill-btn ${effectiveScreenSetup === 'split-dongle' ? 'active amber' : ''}`}
+              onClick={() => handleSelectPreset('split-dongle')}
+              title="Split + Dongle: Central Dongle Master + Dual Peripherals (3 Screens)"
+            >
+              Split + Dongle Master (3 Screens)
+            </button>
+            <button
+              type="button"
+              className={`topology-pill-btn ${effectiveScreenSetup === 'dongle-only' ? 'active amber' : ''}`}
+              onClick={() => handleSelectPreset('dongle-only')}
+              title="Dongle Master Only: Single Central Dongle Screen"
+            >
+              Dongle Master Only (1 Screen)
+            </button>
+          </div>
+        </div>
+
+        {effectiveEnabledScreens.length > 1 && (
+          <div className="topology-section">
+            <span>View:</span>
+            <div className="topology-pills-group">
+              <button
+                type="button"
+                className={`topology-pill-btn ${activeScreenView === 'all' ? 'active' : ''}`}
+                onClick={() => setActiveScreenView('all')}
+              >
+                All Screens
+              </button>
+              {isLeftEnabled && (
+                <button
+                  type="button"
+                  className={`topology-pill-btn ${activeScreenView === 'left' ? 'active' : ''}`}
+                  onClick={() => setActiveScreenView('left')}
+                >
+                  Left
+                </button>
+              )}
+              {isDongleEnabled && (
+                <button
+                  type="button"
+                  className={`topology-pill-btn ${activeScreenView === 'dongle' ? 'active amber' : ''}`}
+                  onClick={() => setActiveScreenView('dongle')}
+                >
+                  Dongle Master
+                </button>
+              )}
+              {isRightEnabled && (
+                <button
+                  type="button"
+                  className={`topology-pill-btn ${activeScreenView === 'right' ? 'active' : ''}`}
+                  onClick={() => setActiveScreenView('right')}
+                >
+                  Right
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="blocks-tab-container">
         {/* Ghost Drag Floating Overlay attached to cursor */}
         {dragState && (
@@ -684,75 +986,40 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         )}
 
         {/* Left Side Settings Panel (Side-docked / side-expanding next to Left Screen) */}
-        <SideSettingsPanel
-          side="left"
-          isOpen={effectiveLeftSettingsOpen}
-          onClose={closeLeftSettings}
-          screenDimensions={screenDimensions}
-          onScreenDimensionsChange={handleLeftDimensionsChange}
-          idleScreensEnabled={effectiveIdleScreensEnabled}
-          onIdleScreensEnabledChange={handleLeftIdleEnabledChange}
-          idleTimeoutSec={effectiveIdleTimeoutSec}
-          onIdleTimeoutSecChange={handleLeftIdleTimeoutChange}
-          screenOffTimeoutSec={effectiveScreenOffTimeoutSec}
-          onScreenOffTimeoutSecChange={handleLeftScreenOffTimeoutChange}
-          symmetricSettings={effectiveSymmetricSettings}
-          onRightScreenDimensionsChange={handleRightScreenDimensionsChange}
-          onRightIdleScreensEnabledChange={handleRightIdleScreensEnabledChange}
-          rightIdleTimeoutSec={effectiveRightIdleTimeoutSec}
-          onRightIdleTimeoutSecChange={handleRightIdleTimeoutSecChange}
-          rightScreenOffTimeoutSec={effectiveRightScreenOffTimeoutSec}
-          onRightScreenOffTimeoutSecChange={handleRightScreenOffTimeoutSecChange}
-        />
+        {showLeft && (
+          <SideSettingsPanel
+            side="left"
+            isOpen={effectiveLeftSettingsOpen}
+            onClose={closeLeftSettings}
+            screenDimensions={screenDimensions}
+            onScreenDimensionsChange={handleLeftDimensionsChange}
+            idleScreensEnabled={effectiveIdleScreensEnabled}
+            onIdleScreensEnabledChange={handleLeftIdleEnabledChange}
+            idleTimeoutSec={effectiveIdleTimeoutSec}
+            onIdleTimeoutSecChange={handleLeftIdleTimeoutChange}
+            screenOffTimeoutSec={effectiveScreenOffTimeoutSec}
+            onScreenOffTimeoutSecChange={handleLeftScreenOffTimeoutChange}
+            symmetricSettings={effectiveSymmetricSettings}
+            onRightScreenDimensionsChange={handleRightScreenDimensionsChange}
+            onRightIdleScreensEnabledChange={handleRightIdleScreensEnabledChange}
+            rightIdleTimeoutSec={effectiveRightIdleTimeoutSec}
+            onRightIdleTimeoutSecChange={handleRightIdleTimeoutSecChange}
+            rightScreenOffTimeoutSec={effectiveRightScreenOffTimeoutSec}
+            onRightScreenOffTimeoutSecChange={handleRightScreenOffTimeoutSecChange}
+          />
+        )}
 
         {/* Column 1: Left Screens */}
-        <div className={`blocks-column-oled ${!effectiveIdleScreensEnabled ? 'idle-disabled' : focusedScreenMode === 'active' ? 'active-expanded' : 'idle-expanded'}`}>
-          <OledPanelColumn
-            side="left"
-            screenKind="active"
-            title="Left Active"
-            blocks={effectiveLeftBlocks}
-            onBlocksChange={handleLeftBlocksChange}
-            onClearScreen={handleClearLeft}
-            onUndo={handleUndoLeft}
-            onToggleSettings={toggleLeftSettings}
-            isSettingsOpen={effectiveLeftSettingsOpen}
-            symbolsGrid={symbolsGrid}
-            symbolSlices={symbolSlices}
-            fontGrid={fontGrid}
-            fontGlyphs={fontGlyphs}
-            fontMappings={fontMappings}
-            customText={customText}
-            instances={instances}
-            isDropTarget={dragState?.targetSide === 'left' && (focusedScreenMode === 'active' || !effectiveIdleScreensEnabled)}
-            dropTargetX={dragState?.targetSide === 'left' ? dragState.targetX : null}
-            dropTargetY={dragState?.targetSide === 'left' ? dragState.targetY : null}
-            draggedWidget={dragState?.widget || null}
-            selectedBlockId={selectedLeftBlockId}
-            onSelectBlock={id => {
-              setSelectedLeftBlockId(id);
-              if (id) {
-                setSelectedRightBlockId(null);
-                setSelectedIdleLeftBlockId(null);
-                setSelectedIdleRightBlockId(null);
-              }
-            }}
-            onRegisterScreenElement={handleRegisterScreenElement}
-            screenDimensions={screenDimensions}
-            layerNames={layerNames}
-            isCompact={effectiveIdleScreensEnabled && focusedScreenMode === 'idle'}
-            onExpand={() => setFocusedScreenMode('active')}
-          />
-
-          {effectiveIdleScreensEnabled && (
+        {showLeft && (
+          <div className={`blocks-column-oled ${!effectiveIdleScreensEnabled ? 'idle-disabled' : focusedScreenMode === 'active' ? 'active-expanded' : 'idle-expanded'}`}>
             <OledPanelColumn
               side="left"
-              screenKind="idle"
-              title="Left Idle"
-              blocks={effectiveIdleLeftBlocks}
-              onBlocksChange={handleIdleLeftBlocksChange}
-              onClearScreen={handleClearIdleLeft}
-              onUndo={handleUndoIdleLeft}
+              screenKind="active"
+              title="Left Active"
+              blocks={effectiveLeftBlocks}
+              onBlocksChange={handleLeftBlocksChange}
+              onClearScreen={handleClearLeft}
+              onUndo={handleUndoLeft}
               onToggleSettings={toggleLeftSettings}
               isSettingsOpen={effectiveLeftSettingsOpen}
               symbolsGrid={symbolsGrid}
@@ -762,29 +1029,174 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
               fontMappings={fontMappings}
               customText={customText}
               instances={instances}
-              isDropTarget={dragState?.targetSide === 'left' && focusedScreenMode === 'idle'}
+              isDropTarget={dragState?.targetSide === 'left' && (focusedScreenMode === 'active' || !effectiveIdleScreensEnabled)}
               dropTargetX={dragState?.targetSide === 'left' ? dragState.targetX : null}
               dropTargetY={dragState?.targetSide === 'left' ? dragState.targetY : null}
               draggedWidget={dragState?.widget || null}
-              selectedBlockId={selectedIdleLeftBlockId}
+              selectedBlockId={selectedLeftBlockId}
               onSelectBlock={id => {
-                setSelectedIdleLeftBlockId(id);
+                setSelectedLeftBlockId(id);
                 if (id) {
-                  setSelectedLeftBlockId(null);
+                  setSelectedDongleBlockId(null);
                   setSelectedRightBlockId(null);
+                  setSelectedIdleLeftBlockId(null);
+                  setSelectedIdleDongleBlockId(null);
                   setSelectedIdleRightBlockId(null);
                 }
               }}
               onRegisterScreenElement={handleRegisterScreenElement}
               screenDimensions={screenDimensions}
               layerNames={layerNames}
-              isCompact={focusedScreenMode === 'active'}
-              onExpand={() => setFocusedScreenMode('idle')}
+              isCompact={effectiveIdleScreensEnabled && focusedScreenMode === 'idle'}
+              onExpand={() => setFocusedScreenMode('active')}
             />
-          )}
-        </div>
 
-        {/* Column 2: Center Scrollable Widget Library Catalog */}
+            {effectiveIdleScreensEnabled && (
+              <OledPanelColumn
+                side="left"
+                screenKind="idle"
+                title="Left Idle"
+                blocks={effectiveIdleLeftBlocks}
+                onBlocksChange={handleIdleLeftBlocksChange}
+                onClearScreen={handleClearIdleLeft}
+                onUndo={handleUndoIdleLeft}
+                onToggleSettings={toggleLeftSettings}
+                isSettingsOpen={effectiveLeftSettingsOpen}
+                symbolsGrid={symbolsGrid}
+                symbolSlices={symbolSlices}
+                fontGrid={fontGrid}
+                fontGlyphs={fontGlyphs}
+                fontMappings={fontMappings}
+                customText={customText}
+                instances={instances}
+                isDropTarget={dragState?.targetSide === 'left' && focusedScreenMode === 'idle'}
+                dropTargetX={dragState?.targetSide === 'left' ? dragState.targetX : null}
+                dropTargetY={dragState?.targetSide === 'left' ? dragState.targetY : null}
+                draggedWidget={dragState?.widget || null}
+                selectedBlockId={selectedIdleLeftBlockId}
+                onSelectBlock={id => {
+                  setSelectedIdleLeftBlockId(id);
+                  if (id) {
+                    setSelectedLeftBlockId(null);
+                    setSelectedDongleBlockId(null);
+                    setSelectedRightBlockId(null);
+                    setSelectedIdleDongleBlockId(null);
+                    setSelectedIdleRightBlockId(null);
+                  }
+                }}
+                onRegisterScreenElement={handleRegisterScreenElement}
+                screenDimensions={screenDimensions}
+                layerNames={layerNames}
+                isCompact={focusedScreenMode === 'active'}
+                onExpand={() => setFocusedScreenMode('idle')}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Dongle Master Settings Panel */}
+        {showDongle && (
+          <SideSettingsPanel
+            side="dongle"
+            isOpen={effectiveDongleSettingsOpen}
+            onClose={closeDongleSettings}
+            screenDimensions={effectiveDongleScreenDimensions}
+            onScreenDimensionsChange={handleDongleDimensionsChange}
+            idleScreensEnabled={effectiveDongleIdleScreensEnabled}
+            onIdleScreensEnabledChange={handleDongleIdleEnabledChange}
+            idleTimeoutSec={effectiveDongleIdleTimeoutSec}
+            onIdleTimeoutSecChange={handleDongleIdleTimeoutChange}
+            screenOffTimeoutSec={effectiveDongleScreenOffTimeoutSec}
+            onScreenOffTimeoutSecChange={handleDongleScreenOffTimeoutChange}
+          />
+        )}
+
+        {/* Dongle Screen Column */}
+        {showDongle && (
+          <div className={`blocks-column-oled ${!effectiveDongleIdleScreensEnabled ? 'idle-disabled' : focusedScreenMode === 'active' ? 'active-expanded' : 'idle-expanded'}`}>
+            <OledPanelColumn
+              side="dongle"
+              screenKind="active"
+              title="Dongle Master Active"
+              blocks={effectiveDongleBlocks}
+              onBlocksChange={handleDongleBlocksChange}
+              onClearScreen={handleClearDongle}
+              onUndo={handleUndoDongle}
+              onToggleSettings={toggleDongleSettings}
+              isSettingsOpen={effectiveDongleSettingsOpen}
+              symbolsGrid={symbolsGrid}
+              symbolSlices={symbolSlices}
+              fontGrid={fontGrid}
+              fontGlyphs={fontGlyphs}
+              fontMappings={fontMappings}
+              customText={customText}
+              instances={instances}
+              isDropTarget={dragState?.targetSide === 'dongle' && (focusedScreenMode === 'active' || !effectiveDongleIdleScreensEnabled)}
+              dropTargetX={dragState?.targetSide === 'dongle' ? dragState.targetX : null}
+              dropTargetY={dragState?.targetSide === 'dongle' ? dragState.targetY : null}
+              draggedWidget={dragState?.widget || null}
+              selectedBlockId={selectedDongleBlockId}
+              onSelectBlock={id => {
+                setSelectedDongleBlockId(id);
+                if (id) {
+                  setSelectedLeftBlockId(null);
+                  setSelectedRightBlockId(null);
+                  setSelectedIdleLeftBlockId(null);
+                  setSelectedIdleDongleBlockId(null);
+                  setSelectedIdleRightBlockId(null);
+                }
+              }}
+              onRegisterScreenElement={handleRegisterScreenElement}
+              screenDimensions={effectiveDongleScreenDimensions}
+              layerNames={layerNames}
+              isCompact={effectiveDongleIdleScreensEnabled && focusedScreenMode === 'idle'}
+              onExpand={() => setFocusedScreenMode('active')}
+            />
+
+            {effectiveDongleIdleScreensEnabled && (
+              <OledPanelColumn
+                side="dongle"
+                screenKind="idle"
+                title="Dongle Master Idle"
+                blocks={effectiveIdleDongleBlocks}
+                onBlocksChange={handleIdleDongleBlocksChange}
+                onClearScreen={handleClearIdleDongle}
+                onUndo={handleUndoIdleDongle}
+                onToggleSettings={toggleDongleSettings}
+                isSettingsOpen={effectiveDongleSettingsOpen}
+                symbolsGrid={symbolsGrid}
+                symbolSlices={symbolSlices}
+                fontGrid={fontGrid}
+                fontGlyphs={fontGlyphs}
+                fontMappings={fontMappings}
+                customText={customText}
+                instances={instances}
+                isDropTarget={dragState?.targetSide === 'dongle' && focusedScreenMode === 'idle'}
+                dropTargetX={dragState?.targetSide === 'dongle' ? dragState.targetX : null}
+                dropTargetY={dragState?.targetSide === 'dongle' ? dragState.targetY : null}
+                draggedWidget={dragState?.widget || null}
+                selectedBlockId={selectedIdleDongleBlockId}
+                onSelectBlock={id => {
+                  setSelectedIdleDongleBlockId(id);
+                  if (id) {
+                    setSelectedLeftBlockId(null);
+                    setSelectedRightBlockId(null);
+                    setSelectedDongleBlockId(null);
+                    setSelectedIdleLeftBlockId(null);
+                    setSelectedIdleRightBlockId(null);
+                  }
+                }}
+                onRegisterScreenElement={handleRegisterScreenElement}
+                screenDimensions={effectiveDongleScreenDimensions}
+                layerNames={layerNames}
+                isCompact={focusedScreenMode === 'active'}
+                onExpand={() => setFocusedScreenMode('idle')}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Center Scrollable Widget Library Catalog */}
         <div className="blocks-column-catalog">
           <WidgetCatalogList
             symbolsGrid={symbolsGrid}
@@ -800,53 +1212,16 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         </div>
 
         {/* Column 3: Right Screens */}
-        <div className={`blocks-column-oled ${!effectiveRightIdleScreensEnabled ? 'idle-disabled' : focusedScreenMode === 'active' ? 'active-expanded' : 'idle-expanded'}`}>
-          <OledPanelColumn
-            side="right"
-            screenKind="active"
-            title="Right Active"
-            blocks={effectiveRightBlocks}
-            onBlocksChange={handleRightBlocksChange}
-            onClearScreen={handleClearRight}
-            onUndo={handleUndoRight}
-            onToggleSettings={toggleRightSettings}
-            isSettingsOpen={effectiveRightSettingsOpen}
-            symbolsGrid={symbolsGrid}
-            symbolSlices={symbolSlices}
-            fontGrid={fontGrid}
-            fontGlyphs={fontGlyphs}
-            fontMappings={fontMappings}
-            customText={customText}
-            instances={instances}
-            isDropTarget={dragState?.targetSide === 'right' && (focusedScreenMode === 'active' || !effectiveRightIdleScreensEnabled)}
-            dropTargetX={dragState?.targetSide === 'right' ? dragState.targetX : null}
-            dropTargetY={dragState?.targetSide === 'right' ? dragState.targetY : null}
-            draggedWidget={dragState?.widget || null}
-            selectedBlockId={selectedRightBlockId}
-            onSelectBlock={id => {
-              setSelectedRightBlockId(id);
-              if (id) {
-                setSelectedLeftBlockId(null);
-                setSelectedIdleLeftBlockId(null);
-                setSelectedIdleRightBlockId(null);
-              }
-            }}
-            onRegisterScreenElement={handleRegisterScreenElement}
-            screenDimensions={effectiveRightScreenDimensions}
-            layerNames={layerNames}
-            isCompact={effectiveRightIdleScreensEnabled && focusedScreenMode === 'idle'}
-            onExpand={() => setFocusedScreenMode('active')}
-          />
-
-          {effectiveRightIdleScreensEnabled && (
+        {showRight && (
+          <div className={`blocks-column-oled ${!effectiveRightIdleScreensEnabled ? 'idle-disabled' : focusedScreenMode === 'active' ? 'active-expanded' : 'idle-expanded'}`}>
             <OledPanelColumn
               side="right"
-              screenKind="idle"
-              title="Right Idle"
-              blocks={effectiveIdleRightBlocks}
-              onBlocksChange={handleIdleRightBlocksChange}
-              onClearScreen={handleClearIdleRight}
-              onUndo={handleUndoIdleRight}
+              screenKind="active"
+              title="Right Active"
+              blocks={effectiveRightBlocks}
+              onBlocksChange={handleRightBlocksChange}
+              onClearScreen={handleClearRight}
+              onUndo={handleUndoRight}
               onToggleSettings={toggleRightSettings}
               isSettingsOpen={effectiveRightSettingsOpen}
               symbolsGrid={symbolsGrid}
@@ -856,52 +1231,97 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
               fontMappings={fontMappings}
               customText={customText}
               instances={instances}
-              isDropTarget={dragState?.targetSide === 'right' && focusedScreenMode === 'idle'}
+              isDropTarget={dragState?.targetSide === 'right' && (focusedScreenMode === 'active' || !effectiveRightIdleScreensEnabled)}
               dropTargetX={dragState?.targetSide === 'right' ? dragState.targetX : null}
               dropTargetY={dragState?.targetSide === 'right' ? dragState.targetY : null}
               draggedWidget={dragState?.widget || null}
-              selectedBlockId={selectedIdleRightBlockId}
+              selectedBlockId={selectedRightBlockId}
               onSelectBlock={id => {
-                setSelectedIdleRightBlockId(id);
+                setSelectedRightBlockId(id);
                 if (id) {
                   setSelectedLeftBlockId(null);
-                  setSelectedRightBlockId(null);
+                  setSelectedDongleBlockId(null);
                   setSelectedIdleLeftBlockId(null);
+                  setSelectedIdleDongleBlockId(null);
+                  setSelectedIdleRightBlockId(null);
                 }
               }}
               onRegisterScreenElement={handleRegisterScreenElement}
               screenDimensions={effectiveRightScreenDimensions}
               layerNames={layerNames}
-              isCompact={focusedScreenMode === 'active'}
-              onExpand={() => setFocusedScreenMode('idle')}
+              isCompact={effectiveRightIdleScreensEnabled && focusedScreenMode === 'idle'}
+              onExpand={() => setFocusedScreenMode('active')}
             />
-          )}
-        </div>
+
+            {effectiveRightIdleScreensEnabled && (
+              <OledPanelColumn
+                side="right"
+                screenKind="idle"
+                title="Right Idle"
+                blocks={effectiveIdleRightBlocks}
+                onBlocksChange={handleIdleRightBlocksChange}
+                onClearScreen={handleClearIdleRight}
+                onUndo={handleUndoIdleRight}
+                onToggleSettings={toggleRightSettings}
+                isSettingsOpen={effectiveRightSettingsOpen}
+                symbolsGrid={symbolsGrid}
+                symbolSlices={symbolSlices}
+                fontGrid={fontGrid}
+                fontGlyphs={fontGlyphs}
+                fontMappings={fontMappings}
+                customText={customText}
+                instances={instances}
+                isDropTarget={dragState?.targetSide === 'right' && focusedScreenMode === 'idle'}
+                dropTargetX={dragState?.targetSide === 'right' ? dragState.targetX : null}
+                dropTargetY={dragState?.targetSide === 'right' ? dragState.targetY : null}
+                draggedWidget={dragState?.widget || null}
+                selectedBlockId={selectedIdleRightBlockId}
+                onSelectBlock={id => {
+                  setSelectedIdleRightBlockId(id);
+                  if (id) {
+                    setSelectedLeftBlockId(null);
+                    setSelectedDongleBlockId(null);
+                    setSelectedRightBlockId(null);
+                    setSelectedIdleLeftBlockId(null);
+                    setSelectedIdleDongleBlockId(null);
+                  }
+                }}
+                onRegisterScreenElement={handleRegisterScreenElement}
+                screenDimensions={effectiveRightScreenDimensions}
+                layerNames={layerNames}
+                isCompact={focusedScreenMode === 'active'}
+                onExpand={() => setFocusedScreenMode('idle')}
+              />
+            )}
+          </div>
+        )}
 
         {/* Right Side Settings Panel (Side-docked / side-expanding next to Right Screen) */}
-        <SideSettingsPanel
-          side="right"
-          isOpen={effectiveRightSettingsOpen}
-          onClose={closeRightSettings}
-          screenDimensions={screenDimensions}
-          onScreenDimensionsChange={handleLeftDimensionsChange}
-          idleScreensEnabled={effectiveIdleScreensEnabled}
-          onIdleScreensEnabledChange={handleLeftIdleEnabledChange}
-          idleTimeoutSec={effectiveIdleTimeoutSec}
-          onIdleTimeoutSecChange={handleLeftIdleTimeoutChange}
-          screenOffTimeoutSec={effectiveScreenOffTimeoutSec}
-          onScreenOffTimeoutSecChange={handleLeftScreenOffTimeoutChange}
-          symmetricSettings={effectiveSymmetricSettings}
-          onSymmetricSettingsChange={handleSymmetricChange}
-          rightScreenDimensions={effectiveRightScreenDimensions}
-          onRightScreenDimensionsChange={handleRightScreenDimensionsChange}
-          rightIdleScreensEnabled={effectiveRightIdleScreensEnabled}
-          onRightIdleScreensEnabledChange={handleRightIdleScreensEnabledChange}
-          rightIdleTimeoutSec={effectiveRightIdleTimeoutSec}
-          onRightIdleTimeoutSecChange={handleRightIdleTimeoutSecChange}
-          rightScreenOffTimeoutSec={effectiveRightScreenOffTimeoutSec}
-          onRightScreenOffTimeoutSecChange={handleRightScreenOffTimeoutSecChange}
-        />
+        {showRight && (
+          <SideSettingsPanel
+            side="right"
+            isOpen={effectiveRightSettingsOpen}
+            onClose={closeRightSettings}
+            screenDimensions={screenDimensions}
+            onScreenDimensionsChange={handleLeftDimensionsChange}
+            idleScreensEnabled={effectiveIdleScreensEnabled}
+            onIdleScreensEnabledChange={handleLeftIdleEnabledChange}
+            idleTimeoutSec={effectiveIdleTimeoutSec}
+            onIdleTimeoutSecChange={handleLeftIdleTimeoutChange}
+            screenOffTimeoutSec={effectiveScreenOffTimeoutSec}
+            onScreenOffTimeoutSecChange={handleLeftScreenOffTimeoutChange}
+            symmetricSettings={effectiveSymmetricSettings}
+            onSymmetricSettingsChange={handleSymmetricChange}
+            rightScreenDimensions={effectiveRightScreenDimensions}
+            onRightScreenDimensionsChange={handleRightScreenDimensionsChange}
+            rightIdleScreensEnabled={effectiveRightIdleScreensEnabled}
+            onRightIdleScreensEnabledChange={handleRightIdleScreensEnabledChange}
+            rightIdleTimeoutSec={effectiveRightIdleTimeoutSec}
+            onRightIdleTimeoutSecChange={handleRightIdleTimeoutSecChange}
+            rightScreenOffTimeoutSec={effectiveRightScreenOffTimeoutSec}
+            onRightScreenOffTimeoutSecChange={handleRightScreenOffTimeoutSecChange}
+          />
+        )}
       </div>
     </div>
   );

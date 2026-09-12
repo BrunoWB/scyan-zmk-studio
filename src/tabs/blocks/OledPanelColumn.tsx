@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 
 export interface OledPanelColumnProps {
-  side: 'left' | 'right';
+  side: 'left' | 'right' | 'dongle' | string;
   screenKind?: 'active' | 'idle';
   title?: string;
   subtitle?: string;
@@ -67,7 +67,7 @@ const BLOCK_COLORS: Record<string, string> = {
 export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
   side,
   screenKind = 'active',
-  title: _title,
+  title,
   subtitle: _subtitle,
   blocks,
   onBlocksChange,
@@ -472,7 +472,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
       <div className="oled-panel-header">
         <div className="oled-panel-header-info">
           <div className="oled-panel-title flex items-center">
-            <span>{side === 'left' ? 'Master' : 'Peripheral'}</span>
+            <span>{title || (side === 'left' ? 'Master' : side === 'dongle' ? 'Dongle Master' : 'Peripheral')}</span>
             {screenKind === 'idle' && (
               <span className="text-[9px] text-[#94a3b8] font-mono ml-1.5 border border-[#94a3b8]/25 px-1.5 py-0.5 rounded bg-[#94a3b8]/5">
                 idle
@@ -501,13 +501,13 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
         >
           {onToggleSettings && (
             <button
-              className={`btn-block-action ${isSettingsOpen ? (side === 'right' ? 'active-purple' : 'active') : ''}`}
+              className={`btn-block-action ${isSettingsOpen ? (side === 'right' ? 'active-purple' : side === 'dongle' ? 'active-amber' : 'active') : ''}`}
               onClick={e => {
                 e.stopPropagation();
                 onToggleSettings();
               }}
-              title={isSettingsOpen ? 'Close Settings' : `${side === 'left' ? 'Master' : 'Peripheral'} Display & Power Settings`}
-              aria-label={`${side === 'left' ? 'Master' : 'Peripheral'} Settings`}
+              title={isSettingsOpen ? 'Close Settings' : `${title || (side === 'left' ? 'Master' : side === 'dongle' ? 'Dongle Master' : 'Peripheral')} Display & Power Settings`}
+              aria-label={`${title || (side === 'left' ? 'Master' : side === 'dongle' ? 'Dongle Master' : 'Peripheral')} Settings`}
               tabIndex={isCompact ? -1 : 0}
             >
               <Settings size={13} className={isSettingsOpen ? 'text-inherit' : ''} />
@@ -700,7 +700,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
           onContextMenu={e => e.preventDefault()}
         >
           <div className="px-2.5 py-1 text-[10px] font-mono font-semibold uppercase tracking-wider text-[#64748b] truncate flex items-center justify-between">
-            <span className="truncate">{contextMenu.block ? contextMenu.block.name : (side === 'left' ? 'Master' : 'Peripheral')}</span>
+            <span className="truncate">{contextMenu.block ? contextMenu.block.name : (title || (side === 'left' ? 'Master' : side === 'dongle' ? 'Dongle Master' : 'Peripheral'))}</span>
             {contextMenu.block && (
               <span
                 className="size-2 rounded-full shrink-0 ml-1.5"
