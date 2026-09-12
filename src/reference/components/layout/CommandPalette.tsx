@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, X, Layers, Palette, Terminal, Zap, Tag, Bell } from 'lucide-react';
+import { Search, X, Layers, Palette, Terminal, Zap, Tag, Bell, Cpu } from 'lucide-react';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -27,6 +27,7 @@ export default function CommandPalette({ isOpen, onClose, onSelectSection }: Com
   if (!isOpen) return null;
 
   const items = [
+    { id: 'shields', title: 'Shields Hardware & OLED Mounts Dev Lab', icon: Cpu, category: 'Dev Tools' },
     { id: 'tokens', title: 'Design Tokens & Color Palette', icon: Palette, category: 'Foundation' },
     { id: 'typography', title: 'Typography Hierarchy & Code Block', icon: Terminal, category: 'Foundation' },
     { id: 'actions', title: 'Buttons & Action Controls (Tri-Tone)', icon: Zap, category: 'Interactive' },

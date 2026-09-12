@@ -54,6 +54,7 @@ import { WidgetsTab } from './tabs/WidgetsTab';
 import { BlocksTab } from './tabs/BlocksTab';
 import ElementReferencePage from './reference/ElementReferencePage';
 import CommandPalette from './reference/components/layout/CommandPalette';
+import { ShieldsTab } from './tabs/ShieldsTab';
 import {
   MonitorPlay,
   Shapes,
@@ -65,10 +66,11 @@ import {
   RefreshCw,
   Unplug,
   Palette,
+  Cpu,
 } from 'lucide-react';
 import './App.css';
 
-const VALID_TABS = ['preview', 'symbols', 'font', 'widgets', 'layout', 'blocks', 'reference', 'ui-elements', 'ui-elements-hero'] as const;
+const VALID_TABS = ['preview', 'symbols', 'font', 'widgets', 'layout', 'blocks', 'reference', 'ui-elements', 'ui-elements-hero', 'shields'] as const;
 type TabType = typeof VALID_TABS[number];
 
 const getTabFromHash = (): TabType => {
@@ -76,12 +78,18 @@ const getTabFromHash = (): TabType => {
   if (import.meta.env.DEV && (path === 'ui-elements' || path === 'elements' || path === 'reference' || path === 'hero' || path === 'heroui')) {
     return 'reference';
   }
+  if (import.meta.env.DEV && (path === 'shields' || path === 'shield')) {
+    return 'shields';
+  }
   const hash = window.location.hash.replace(/^#/, '').toLowerCase().trim();
-  if (hash === 'reference' && !import.meta.env.DEV) {
+  if ((hash === 'reference' || hash === 'shields' || hash === 'shield' || hash === 'ui-elements' || hash === 'ui-elements-hero') && !import.meta.env.DEV) {
     return 'preview';
   }
   if (hash === 'blocks') {
     return 'layout';
+  }
+  if (import.meta.env.DEV && (hash === 'shields' || hash === 'shield')) {
+    return 'shields';
   }
   if (VALID_TABS.includes(hash as TabType)) {
     return hash as TabType;
@@ -1463,9 +1471,16 @@ export function App() {
             <span>Layout</span>
             {isPlaygroundMode && <Unplug className="size-3 text-[#f2741d]" />}
           </button>
+        </div>
 
-          {/* Tab 6: Design System (Dev-only) */}
-          {import.meta.env.DEV && (
+        {/* Right-Aligned Dev Wrapper (Dev-only) */}
+        {import.meta.env.DEV && (
+          <div className="flex items-center gap-1.5 ml-auto pl-3.5 border-l border-[#1e2538]/80">
+            <span className="text-[9px] font-mono font-bold tracking-wider uppercase text-[#00f0ff]/60 px-1.5 py-0.5 rounded bg-[#00f0ff]/5 border border-[#00f0ff]/20">
+              DEV
+            </span>
+
+            {/* Dev Tab 1: Design System */}
             <button
               onClick={() => handleTabClick('reference')}
               className={`text-xs font-mono px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
@@ -1478,8 +1493,22 @@ export function App() {
               <Palette className="size-3.5 text-[#00f0ff]" />
               <span>Design System</span>
             </button>
-          )}
-        </div>
+
+            {/* Dev Tab 2: Shields */}
+            <button
+              onClick={() => handleTabClick('shields')}
+              className={`text-xs font-mono px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
+                activeTab === 'shields'
+                  ? 'bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/40 font-semibold shadow-[0_0_8px_rgba(0,240,255,0.2)]'
+                  : 'text-[#94a3b8] hover:text-white hover:bg-[#131722] border border-transparent'
+              }`}
+              title="Known Keyboard Shields & Hardware Mounts (Dev-only)"
+            >
+              <Cpu className="size-3.5 text-[#00f0ff]" />
+              <span>Shields</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Main Tab Content */}
@@ -1653,6 +1682,40 @@ export function App() {
                 <ElementReferencePage onOpenCommandPalette={() => setIsCommandPaletteOpen(true)} />
               </div>
             )}
+
+            {import.meta.env.DEV && activeTab === 'shields' && (
+              <ShieldsTab
+                symbolsGrid={symbolsGrid}
+                symbolSlices={symbolSlices}
+                fontGrid={fontGrid}
+                fontGlyphs={fontGlyphs}
+                fontMappings={fontMappings}
+                leftBlocks={leftBlocks}
+                rightBlocks={rightBlocks}
+                dongleBlocks={dongleBlocks}
+                idleLeftBlocks={idleLeftBlocks}
+                idleRightBlocks={idleRightBlocks}
+                idleDongleBlocks={idleDongleBlocks}
+                instances={widgetInstances}
+                customText={customText}
+                onApplyDimensions={(dims, rightDims) => {
+                  setScreenDimensions(dims);
+                  if (rightDims) setRightScreenDimensions(rightDims);
+                  setToast({
+                    type: 'success',
+                    message: `Applied shield resolution: ${dims.width}x${dims.height} px`,
+                  });
+                }}
+                onSelectScreenSetup={(setup) => {
+                  setScreenSetup(setup);
+                  setToast({
+                    type: 'success',
+                    message: `Switched topology setup to: ${setup}`,
+                  });
+                }}
+                onNavigateToPreview={() => handleTabClick('preview')}
+              />
+            )}
           </>
         )}
       </main>
@@ -1692,7 +1755,7 @@ export function App() {
           isOpen={isCommandPaletteOpen}
           onClose={setIsCommandPaletteOpen}
           onSelectSection={(sectionId) => {
-            if (['preview', 'symbols', 'font', 'widgets', 'layout', 'blocks'].includes(sectionId)) {
+            if (['preview', 'symbols', 'font', 'widgets', 'layout', 'blocks', 'shields'].includes(sectionId)) {
               handleTabClick((sectionId === 'blocks' ? 'layout' : sectionId) as TabType);
             } else {
               handleTabClick('reference');
