@@ -1054,11 +1054,9 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
           <div className="flex items-center gap-2">
             <div
               className={`size-6 rounded-lg flex items-center justify-center shrink-0 border ${
-                isDongle
-                  ? 'bg-[#f59e0b]/15 border-[#f59e0b]/30 text-[#f59e0b] shadow-[0_0_8px_rgba(245,158,11,0.2)]'
-                  : isLeft
-                  ? 'bg-[#00f0ff]/15 border-[#00f0ff]/30 text-[#00f0ff] shadow-[0_0_8px_rgba(0,240,255,0.2)]'
-                  : 'bg-[#a953f6]/15 border-[#a953f6]/30 text-[#a953f6] shadow-[0_0_8px_rgba(169,83,246,0.2)]'
+                isDongle || !isLeft
+                  ? 'bg-[#a953f6]/15 border-[#a953f6]/30 text-[#a953f6] shadow-[0_0_8px_rgba(169,83,246,0.2)]'
+                  : 'bg-[#00f0ff]/15 border-[#00f0ff]/30 text-[#00f0ff] shadow-[0_0_8px_rgba(0,240,255,0.2)]'
               }`}
             >
               <Settings size={13} />
@@ -1068,11 +1066,9 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
                 <span>{isDongle ? 'Dongle Settings' : isLeft ? 'Master Settings' : 'Peripheral Settings'}</span>
                 <span
                   className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
-                    isDongle
-                      ? 'bg-[#f59e0b]/10 text-[#f59e0b] border-[#f59e0b]/20'
-                      : isLeft
-                      ? 'bg-[#00f0ff]/10 text-[#00f0ff] border-[#00f0ff]/20'
-                      : 'bg-[#a953f6]/10 text-[#a953f6] border-[#a953f6]/20'
+                    isDongle || !isLeft
+                      ? 'bg-[#a953f6]/10 text-[#a953f6] border-[#a953f6]/20'
+                      : 'bg-[#00f0ff]/10 text-[#00f0ff] border-[#00f0ff]/20'
                   }`}
                 >
                   {isDongle ? 'Dongle Master' : isLeft ? 'Left Half' : 'Right Half'}
@@ -1097,7 +1093,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
             <>
               <SideSettingsBlock
                 sideName="Dongle Master"
-                themeColor="amber"
+                themeColor="purple"
                 screenDimensions={screenDimensions}
                 onScreenDimensionsChange={onScreenDimensionsChange}
                 idleScreensEnabled={idleScreensEnabled}

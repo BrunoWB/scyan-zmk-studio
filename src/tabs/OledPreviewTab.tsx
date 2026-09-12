@@ -1046,7 +1046,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
             </button>
             <button
               type="button"
-              className={`topology-pill-btn ${effectiveScreenSetup === 'split-dongle' ? 'active amber' : ''}`}
+              className={`topology-pill-btn ${effectiveScreenSetup === 'split-dongle' ? 'active purple' : ''}`}
               onClick={() => handleSelectTopology('split-dongle')}
               title="Split + Dongle: Central Dongle Master + Dual Peripherals (3 Screens)"
             >
@@ -1054,7 +1054,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
             </button>
             <button
               type="button"
-              className={`topology-pill-btn ${effectiveScreenSetup === 'dongle-only' ? 'active amber' : ''}`}
+              className={`topology-pill-btn ${effectiveScreenSetup === 'dongle-only' ? 'active purple' : ''}`}
               onClick={() => handleSelectTopology('dongle-only')}
               title="Dongle Master Only: Single Central Dongle Screen"
             >
@@ -1063,7 +1063,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
           </div>
         </div>
         {hasDongle && (
-          <span className="text-xs text-amber-400 font-mono font-medium">
+          <span className="text-xs text-purple-400 font-mono font-medium">
             Central Dongle Active
           </span>
         )}
@@ -1194,8 +1194,8 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
                   style={{
                     width: `${dongleDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
                     height: `${dongleDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
-                    borderColor: 'rgba(245, 158, 11, 0.4)',
-                    boxShadow: '0 0 12px rgba(245, 158, 11, 0.15)',
+                    borderColor: 'rgba(169, 83, 246, 0.4)',
+                    boxShadow: '0 0 12px rgba(169, 83, 246, 0.15)',
                   }}
                   onMouseEnter={() => setHoveredSide('dongle')}
                   onMouseLeave={() => setHoveredSide(null)}
@@ -1348,7 +1348,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
               <label className="flex items-center gap-1">
                 <span>Hardware Screen Setup</span>
                 {hasDongle && (
-                  <span className="text-xs text-amber-400 font-mono font-medium ml-1">
+                  <span className="text-xs text-purple-400 font-mono font-medium ml-1">
                     (Central Dongle Active)
                   </span>
                 )}

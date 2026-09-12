@@ -163,7 +163,7 @@ export const ShieldsTab: React.FC<ShieldsTabProps> = ({
                   className={`text-[9px] font-mono px-2 py-0.5 rounded-full uppercase tracking-wider font-semibold border ${
                     selectedShield.category === 'split-pair'
                       ? 'bg-[#00f0ff]/10 border-[#00f0ff]/30 text-[#00f0ff]'
-                      : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                      : 'bg-[#a953f6]/10 border-[#a953f6]/30 text-[#a953f6]'
                   }`}
                 >
                   {selectedShield.category === 'split-pair' ? 'Split Pair' : 'Single Piece'}

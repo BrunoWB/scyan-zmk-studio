@@ -501,7 +501,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
         >
           {onToggleSettings && (
             <button
-              className={`btn-block-action ${isSettingsOpen ? (side === 'right' ? 'active-purple' : side === 'dongle' ? 'active-amber' : 'active') : ''}`}
+              className={`btn-block-action ${isSettingsOpen ? (side === 'right' || side === 'dongle' ? 'active-purple' : 'active') : ''}`}
               onClick={e => {
                 e.stopPropagation();
                 onToggleSettings();

@@ -1278,7 +1278,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
             </button>
             <button
               type="button"
-              className={`topology-pill-btn ${effectiveScreenSetup === 'split-dongle' ? 'active amber' : ''}`}
+              className={`topology-pill-btn ${effectiveScreenSetup === 'split-dongle' ? 'active purple' : ''}`}
               onClick={() => handleSelectPreset('split-dongle')}
               title="Split + Dongle: Central Dongle Master + Dual Peripherals (3 Screens)"
             >
@@ -1286,7 +1286,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
             </button>
             <button
               type="button"
-              className={`topology-pill-btn ${effectiveScreenSetup === 'dongle-only' ? 'active amber' : ''}`}
+              className={`topology-pill-btn ${effectiveScreenSetup === 'dongle-only' ? 'active purple' : ''}`}
               onClick={() => handleSelectPreset('dongle-only')}
               title="Dongle Master Only: Single Central Dongle Screen"
             >
@@ -1318,7 +1318,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
               {isDongleEnabled && (
                 <button
                   type="button"
-                  className={`topology-pill-btn ${activeScreenView === 'dongle' ? 'active amber' : ''}`}
+                  className={`topology-pill-btn ${activeScreenView === 'dongle' ? 'active purple' : ''}`}
                   onClick={() => setActiveScreenView('dongle')}
                 >
                   Dongle Master
