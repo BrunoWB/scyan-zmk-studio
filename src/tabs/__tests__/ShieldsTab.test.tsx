@@ -75,7 +75,7 @@ describe('ShieldsTab', () => {
     expect(html).toContain('-DSHIELD=corne_left -DSHIELD=corne_right');
   });
 
-  it('contains simulator controls for active/idle state, BLE/USB, and typing speed', () => {
+  it('renders horizontal split layout with preview stage on left and layouts list on right', () => {
     const html = renderToString(
       <ShieldsTab
         symbolsGrid={dummyGrid}
@@ -84,14 +84,9 @@ describe('ShieldsTab', () => {
       />
     );
 
-    expect(html).toContain('Lab Simulator:');
-    expect(html).toContain('Active');
-    expect(html).toContain('Idle Sleep');
-    expect(html).toContain('BLE');
-    expect(html).toContain('USB');
-    expect(html).toContain('Layer:');
-    expect(html).toContain('Speed:');
-    expect(html).toContain('Batt:');
+    expect(html).toContain('Layouts');
+    expect(html).toContain('Apply Setup &amp; Preview');
+    expect(html).toContain('Physical Keyboard Geometry &amp; OLED Mount Sandbox');
   });
 
   it('has valid definitions in KNOWN_SHIELDS dataset', () => {
