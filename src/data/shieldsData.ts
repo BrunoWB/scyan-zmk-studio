@@ -592,3 +592,80 @@ CONFIG_SSD1306=y`,
       'Displays active macropad mode (Numpad, Blender, Photoshop, Terminal navigation) and encoder scrubbing values.',
   },
 ];
+
+export type ShieldPartSide = 'left' | 'right' | 'single' | 'dongle';
+
+export interface ShieldPartItem {
+  id: string;
+  shieldId: string;
+  name: string;
+  category: 'split-half' | 'single-piece';
+  side: ShieldPartSide;
+  shield: ShieldDefinition;
+  keyCount: number;
+}
+
+export function getShieldParts(): ShieldPartItem[] {
+  const parts: ShieldPartItem[] = [];
+
+  for (const shield of KNOWN_SHIELDS) {
+    if (shield.layoutGeometry.type === 'split-pair') {
+      const keysPerHalf =
+        shield.layoutGeometry.rows * shield.layoutGeometry.columns +
+        shield.layoutGeometry.thumbCount;
+
+      parts.push({
+        id: `${shield.id}_left`,
+        shieldId: shield.id,
+        name: `${shield.name} (Left Half)`,
+        category: 'split-half',
+        side: 'left',
+        shield,
+        keyCount: keysPerHalf,
+      });
+
+      parts.push({
+        id: `${shield.id}_right`,
+        shieldId: shield.id,
+        name: `${shield.name} (Right Half)`,
+        category: 'split-half',
+        side: 'right',
+        shield,
+        keyCount: keysPerHalf,
+      });
+    } else if (shield.layoutGeometry.type === 'dongle') {
+      parts.push({
+        id: shield.id,
+        shieldId: shield.id,
+        name: shield.name,
+        category: 'single-piece',
+        side: 'dongle',
+        shield,
+        keyCount: 0,
+      });
+    } else if (shield.layoutGeometry.type === 'numpad') {
+      parts.push({
+        id: shield.id,
+        shieldId: shield.id,
+        name: shield.name,
+        category: 'single-piece',
+        side: 'single',
+        shield,
+        keyCount: 19,
+      });
+    } else if (shield.layoutGeometry.type === 'unibody') {
+      const count = shield.id === 'reviung41' ? 41 : 34;
+      parts.push({
+        id: shield.id,
+        shieldId: shield.id,
+        name: shield.name,
+        category: 'single-piece',
+        side: 'single',
+        shield,
+        keyCount: count,
+      });
+    }
+  }
+
+  return parts;
+}

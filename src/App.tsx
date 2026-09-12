@@ -14,7 +14,6 @@ import {
   DEFAULT_RIGHT_LAYOUT_BLOCKS,
   DEFAULT_DONGLE_LAYOUT_BLOCKS,
   DEFAULT_IDLE_DONGLE_BLOCKS,
-  type ScreenSetupType,
 } from './types/zmk';
 import {
   parseCHeader,
@@ -22,6 +21,7 @@ import {
   getDefaultAssets,
   type HeaderMetadata,
   type ParsedAssets,
+  type PeripheralScreenData,
 } from './services/cHeaderParser';
 import {
   type ParsedKeymapLayout,
@@ -55,6 +55,7 @@ import { BlocksTab } from './tabs/BlocksTab';
 import ElementReferencePage from './reference/ElementReferencePage';
 import CommandPalette from './reference/components/layout/CommandPalette';
 import { ShieldsTab } from './tabs/ShieldsTab';
+import { TopologySandboxTab } from './tabs/TopologySandboxTab';
 import {
   MonitorPlay,
   Shapes,
@@ -67,10 +68,11 @@ import {
   Unplug,
   Palette,
   Cpu,
+  Network,
 } from 'lucide-react';
 import './App.css';
 
-const VALID_TABS = ['preview', 'symbols', 'font', 'widgets', 'layout', 'blocks', 'reference', 'ui-elements', 'ui-elements-hero', 'shields'] as const;
+const VALID_TABS = ['preview', 'symbols', 'font', 'widgets', 'layout', 'blocks', 'reference', 'ui-elements', 'ui-elements-hero', 'shields', 'topology'] as const;
 type TabType = typeof VALID_TABS[number];
 
 const getTabFromHash = (): TabType => {
@@ -81,8 +83,11 @@ const getTabFromHash = (): TabType => {
   if (import.meta.env.DEV && (path === 'shields' || path === 'shield')) {
     return 'shields';
   }
+  if (import.meta.env.DEV && (path === 'topology' || path === 'topology-sandbox')) {
+    return 'topology';
+  }
   const hash = window.location.hash.replace(/^#/, '').toLowerCase().trim();
-  if ((hash === 'reference' || hash === 'shields' || hash === 'shield' || hash === 'ui-elements' || hash === 'ui-elements-hero') && !import.meta.env.DEV) {
+  if ((hash === 'reference' || hash === 'shields' || hash === 'shield' || hash === 'topology' || hash === 'topology-sandbox' || hash === 'ui-elements' || hash === 'ui-elements-hero') && !import.meta.env.DEV) {
     return 'preview';
   }
   if (hash === 'blocks') {
@@ -90,6 +95,9 @@ const getTabFromHash = (): TabType => {
   }
   if (import.meta.env.DEV && (hash === 'shields' || hash === 'shield')) {
     return 'shields';
+  }
+  if (import.meta.env.DEV && (hash === 'topology' || hash === 'topology-sandbox')) {
+    return 'topology';
   }
   if (VALID_TABS.includes(hash as TabType)) {
     return hash as TabType;
@@ -297,22 +305,35 @@ export function App() {
     return def.metadata?.dongleScreenOffTimeoutSec ?? 60;
   });
 
-  const [screenSetup, setScreenSetup] = useState<ScreenSetupType>(() => {
+  const [shieldId, setShieldId] = useState<string>(() => {
     try {
-      const saved = localStorage.getItem('zmk-screen-setup');
-      if (saved) return saved as ScreenSetupType;
+      const saved = localStorage.getItem('zmk-shield-id');
+      if (saved) return saved;
     } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.screenSetup ?? 'split';
+    return 'corne';
   });
 
-  const [enabledScreens, setEnabledScreens] = useState<('left' | 'right' | 'dongle' | string)[]>(() => {
+  const [enabledScreens, setEnabledScreens] = useState<('central' | 'peripheral' | 'dongle' | string)[]>(() => {
     try {
       const saved = localStorage.getItem('zmk-enabled-screens');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((s: string) => s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s);
+        }
+      }
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.enabledScreens?.map((s: string) => s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s) ?? ['central', 'peripheral'];
+  });
+
+  const [peripheralScreens, setPeripheralScreens] = useState<Record<string, PeripheralScreenData>>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-peripheral-screens');
       if (saved) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.enabledScreens ?? ['left', 'right'];
+    return def.metadata?.peripheralScreens || {};
   });
 
   // Track last editor grid looking position in the session (viewport: zoom & pan)
@@ -462,15 +483,21 @@ export function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-screen-setup', screenSetup);
+      localStorage.setItem('zmk-shield-id', shieldId);
     } catch {}
-  }, [screenSetup]);
+  }, [shieldId]);
 
   useEffect(() => {
     try {
       localStorage.setItem('zmk-enabled-screens', JSON.stringify(enabledScreens));
     } catch {}
   }, [enabledScreens]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-peripheral-screens', JSON.stringify(peripheralScreens));
+    } catch {}
+  }, [peripheralScreens]);
 
   const [customText, setCustomText] = useState<string>('BRUNOWB');
   const [_clearedTemplates, setClearedTemplates] = useState<string[]>(() => {
@@ -717,9 +744,16 @@ export function App() {
       if (parsed.metadata.dongleScreenOffTimeoutSec !== undefined) {
         setDongleScreenOffTimeoutSec(parsed.metadata.dongleScreenOffTimeoutSec);
       }
-      const resolvedScreenSetup = parsed.metadata.screenSetup ?? (parsed.metadata.dongleBlocks && parsed.metadata.dongleBlocks.length > 0 ? 'split-dongle' : 'split');
-      setScreenSetup(resolvedScreenSetup);
-      const resolvedEnabledScreens = parsed.metadata.enabledScreens ?? (resolvedScreenSetup === 'split-dongle' ? ['left', 'dongle', 'right'] : resolvedScreenSetup === 'dongle-only' ? ['dongle'] : ['left', 'right']);
+      if (parsed.metadata.peripheralScreens) {
+        setPeripheralScreens(parsed.metadata.peripheralScreens);
+      }
+      if (parsed.metadata.shieldId) {
+        setShieldId(parsed.metadata.shieldId);
+      }
+      const rawEnabled = parsed.metadata.enabledScreens;
+      const resolvedEnabledScreens = rawEnabled && rawEnabled.length > 0
+        ? rawEnabled.map(s => s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s)
+        : ['central', 'peripheral'];
       setEnabledScreens(resolvedEnabledScreens);
     }
   }, []);
@@ -746,8 +780,9 @@ export function App() {
       'zmk-right-idle-screens-enabled',
       'zmk-right-idle-timeout-sec',
       'zmk-right-screen-off-timeout-sec',
-      'zmk-screen-setup',
+      'zmk-shield-id',
       'zmk-enabled-screens',
+      'zmk-peripheral-screens',
       'zmk-widget-instances',
       'zmk-cleared-templates',
       'zmk_builder_cached_header',
@@ -757,6 +792,7 @@ export function App() {
         localStorage.removeItem(k);
       } catch {}
     });
+    setPeripheralScreens({});
     applyParsedAssets(getDefaultAssets());
     setCustomText('BRUNOWB');
   }, [applyParsedAssets]);
@@ -1189,14 +1225,15 @@ export function App() {
         rightIdleScreensEnabled: symmetricSettings ? undefined : rightIdleScreensEnabled,
         rightIdleTimeoutSec: symmetricSettings ? undefined : rightIdleTimeoutSec,
         rightScreenOffTimeoutSec: symmetricSettings ? undefined : rightScreenOffTimeoutSec,
-        dongleBlocks: screenSetup !== 'split' ? dongleBlocks : undefined,
-        idleDongleBlocks: screenSetup !== 'split' ? idleDongleBlocks : undefined,
-        dongleScreenDimensions: screenSetup !== 'split' ? dongleScreenDimensions : undefined,
-        dongleIdleScreensEnabled: screenSetup !== 'split' ? dongleIdleScreensEnabled : undefined,
-        dongleIdleTimeoutSec: screenSetup !== 'split' ? dongleIdleTimeoutSec : undefined,
-        dongleScreenOffTimeoutSec: screenSetup !== 'split' ? dongleScreenOffTimeoutSec : undefined,
-        screenSetup,
+        dongleBlocks: enabledScreens.includes('dongle') ? dongleBlocks : undefined,
+        idleDongleBlocks: enabledScreens.includes('dongle') ? idleDongleBlocks : undefined,
+        dongleScreenDimensions: enabledScreens.includes('dongle') ? dongleScreenDimensions : undefined,
+        dongleIdleScreensEnabled: enabledScreens.includes('dongle') ? dongleIdleScreensEnabled : undefined,
+        dongleIdleTimeoutSec: enabledScreens.includes('dongle') ? dongleIdleTimeoutSec : undefined,
+        dongleScreenOffTimeoutSec: enabledScreens.includes('dongle') ? dongleScreenOffTimeoutSec : undefined,
+        shieldId,
         enabledScreens,
+        peripheralScreens: Object.keys(peripheralScreens).length > 0 ? peripheralScreens : undefined,
         layerNames: keymapLayout.layerNames,
       };
 
@@ -1310,14 +1347,15 @@ export function App() {
         rightIdleScreensEnabled: symmetricSettings ? undefined : rightIdleScreensEnabled,
         rightIdleTimeoutSec: symmetricSettings ? undefined : rightIdleTimeoutSec,
         rightScreenOffTimeoutSec: symmetricSettings ? undefined : rightScreenOffTimeoutSec,
-        dongleBlocks: screenSetup !== 'split' ? dongleBlocks : undefined,
-        idleDongleBlocks: screenSetup !== 'split' ? idleDongleBlocks : undefined,
-        dongleScreenDimensions: screenSetup !== 'split' ? dongleScreenDimensions : undefined,
-        dongleIdleScreensEnabled: screenSetup !== 'split' ? dongleIdleScreensEnabled : undefined,
-        dongleIdleTimeoutSec: screenSetup !== 'split' ? dongleIdleTimeoutSec : undefined,
-        dongleScreenOffTimeoutSec: screenSetup !== 'split' ? dongleScreenOffTimeoutSec : undefined,
-        screenSetup,
+        dongleBlocks: enabledScreens.includes('dongle') ? dongleBlocks : undefined,
+        idleDongleBlocks: enabledScreens.includes('dongle') ? idleDongleBlocks : undefined,
+        dongleScreenDimensions: enabledScreens.includes('dongle') ? dongleScreenDimensions : undefined,
+        dongleIdleScreensEnabled: enabledScreens.includes('dongle') ? dongleIdleScreensEnabled : undefined,
+        dongleIdleTimeoutSec: enabledScreens.includes('dongle') ? dongleIdleTimeoutSec : undefined,
+        dongleScreenOffTimeoutSec: enabledScreens.includes('dongle') ? dongleScreenOffTimeoutSec : undefined,
+        shieldId,
         enabledScreens,
+        peripheralScreens: Object.keys(peripheralScreens).length > 0 ? peripheralScreens : undefined,
         layerNames: keymapLayout.layerNames,
       };
       const generatedC = generateCHeader(symbolsGrid, symbolSlices, fontGrid, fontMappings, metadata);
@@ -1366,6 +1404,147 @@ export function App() {
       setIsSaving(false);
     }
   };
+
+  // Lossless display swapping & master shield binding helpers
+  const getScreenData = useCallback(
+    (id: string) => {
+      if (id === 'left') {
+        return {
+          blocks: leftBlocks,
+          idleBlocks: idleLeftBlocks,
+          dimensions: screenDimensions,
+          idleScreensEnabled,
+          idleTimeoutSec,
+          screenOffTimeoutSec,
+        };
+      }
+      if (id === 'right') {
+        return {
+          blocks: rightBlocks,
+          idleBlocks: idleRightBlocks,
+          dimensions: rightScreenDimensions,
+          idleScreensEnabled: rightIdleScreensEnabled,
+          idleTimeoutSec: rightIdleTimeoutSec,
+          screenOffTimeoutSec: rightScreenOffTimeoutSec,
+        };
+      }
+      if (id === 'dongle') {
+        return {
+          blocks: dongleBlocks,
+          idleBlocks: idleDongleBlocks,
+          dimensions: dongleScreenDimensions,
+          idleScreensEnabled: dongleIdleScreensEnabled,
+          idleTimeoutSec: dongleIdleTimeoutSec,
+          screenOffTimeoutSec: dongleScreenOffTimeoutSec,
+        };
+      }
+      const p = peripheralScreens[id] || {};
+      return {
+        blocks: p.blocks || [],
+        idleBlocks: p.idleBlocks || [],
+        dimensions: p.screenDimensions || { width: 32, height: 128 },
+        idleScreensEnabled: p.idleScreensEnabled ?? true,
+        idleTimeoutSec: p.idleTimeoutSec ?? 30,
+        screenOffTimeoutSec: p.screenOffTimeoutSec ?? 60,
+        customTitle: p.name,
+      };
+    },
+    [
+      leftBlocks,
+      idleLeftBlocks,
+      screenDimensions,
+      idleScreensEnabled,
+      idleTimeoutSec,
+      screenOffTimeoutSec,
+      rightBlocks,
+      idleRightBlocks,
+      rightScreenDimensions,
+      rightIdleScreensEnabled,
+      rightIdleTimeoutSec,
+      rightScreenOffTimeoutSec,
+      dongleBlocks,
+      idleDongleBlocks,
+      dongleScreenDimensions,
+      dongleIdleScreensEnabled,
+      dongleIdleTimeoutSec,
+      dongleScreenOffTimeoutSec,
+      peripheralScreens,
+    ]
+  );
+
+  const setScreenData = useCallback(
+    (
+      id: string,
+      data: {
+        blocks: LayoutBlock[];
+        idleBlocks: LayoutBlock[];
+        dimensions: { width: number; height: number };
+        idleScreensEnabled: boolean;
+        idleTimeoutSec: number;
+        screenOffTimeoutSec: number;
+        customTitle?: string;
+      }
+    ) => {
+      if (id === 'left') {
+        setLeftBlocks(data.blocks);
+        setIdleLeftBlocks(data.idleBlocks);
+        setScreenDimensions(data.dimensions);
+        setIdleScreensEnabled(data.idleScreensEnabled);
+        setIdleTimeoutSec(data.idleTimeoutSec);
+        setScreenOffTimeoutSec(data.screenOffTimeoutSec);
+      } else if (id === 'right') {
+        setRightBlocks(data.blocks);
+        setIdleRightBlocks(data.idleBlocks);
+        setRightScreenDimensions(data.dimensions);
+        setRightIdleScreensEnabled(data.idleScreensEnabled);
+        setRightIdleTimeoutSec(data.idleTimeoutSec);
+        setRightScreenOffTimeoutSec(data.screenOffTimeoutSec);
+      } else if (id === 'dongle') {
+        setDongleBlocks(data.blocks);
+        setIdleDongleBlocks(data.idleBlocks);
+        setDongleScreenDimensions(data.dimensions);
+        setDongleIdleScreensEnabled(data.idleScreensEnabled);
+        setDongleIdleTimeoutSec(data.idleTimeoutSec);
+        setDongleScreenOffTimeoutSec(data.screenOffTimeoutSec);
+      } else {
+        setPeripheralScreens((prev) => ({
+          ...prev,
+          [id]: {
+            ...prev[id],
+            blocks: data.blocks,
+            idleBlocks: data.idleBlocks,
+            screenDimensions: data.dimensions,
+            idleScreensEnabled: data.idleScreensEnabled,
+            idleTimeoutSec: data.idleTimeoutSec,
+            screenOffTimeoutSec: data.screenOffTimeoutSec,
+            name: data.customTitle ?? prev[id]?.name,
+          },
+        }));
+      }
+    },
+    []
+  );
+
+  const handleSwapDisplays = useCallback(
+    (idA: string, idB: string) => {
+      if (idA === idB) return;
+      const dataA = getScreenData(idA);
+      const dataB = getScreenData(idB);
+      setScreenData(idA, dataB);
+      setScreenData(idB, dataA);
+      showToast('success', `Swapped displays: ${idA} ↔ ${idB}`);
+      trackEvent('swap_displays', { idA, idB });
+    },
+    [getScreenData, setScreenData, showToast]
+  );
+
+  const handleMakeMaster = useCallback(
+    (displayId: string) => {
+      if (displayId === 'left') return;
+      handleSwapDisplays('left', displayId);
+    },
+    [handleSwapDisplays]
+  );
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#0b0d13] text-[#f1f5f9] overflow-hidden">
@@ -1507,6 +1686,20 @@ export function App() {
               <Cpu className="size-3.5 text-[#00f0ff]" />
               <span>Shields</span>
             </button>
+
+            {/* Dev Tab 3: Topology Sandbox */}
+            <button
+              onClick={() => handleTabClick('topology')}
+              className={`text-xs font-mono px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
+                activeTab === 'topology'
+                  ? 'bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/40 font-semibold shadow-[0_0_8px_rgba(0,240,255,0.2)]'
+                  : 'text-[#94a3b8] hover:text-white hover:bg-[#131722] border border-transparent'
+              }`}
+              title="Modular Shield Topology & Multi-Screen Sandbox (Dev-only)"
+            >
+              <Network className="size-3.5 text-[#00f0ff]" />
+              <span>Topology</span>
+            </button>
           </div>
         )}
       </div>
@@ -1557,8 +1750,8 @@ export function App() {
                 rightScreenDimensions={rightScreenDimensions}
                 dongleScreenDimensions={dongleScreenDimensions}
                 symmetricSettings={symmetricSettings}
-                screenSetup={screenSetup}
-                onScreenSetupChange={setScreenSetup}
+                shieldId={shieldId}
+                onShieldIdChange={setShieldId}
                 enabledScreens={enabledScreens}
                 onEnabledScreensChange={setEnabledScreens}
                 customText={customText}
@@ -1660,10 +1853,10 @@ export function App() {
                 onDongleIdleTimeoutSecChange={setDongleIdleTimeoutSec}
                 dongleScreenOffTimeoutSec={dongleScreenOffTimeoutSec}
                 onDongleScreenOffTimeoutSecChange={setDongleScreenOffTimeoutSec}
-                screenSetup={screenSetup}
-                onScreenSetupChange={setScreenSetup}
                 enabledScreens={enabledScreens}
                 onEnabledScreensChange={setEnabledScreens}
+                peripheralScreens={peripheralScreens}
+                onPeripheralScreensChange={setPeripheralScreens}
                 symbolsGrid={symbolsGrid}
                 symbolSlices={symbolSlices}
                 fontGrid={fontGrid}
@@ -1706,13 +1899,38 @@ export function App() {
                     message: `Applied shield resolution: ${dims.width}x${dims.height} px`,
                   });
                 }}
-                onSelectScreenSetup={(setup) => {
-                  setScreenSetup(setup);
+                onSelectShield={(id) => {
+                  setShieldId(id);
                   setToast({
                     type: 'success',
-                    message: `Switched topology setup to: ${setup}`,
+                    message: `Switched keyboard shield to: ${id}`,
                   });
                 }}
+                onNavigateToPreview={() => handleTabClick('preview')}
+              />
+            )}
+            {import.meta.env.DEV && activeTab === 'topology' && (
+              <TopologySandboxTab
+                symbolsGrid={symbolsGrid}
+                symbolSlices={symbolSlices}
+                fontGrid={fontGrid}
+                fontGlyphs={fontGlyphs}
+                fontMappings={fontMappings}
+                leftBlocks={leftBlocks}
+                rightBlocks={rightBlocks}
+                dongleBlocks={dongleBlocks}
+                idleLeftBlocks={idleLeftBlocks}
+                idleRightBlocks={idleRightBlocks}
+                idleDongleBlocks={idleDongleBlocks}
+                enabledScreens={enabledScreens}
+                peripheralScreens={peripheralScreens}
+                screenDimensions={screenDimensions}
+                rightScreenDimensions={rightScreenDimensions}
+                dongleScreenDimensions={dongleScreenDimensions}
+                instances={widgetInstances}
+                customText={customText}
+                onSwapDisplays={handleSwapDisplays}
+                onMakeMaster={handleMakeMaster}
                 onNavigateToPreview={() => handleTabClick('preview')}
               />
             )}
@@ -1755,7 +1973,7 @@ export function App() {
           isOpen={isCommandPaletteOpen}
           onClose={setIsCommandPaletteOpen}
           onSelectSection={(sectionId) => {
-            if (['preview', 'symbols', 'font', 'widgets', 'layout', 'blocks', 'shields'].includes(sectionId)) {
+            if (['preview', 'symbols', 'font', 'widgets', 'layout', 'blocks', 'shields', 'topology'].includes(sectionId)) {
               handleTabClick((sectionId === 'blocks' ? 'layout' : sectionId) as TabType);
             } else {
               handleTabClick('reference');

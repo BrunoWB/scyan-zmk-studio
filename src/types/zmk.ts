@@ -35,8 +35,6 @@ export interface FontGlyph {
   advanceX: number;
 }
 
-export type ScreenSetupType = 'split' | 'split-dongle' | 'dongle-only' | 'custom';
-
 export interface LayoutBlock {
   id: string;
   widgetType?: string;
@@ -48,7 +46,7 @@ export interface LayoutBlock {
   height: number;
   enabled: boolean;
   description?: string;
-  side?: 'left' | 'right' | 'dongle' | string;
+  side?: 'central' | 'peripheral' | string;
 }
 
 export interface DisplaySettings {
@@ -94,44 +92,39 @@ export const DEFAULT_SYMBOL_SLICES: SpriteSlice[] = [
   { id: 'SYMBOL_BATHING_CAPYBARA_SUB_3', groupId: 'SYMBOL_BATHING_CAPYBARA', groupOrder: 4, name: 'Bathing Capybara F4', x: 78, y: 189, width: 26, height: 24, color: '#a16207' },
 ];
 
-export const DEFAULT_LEFT_LAYOUT_BLOCKS: LayoutBlock[] = [
-  { id: 'left-connection', widgetType: 'connection', name: 'Output Status', x: 10, y: 0, width: 12, height: 10, enabled: true, description: 'Active keystroke output (USB / Bluetooth)', side: 'left' },
-  { id: 'left-battery', widgetType: 'battery', name: 'Battery Meter', x: 7, y: 11, width: 17, height: 10, enabled: true, description: 'Battery charge level', side: 'left' },
-  { id: 'left-layer', widgetType: 'layer-banner', name: 'Layer Banner / Brackets', x: 4, y: 22, width: 24, height: 12, enabled: true, description: 'QWERTY text or layer brackets', side: 'left' },
-  { id: 'left-branding', widgetType: 'branding', name: 'Idle Custom Text', x: 9, y: 73, width: 14, height: 5, enabled: true, description: 'Custom username branding', side: 'left' },
-  { id: 'left-wpm', widgetType: 'wpm', name: 'WPM Speed & Arrow Gauge', x: 2, y: 85, width: 28, height: 18, enabled: true, description: '3-digit WPM readout and 7-arrow progress meter', side: 'left' },
-  { id: 'left-split', widgetType: 'split', name: 'Split Peripheral Link', x: 9, y: 114, width: 13, height: 9, enabled: true, description: 'Bottom link chain icon', side: 'left' },
+export const DEFAULT_CENTRAL_LAYOUT_BLOCKS: LayoutBlock[] = [
+  { id: 'central-connection', widgetType: 'connection', name: 'Output Status', x: 10, y: 0, width: 12, height: 10, enabled: true, description: 'Active keystroke output (USB / Bluetooth)', side: 'central' },
+  { id: 'central-battery', widgetType: 'battery', name: 'Battery Meter', x: 7, y: 11, width: 17, height: 10, enabled: true, description: 'Battery charge level', side: 'central' },
+  { id: 'central-layer', widgetType: 'layer-banner', name: 'Layer Banner / Brackets', x: 4, y: 22, width: 24, height: 12, enabled: true, description: 'QWERTY text or layer brackets', side: 'central' },
+  { id: 'central-branding', widgetType: 'branding', name: 'Idle Custom Text', x: 9, y: 73, width: 14, height: 5, enabled: true, description: 'Custom username branding', side: 'central' },
+  { id: 'central-wpm', widgetType: 'wpm', name: 'WPM Speed & Arrow Gauge', x: 2, y: 85, width: 28, height: 18, enabled: true, description: '3-digit WPM readout and 7-arrow progress meter', side: 'central' },
+  { id: 'central-split', widgetType: 'split', name: 'Split Peripheral Link', x: 9, y: 114, width: 13, height: 9, enabled: true, description: 'Bottom link chain icon', side: 'central' },
 ];
 
-export const DEFAULT_RIGHT_LAYOUT_BLOCKS: LayoutBlock[] = [
-  { id: 'right-battery', widgetType: 'battery', name: 'Battery Meter', x: 7, y: 4, width: 17, height: 10, enabled: true, description: 'Battery terminal frame and charge level', side: 'right' },
-  { id: 'right-split', widgetType: 'split', name: 'Split Peripheral Link', x: 9, y: 20, width: 13, height: 9, enabled: true, description: 'Wireless link status with master half', side: 'right' },
-  { id: 'right-branding', widgetType: 'branding', name: 'Peripheral Model Text', x: 9, y: 76, width: 14, height: 5, enabled: true, description: 'Corne / ZMK model branding', side: 'right' },
-  { id: 'right-layer', widgetType: 'layer-banner', name: 'Layer Banner / Brackets', x: 4, y: 96, width: 24, height: 12, enabled: true, description: 'Active layer banner', side: 'right' },
+export const DEFAULT_PERIPHERAL_LAYOUT_BLOCKS: LayoutBlock[] = [
+  { id: 'peripheral-battery', widgetType: 'battery', name: 'Battery Meter', x: 7, y: 4, width: 17, height: 10, enabled: true, description: 'Battery terminal frame and charge level', side: 'peripheral' },
+  { id: 'peripheral-split', widgetType: 'split', name: 'Split Peripheral Link', x: 9, y: 20, width: 13, height: 9, enabled: true, description: 'Wireless link status with master half', side: 'peripheral' },
+  { id: 'peripheral-branding', widgetType: 'branding', name: 'Peripheral Model Text', x: 9, y: 76, width: 14, height: 5, enabled: true, description: 'Corne / ZMK model branding', side: 'peripheral' },
+  { id: 'peripheral-layer', widgetType: 'layer-banner', name: 'Layer Banner / Brackets', x: 4, y: 96, width: 24, height: 12, enabled: true, description: 'Active layer banner', side: 'peripheral' },
 ];
 
-export const DEFAULT_IDLE_LEFT_BLOCKS: LayoutBlock[] = [
-  { id: 'idle-left-art', widgetType: 'screensaver', name: 'Mascot Image', x: 3, y: 35, width: 26, height: 26, enabled: true, side: 'left' }
+export const DEFAULT_IDLE_CENTRAL_BLOCKS: LayoutBlock[] = [
+  { id: 'idle-central-art', widgetType: 'screensaver', name: 'Mascot Image', x: 3, y: 35, width: 26, height: 26, enabled: true, side: 'central' }
 ];
 
-export const DEFAULT_IDLE_RIGHT_BLOCKS: LayoutBlock[] = [
-  { id: 'idle-right-art', widgetType: 'screensaver', name: 'Mascot Image', x: 3, y: 35, width: 26, height: 26, enabled: true, side: 'right' }
+export const DEFAULT_IDLE_PERIPHERAL_BLOCKS: LayoutBlock[] = [
+  { id: 'idle-peripheral-art', widgetType: 'screensaver', name: 'Mascot Image', x: 3, y: 35, width: 26, height: 26, enabled: true, side: 'peripheral' }
 ];
 
-export const DEFAULT_DONGLE_LAYOUT_BLOCKS: LayoutBlock[] = [
-  { id: 'dongle-connection', widgetType: 'connection', name: 'Output Status', x: 10, y: 0, width: 12, height: 10, enabled: true, description: 'Active keystroke output (USB / Bluetooth)', side: 'dongle' },
-  { id: 'dongle-battery', widgetType: 'battery', name: 'Battery Meter', x: 7, y: 11, width: 17, height: 10, enabled: true, description: 'Peripheral battery charge level', side: 'dongle' },
-  { id: 'dongle-layer', widgetType: 'layer-banner', name: 'Layer Banner / Brackets', x: 4, y: 22, width: 24, height: 12, enabled: true, description: 'Active keyboard layer', side: 'dongle' },
-  { id: 'dongle-branding', widgetType: 'branding', name: 'Dongle Model Text', x: 9, y: 73, width: 14, height: 5, enabled: true, description: 'Custom dongle branding', side: 'dongle' },
-  { id: 'dongle-wpm', widgetType: 'wpm', name: 'WPM Speed & Arrow Gauge', x: 2, y: 85, width: 28, height: 18, enabled: true, description: '3-digit WPM readout and progress meter', side: 'dongle' },
-  { id: 'dongle-split', widgetType: 'split', name: 'Split Peripheral Link', x: 9, y: 114, width: 13, height: 9, enabled: true, description: 'Split connection status', side: 'dongle' },
-];
+// Aliases for seamless migration
+export const DEFAULT_LEFT_LAYOUT_BLOCKS: LayoutBlock[] = DEFAULT_CENTRAL_LAYOUT_BLOCKS;
+export const DEFAULT_RIGHT_LAYOUT_BLOCKS: LayoutBlock[] = DEFAULT_PERIPHERAL_LAYOUT_BLOCKS;
+export const DEFAULT_IDLE_LEFT_BLOCKS: LayoutBlock[] = DEFAULT_IDLE_CENTRAL_BLOCKS;
+export const DEFAULT_IDLE_RIGHT_BLOCKS: LayoutBlock[] = DEFAULT_IDLE_PERIPHERAL_BLOCKS;
+export const DEFAULT_DONGLE_LAYOUT_BLOCKS: LayoutBlock[] = DEFAULT_CENTRAL_LAYOUT_BLOCKS;
+export const DEFAULT_IDLE_DONGLE_BLOCKS: LayoutBlock[] = DEFAULT_IDLE_CENTRAL_BLOCKS;
 
-export const DEFAULT_IDLE_DONGLE_BLOCKS: LayoutBlock[] = [
-  { id: 'idle-dongle-art', widgetType: 'screensaver', name: 'Mascot Image', x: 3, y: 35, width: 26, height: 26, enabled: true, side: 'dongle' }
-];
-
-export const DEFAULT_LAYOUT_BLOCKS: LayoutBlock[] = DEFAULT_LEFT_LAYOUT_BLOCKS;
+export const DEFAULT_LAYOUT_BLOCKS: LayoutBlock[] = DEFAULT_CENTRAL_LAYOUT_BLOCKS;
 
 export const DEFAULT_FONT_MAPPINGS: FontCharMapping[] = [
   { id: 'FONT_CHAR_0', chars: '0', small: { x: 3, y: 16, width: 3, height: 5, advanceX: 4 }, big: { x: 2, y: 3, width: 8, height: 10, advanceX: 10 } },

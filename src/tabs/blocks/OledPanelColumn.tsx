@@ -51,6 +51,7 @@ export interface OledPanelColumnProps {
   layerNames?: string[];
   isCompact?: boolean;
   onExpand?: () => void;
+  onSwitchMode?: () => void;
 }
 
 const BLOCK_COLORS: Record<string, string> = {
@@ -94,6 +95,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
   layerNames,
   isCompact = false,
   onExpand,
+  onSwitchMode,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const screenContainerRef = useRef<HTMLDivElement | null>(null);
@@ -465,7 +467,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
 
   return (
     <div
-      className={`oled-panel-column ${isCompact ? 'oled-panel-compact' : 'oled-panel-expanded'}`}
+      className={`oled-panel-column ${isCompact ? 'oled-panel-compact' : 'oled-panel-expanded'} ${screenKind === 'idle' ? 'oled-panel-idle' : 'oled-panel-active'}`}
       onClick={isCompact ? onExpand : undefined}
     >
       {/* Column Header */}
@@ -489,6 +491,11 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
               Click to edit
             </span>
           </div>
+          {_subtitle && (
+            <div className="text-[10px] text-[#64748b] font-mono mt-0.5">
+              {_subtitle}
+            </div>
+          )}
         </div>
 
         <div
@@ -499,6 +506,20 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
             pointerEvents: isCompact ? 'none' : 'auto',
           }}
         >
+          {onSwitchMode && (
+            <button
+              type="button"
+              className="btn-block-action text-[10px] font-mono px-2 py-0.5 rounded text-[#94a3b8] hover:text-[#00f0ff] hover:bg-[#00f0ff]/10 border border-[#1e2538] hover:border-[#00f0ff]/30 transition-all cursor-pointer flex items-center gap-1"
+              onClick={e => {
+                e.stopPropagation();
+                onSwitchMode();
+              }}
+              title={screenKind === 'active' ? 'Switch this display to Idle screen' : 'Switch this display to Active screen'}
+              tabIndex={isCompact ? -1 : 0}
+            >
+              <span>{screenKind === 'active' ? 'View Idle' : 'View Active'}</span>
+            </button>
+          )}
           {onToggleSettings && (
             <button
               className={`btn-block-action ${isSettingsOpen ? (side === 'right' || side === 'dongle' ? 'active-purple' : 'active') : ''}`}

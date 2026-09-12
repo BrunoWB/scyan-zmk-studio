@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, X, Monitor, Moon, Clock, Power, Check, Plus, Minus, SlidersHorizontal } from 'lucide-react';
+import { Settings, X, Monitor, Moon, Clock, Power, Check, Plus, Minus, SlidersHorizontal, Crown, Trash2 } from 'lucide-react';
 import { trackEvent } from '../services/analytics';
 
 export const PRESET_SCREEN_SIZES = [
@@ -906,7 +906,7 @@ export type ScreenSizePopoverProps = BlockSettingsSectionProps;
 export const ScreenSizePopover = BlockSettingsSection;
 
 export interface SideSettingsPanelProps {
-  side: 'left' | 'right' | 'dongle';
+  side: 'left' | 'right' | 'dongle' | string;
   isOpen: boolean;
   onClose: () => void;
   // Master / Left settings
@@ -933,6 +933,14 @@ export interface SideSettingsPanelProps {
   rightScreenOffTimeoutSec?: number;
   onRightScreenOffTimeoutSecChange?: (sec: number) => void;
 
+  // Peripheral role actions
+  isPeripheral?: boolean;
+  onMakeMaster?: () => void;
+  onDeleteDisplay?: () => void;
+
+  /** When true (e.g. totalDisplays > 2), displays overlay directly over the screen instead of pushing horizontally */
+  isOverlay?: boolean;
+
   className?: string;
 }
 
@@ -958,6 +966,10 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
   onRightIdleTimeoutSecChange,
   rightScreenOffTimeoutSec,
   onRightScreenOffTimeoutSecChange,
+  isPeripheral = false,
+  onMakeMaster,
+  onDeleteDisplay,
+  isOverlay = false,
   className = '',
 }) => {
   // Listen for Escape key to close settings panel
@@ -983,10 +995,9 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
     } else {
       setLocalSymmetric(next);
     }
-    // When toggling symmetric back ON, synchronize right side with left side
+    // When toggling symmetric back ON, synchronize right side with left side (dimensions & timeouts)
     if (next) {
       if (onRightScreenDimensionsChange) onRightScreenDimensionsChange(screenDimensions);
-      if (onRightIdleScreensEnabledChange) onRightIdleScreensEnabledChange(idleScreensEnabled);
       if (onRightIdleTimeoutSecChange) onRightIdleTimeoutSecChange(idleTimeoutSec);
       if (onRightScreenOffTimeoutSecChange) onRightScreenOffTimeoutSecChange(screenOffTimeoutSec);
     }
@@ -997,9 +1008,8 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
     ? screenDimensions
     : (rightScreenDimensions ?? screenDimensions);
 
-  const effectiveRightIdleEnabled = effectiveSymmetric
-    ? idleScreensEnabled
-    : (rightIdleScreensEnabled !== undefined ? rightIdleScreensEnabled : idleScreensEnabled);
+  // Idle toggles are independent per display
+  const effectiveRightIdleEnabled = rightIdleScreensEnabled !== undefined ? rightIdleScreensEnabled : idleScreensEnabled;
 
   const effectiveRightIdleTimeout = effectiveSymmetric
     ? idleTimeoutSec
@@ -1018,10 +1028,8 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
   };
 
   const handleLeftIdleEnabledChange = (enabled: boolean) => {
+    // Idle toggle is independent: does not trigger other displays
     if (onIdleScreensEnabledChange) onIdleScreensEnabledChange(enabled);
-    if (effectiveSymmetric && onRightIdleScreensEnabledChange) {
-      onRightIdleScreensEnabledChange(enabled);
-    }
   };
 
   const handleLeftIdleTimeoutChange = (sec: number) => {
@@ -1040,13 +1048,22 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
 
   const isLeft = side === 'left';
   const isDongle = side === 'dongle';
+  const peripheralIndex = side.startsWith('peripheral-') ? side.replace('peripheral-', '') : null;
+  const sideTitle = isDongle ? 'Dongle Settings' : isLeft ? 'Master Settings' : peripheralIndex ? `Peripheral ${peripheralIndex} Settings` : 'Peripheral Settings';
+  const sideBadge = isDongle ? 'Dongle' : isLeft ? 'Left Half' : peripheralIndex ? `Peripheral ${peripheralIndex}` : 'Right Half';
 
   return (
     <aside
-      className={`side-settings-panel-container side-${side} ${isOpen ? 'open' : ''} ${className}`}
+      className={[
+        'side-settings-panel-container',
+        `side-${side}`,
+        isOverlay ? 'is-overlay' : '',
+        isOpen ? 'open' : '',
+        className,
+      ].filter(Boolean).join(' ')}
       aria-hidden={!isOpen}
       role="region"
-      aria-label={`${isDongle ? 'Dongle Master' : isLeft ? 'Left Active (Master)' : 'Right Active (Peripheral)'} Display & Power Settings`}
+      aria-label={`${isDongle ? 'Dongle Master' : isLeft ? 'Left Active (Master)' : `Peripheral ${peripheralIndex || ''} Active (Peripheral)`} Display & Power Settings`}
     >
       <div className="side-settings-panel-inner">
         {/* Header */}
@@ -1063,7 +1080,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
             </div>
             <div>
               <div className="text-xs font-semibold text-white flex items-center gap-1.5">
-                <span>{isDongle ? 'Dongle Settings' : isLeft ? 'Master Settings' : 'Peripheral Settings'}</span>
+                <span>{sideTitle}</span>
                 <span
                   className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
                     isDongle || !isLeft
@@ -1071,7 +1088,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
                       : 'bg-[#00f0ff]/10 text-[#00f0ff] border-[#00f0ff]/20'
                   }`}
                 >
-                  {isDongle ? 'Dongle Master' : isLeft ? 'Left Half' : 'Right Half'}
+                  {sideBadge}
                 </span>
               </div>
             </div>
@@ -1201,7 +1218,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
                 }`}
               >
                 <SideSettingsBlock
-                  sideName="Right Half"
+                  sideName={sideBadge}
                   themeColor="purple"
                   screenDimensions={effectiveRightDimensions}
                   onScreenDimensionsChange={effectiveSymmetric ? () => {} : (onRightScreenDimensionsChange || (() => {}))}
@@ -1218,10 +1235,49 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
                 <div className="pt-2 border-t border-white/10 text-[10px] text-[#64748b] font-mono shrink-0">
                   {effectiveSymmetric
                     ? `#define SCYAN_SLEEP_TIMEOUT_MS ${screenOffTimeoutSec * 1000}`
-                    : `#define SCYAN_SLEEP_TIMEOUT_MS_RIGHT ${effectiveRightScreenOffTimeout * 1000}`}
+                    : `#define SCYAN_SLEEP_TIMEOUT_MS_${side.toUpperCase().replace(/[^A-Z0-9_]/g, '_')} ${effectiveRightScreenOffTimeout * 1000}`}
                 </div>
               </div>
             </>
+          )}
+
+          {/* Peripheral Role Actions: Make Master and Delete */}
+          {isPeripheral && (onMakeMaster || onDeleteDisplay) && (
+            <div className="bg-[#0e1118] border border-[#1e2538] rounded-xl p-3 space-y-2 shrink-0 mt-3">
+              <div className="text-[11px] font-mono uppercase tracking-wider text-[#94a3b8] font-semibold">
+                Peripheral Actions
+              </div>
+
+              {onMakeMaster && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onMakeMaster();
+                    onClose();
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[#00f0ff]/10 hover:bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/30 text-xs font-semibold transition-all cursor-pointer shadow-sm hover:shadow-[0_0_12px_rgba(0,240,255,0.2)]"
+                  title="Promote this peripheral to Master display (places it on left of widgets and makes the left one peripheral)"
+                >
+                  <Crown size={14} />
+                  <span>Make Master Display</span>
+                </button>
+              )}
+
+              {onDeleteDisplay && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteDisplay();
+                    onClose();
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-semibold transition-all cursor-pointer"
+                  title="Delete this peripheral display from the layout"
+                >
+                  <Trash2 size={14} />
+                  <span>Delete Display</span>
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>

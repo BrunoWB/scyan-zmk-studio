@@ -1998,6 +1998,45 @@
   margin-left: -16px;
 }
 
+.side-settings-panel-container.is-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  z-index: 30;
+  border-radius: 12px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.side-settings-panel-container.is-overlay:not(.open) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: scale(0.96);
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+}
+
+.side-settings-panel-container.is-overlay.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: scale(1);
+  transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.25s ease;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.7);
+}
+
+.side-settings-panel-container.is-overlay .side-settings-panel-inner {
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
+  border-radius: 12px;
+  background: #10131a;
+  padding: 12px 14px;
+}
+
 .side-settings-panel-inner {
   width: 300px;
   height: 100%;
@@ -2126,7 +2165,12 @@
   flex-shrink: 0;
   height: 100%;
   display: grid;
-  gap: 12px;
+  gap: 0;
+  position: relative;
+  background-color: #12141a;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  box-sizing: border-box;
   overflow: hidden;
   transition: grid-template-rows 0.4s cubic-bezier(0.25, 1, 0.5, 1);
 }
@@ -2141,6 +2185,28 @@
 
 .blocks-column-oled.idle-disabled {
   grid-template-rows: 1fr;
+}
+
+.blocks-column-oled > .oled-panel-column {
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+  height: 100%;
+  min-height: 0;
+}
+
+.blocks-column-oled > .oled-panel-column.oled-panel-idle {
+  border-top: 1px solid var(--panel-border);
+  background-color: rgba(10, 13, 20, 0.45);
+}
+
+.blocks-column-oled.idle-expanded > .oled-panel-column.oled-panel-active {
+  border-bottom: 1px solid var(--panel-border);
+  background-color: rgba(10, 13, 20, 0.25);
+}
+
+.blocks-column-oled > .oled-panel-column.oled-panel-compact:hover {
+  background-color: rgba(0, 240, 255, 0.03);
 }
 
 .blocks-column-catalog {

@@ -38,7 +38,7 @@ export interface ShieldsTabProps {
     dimensions: { width: number; height: number },
     rightDimensions?: { width: number; height: number }
   ) => void;
-  onSelectScreenSetup?: (setup: 'split' | 'split-dongle' | 'dongle-only') => void;
+  onSelectShield?: (shieldId: string) => void;
   onNavigateToPreview?: () => void;
 }
 
@@ -57,7 +57,7 @@ export const ShieldsTab: React.FC<ShieldsTabProps> = ({
   instances,
   customText = 'SCYAN',
   onApplyDimensions,
-  onSelectScreenSetup,
+  onSelectShield,
   onNavigateToPreview,
 }) => {
   const [selectedShieldId, setSelectedShieldId] = useState<string | null>('corne');
@@ -131,18 +131,14 @@ export const ShieldsTab: React.FC<ShieldsTabProps> = ({
       if (onApplyDimensions) {
         onApplyDimensions(res, res);
       }
-      if (onSelectScreenSetup) {
-        if (shield.id === 'xiao-dongle') {
-          onSelectScreenSetup('dongle-only');
-        } else {
-          onSelectScreenSetup('split');
-        }
+      if (onSelectShield) {
+        onSelectShield(shield.id);
       }
       if (onNavigateToPreview) {
         onNavigateToPreview();
       }
     },
-    [onApplyDimensions, onSelectScreenSetup, onNavigateToPreview]
+    [onApplyDimensions, onSelectShield, onNavigateToPreview]
   );
 
   return (

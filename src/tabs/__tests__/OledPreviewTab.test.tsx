@@ -152,7 +152,7 @@ describe('OledPreviewTab dynamic screen dimensions & widget moving', () => {
     expect(html).toContain('68 WPM');
   });
 
-  it('renders central dongle unit case in between keyboard halves for split-dongle topology', () => {
+  it('renders central dongle unit case in between keyboard halves when dongle is enabled', () => {
     const sampleDongleBlocks: LayoutBlock[] = [
       {
         id: 'dongle-battery',
@@ -177,8 +177,7 @@ describe('OledPreviewTab dynamic screen dimensions & widget moving', () => {
         leftBlocks={sampleLeftBlocks}
         rightBlocks={sampleRightBlocks}
         dongleBlocks={sampleDongleBlocks}
-        screenSetup="split-dongle"
-        enabledScreens={['left', 'dongle', 'right']}
+        enabledScreens={['central', 'dongle', 'peripheral']}
       />
     );
 
@@ -194,7 +193,7 @@ describe('OledPreviewTab dynamic screen dimensions & widget moving', () => {
     expect(html).toContain('3-Screen Multi-Display');
   });
 
-  it('renders standalone dongle unit case without keyboards for dongle-only topology', () => {
+  it('renders standalone dongle unit case without keyboards when only dongle screen is enabled', () => {
     const sampleDongleBlocks: LayoutBlock[] = [
       {
         id: 'dongle-wpm',
@@ -217,7 +216,6 @@ describe('OledPreviewTab dynamic screen dimensions & widget moving', () => {
         customText="TEST"
         onCustomTextChange={() => {}}
         dongleBlocks={sampleDongleBlocks}
-        screenSetup="dongle-only"
         enabledScreens={['dongle']}
       />
     );

@@ -21,6 +21,7 @@ export interface ParsedKeymapLayout {
   rightThumbs: string[];
   layerNames: string[];
   layers?: LayerData[];
+  shieldId?: string;
 }
 
 /**
@@ -46,6 +47,7 @@ export const DEFAULT_EMPTY_5X3_LAYOUT: ParsedKeymapLayout = {
   leftThumbs: ['', '', ''],
   rightThumbs: ['', '', ''],
   layerNames: ['DEFAULT', 'LOWER', 'RAISE', 'ADJUST'],
+  shieldId: 'corne',
 };
 
 /**
@@ -822,6 +824,17 @@ export function parseZmkKeymap(rawContent: string, filename = 'keymap.keymap'): 
     return dist;
   });
 
+  const detectedShield = detectShieldFromRepo('', filename, undefined);
+  let finalShieldId = detectedShield;
+  if (finalShieldId === 'corne') {
+    if (rawContent.includes('lily58')) finalShieldId = 'lily58';
+    else if (rawContent.includes('sofle')) finalShieldId = 'sofle';
+    else if (rawContent.includes('sweep') || rawContent.includes('cradio') || rawContent.includes('ferris')) finalShieldId = 'ferris_sweep';
+    else if (rawContent.includes('reviung41')) finalShieldId = 'reviung41';
+    else if (rawContent.includes('reviung34')) finalShieldId = 'reviung34';
+    else if (rawContent.includes('tidbit')) finalShieldId = 'tidbit';
+  }
+
   const layer0 = parsedLayers[0] || distributeKeys(layer0Keys);
 
   return {
@@ -836,7 +849,23 @@ export function parseZmkKeymap(rawContent: string, filename = 'keymap.keymap'): 
     rightThumbs: layer0.rightThumbs,
     layerNames: layerNames.length > 0 ? layerNames : ['DEFAULT', 'LOWER', 'RAISE', 'ADJUST'],
     layers: parsedLayers,
+    shieldId: finalShieldId,
   };
+}
+
+export function detectShieldFromRepo(repoName: string, keymapFilename?: string, confFilenames?: string[]): string {
+  const haystack = [repoName, keymapFilename, ...(confFilenames || [])].filter(Boolean).join(' ').toLowerCase();
+  if (haystack.includes('corne') || haystack.includes('crkbd')) return 'corne';
+  if (haystack.includes('lily58')) return 'lily58';
+  if (haystack.includes('sofle')) return 'sofle';
+  if (haystack.includes('sweep') || haystack.includes('ferris') || haystack.includes('cradio')) return 'ferris_sweep';
+  if (haystack.includes('kyria')) return 'kyria';
+  if (haystack.includes('iris')) return 'iris';
+  if (haystack.includes('reviung41')) return 'reviung41';
+  if (haystack.includes('reviung34')) return 'reviung34';
+  if (haystack.includes('xiao') || haystack.includes('dongle')) return 'xiao_dongle';
+  if (haystack.includes('tidbit')) return 'tidbit';
+  return 'corne';
 }
 
 /**

@@ -4,6 +4,16 @@ import { OledDisplayModule } from './OledDisplayModule';
 import { BwpxGrid } from '../bwpx/core/BwpxGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../types/zmk';
 import type { WidgetInstanceMap } from '../types/widget';
+import { Plus } from 'lucide-react';
+
+export interface DisplayConfigOverride {
+  displayId: string | null; // null represents an empty OLED bay/socket
+  displayName?: string;
+  isMaster?: boolean;
+  blocks?: LayoutBlock[];
+  width?: number;
+  height?: number;
+}
 
 export interface ShieldKeyboardGeometryProps {
   shield: ShieldDefinition;
@@ -25,6 +35,11 @@ export interface ShieldKeyboardGeometryProps {
   compact?: boolean;
   scale?: number;
   corneColumns?: 5 | 6;
+  onlySide?: 'left' | 'right';
+  displayConfigOverride?: DisplayConfigOverride;
+  onDisplayDragStart?: (e: React.DragEvent) => void;
+  onDisplayDrop?: (e: React.DragEvent) => void;
+  isDisplayDropTarget?: boolean;
   onKeystroke?: () => void;
 }
 
@@ -48,6 +63,11 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
   compact = false,
   scale = 1,
   corneColumns = 6,
+  onlySide,
+  displayConfigOverride,
+  onDisplayDragStart,
+  onDisplayDrop,
+  isDisplayDropTarget = false,
   onKeystroke,
 }) => {
   const [pressedKey, setPressedKey] = useState<string | null>(null);
@@ -199,6 +219,138 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
     );
   };
 
+  // Helper to render OLED Bay (either populated with assigned display or empty socket)
+  const renderOledBay = (
+    defaultBlocks: LayoutBlock[],
+    defaultSide: 'left' | 'right' | 'dongle' | 'single' = 'left',
+    customOledScale: number = oledScale
+  ) => {
+    const defaultW = shield.displayConfig.nativeResolution.width;
+    const defaultH = shield.displayConfig.nativeResolution.height;
+
+    // Check if displayConfigOverride was passed
+    if (displayConfigOverride !== undefined) {
+      if (displayConfigOverride.displayId === null) {
+        // Empty OLED Bay / Socket
+        const socketW = Math.round(defaultW * customOledScale);
+        const socketH = Math.round(defaultH * customOledScale);
+        return (
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = 'move';
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onDisplayDrop?.(e);
+            }}
+            className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed transition-all cursor-pointer ${
+              isDisplayDropTarget
+                ? 'border-[#00f0ff] bg-[#00f0ff]/15 shadow-[0_0_20px_rgba(0,240,255,0.35)] scale-105'
+                : 'border-[#1e2538] hover:border-[#00f0ff]/50 bg-[#0b0e17]/80 hover:bg-[#131724]/90'
+            }`}
+            style={{
+              width: `${Math.max(36, socketW)}px`,
+              height: `${Math.max(64, socketH)}px`,
+            }}
+            title="Empty OLED Bay — Drag an OLED display here to mount it on this shield"
+          >
+            <div className="size-6 rounded-lg bg-[#141824] flex items-center justify-center text-[#64748b] mb-1">
+              <Plus size={14} />
+            </div>
+            <span className="text-[8px] font-mono text-[#64748b] text-center px-1 leading-tight select-none">
+              Empty OLED
+            </span>
+          </div>
+        );
+      }
+
+      // Display is assigned
+      const effBlocks = displayConfigOverride.blocks ?? defaultBlocks;
+      const effSide = displayConfigOverride.isMaster ? 'left' : defaultSide;
+      const effW = displayConfigOverride.width ?? defaultW;
+      const effH = displayConfigOverride.height ?? defaultH;
+
+      return (
+        <div
+          draggable={!!onDisplayDragStart}
+          onDragStart={(e) => {
+            e.stopPropagation();
+            onDisplayDragStart?.(e);
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = 'move';
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onDisplayDrop?.(e);
+          }}
+          className={`relative group/display cursor-grab active:cursor-grabbing rounded-xl transition-all ${
+            isDisplayDropTarget
+              ? 'ring-2 ring-[#00f0ff] shadow-[0_0_20px_rgba(0,240,255,0.5)] scale-102'
+              : 'hover:ring-1 hover:ring-[#00f0ff]/50'
+          }`}
+          title={`${displayConfigOverride.displayName || 'Display'} (Drag to swap or move to another shield)`}
+        >
+          {onDisplayDragStart && (
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 opacity-0 group-hover/display:opacity-100 transition-opacity z-20 pointer-events-none bg-[#0a0d14]/95 border border-[#00f0ff]/40 text-[#00f0ff] text-[8px] font-mono font-bold px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap">
+              Drag Display
+            </div>
+          )}
+          <OledDisplayModule
+            width={effW}
+            height={effH}
+            blocks={effBlocks}
+            symbolsGrid={symbolsGrid}
+            symbolSlices={symbolSlices}
+            fontGrid={fontGrid}
+            fontGlyphs={fontGlyphs}
+            fontMappings={fontMappings}
+            side={effSide}
+            isIdle={isIdle}
+            battery={batteryLevel}
+            outputMode={outputMode}
+            currentLayer={currentLayer}
+            wpm={typingWpm}
+            customText={customText}
+            instances={instances}
+            showHousing={true}
+            scale={customOledScale}
+          />
+        </div>
+      );
+    }
+
+    // Default fallback
+    return (
+      <OledDisplayModule
+        width={defaultW}
+        height={defaultH}
+        blocks={defaultBlocks}
+        symbolsGrid={symbolsGrid}
+        symbolSlices={symbolSlices}
+        fontGrid={fontGrid}
+        fontGlyphs={fontGlyphs}
+        fontMappings={fontMappings}
+        side={defaultSide}
+        isIdle={isIdle}
+        battery={batteryLevel}
+        outputMode={outputMode}
+        currentLayer={currentLayer}
+        wpm={typingWpm}
+        customText={customText}
+        instances={instances}
+        showHousing={true}
+        scale={customOledScale}
+      />
+    );
+  };
+
   // ==========================================
   // TYPE 1: SPLIT-PAIR KEYBOARDS
   // ==========================================
@@ -213,7 +365,6 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
     const renderHalf = (side: 'left' | 'right') => {
       const isLeft = side === 'left';
       const blocks = isLeft ? activeLeftBlocks : activeRightBlocks;
-      const battery = isLeft ? batteryLevel : Math.max(10, batteryLevel - 4);
 
       // Column order: on right half, mirror order (inner columns face center)
       const colIndices = Array.from({ length: effectiveCols }, (_, i) =>
@@ -285,26 +436,7 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
       // OLED Bay
       const oledDisplay = (
         <div className="corne-mcu-bay shrink-0">
-          <OledDisplayModule
-            width={shield.displayConfig.nativeResolution.width}
-            height={shield.displayConfig.nativeResolution.height}
-            blocks={blocks}
-            symbolsGrid={symbolsGrid}
-            symbolSlices={symbolSlices}
-            fontGrid={fontGrid}
-            fontGlyphs={fontGlyphs}
-            fontMappings={fontMappings}
-            side={side}
-            isIdle={isIdle}
-            battery={battery}
-            outputMode={outputMode}
-            currentLayer={currentLayer}
-            wpm={typingWpm}
-            customText={customText}
-            instances={instances}
-            showHousing={true}
-            scale={oledScale}
-          />
+          {renderOledBay(blocks, side)}
         </div>
       );
 
@@ -359,6 +491,16 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
         </div>
       );
     };
+
+    if (onlySide) {
+      return (
+        <div className={`shield-sandbox-container ${compact ? 'compact' : ''}`}>
+          <div className={`shield-split-wrapper ${compact ? 'compact' : ''}`}>
+            {renderHalf(onlySide)}
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className={`shield-sandbox-container ${compact ? 'compact' : ''}`}>
@@ -444,26 +586,7 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
 
     const oledDisplay = (
       <div className="flex flex-col items-center justify-center shrink-0 z-10">
-        <OledDisplayModule
-          width={shield.displayConfig.nativeResolution.width}
-          height={shield.displayConfig.nativeResolution.height}
-          blocks={activeLeftBlocks}
-          symbolsGrid={symbolsGrid}
-          symbolSlices={symbolSlices}
-          fontGrid={fontGrid}
-          fontGlyphs={fontGlyphs}
-          fontMappings={fontMappings}
-          side="single"
-          isIdle={isIdle}
-          battery={batteryLevel}
-          outputMode={outputMode}
-          currentLayer={currentLayer}
-          wpm={typingWpm}
-          customText={customText}
-          instances={instances}
-          showHousing={true}
-          scale={oledScale}
-        />
+        {renderOledBay(activeLeftBlocks, 'single')}
       </div>
     );
 
@@ -542,26 +665,7 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
               <span>Central Dongle Master</span>
             </div>
 
-            <OledDisplayModule
-              width={shield.displayConfig.nativeResolution.width}
-              height={shield.displayConfig.nativeResolution.height}
-              blocks={activeDongleBlocks}
-              symbolsGrid={symbolsGrid}
-              symbolSlices={symbolSlices}
-              fontGrid={fontGrid}
-              fontGlyphs={fontGlyphs}
-              fontMappings={fontMappings}
-              side="dongle"
-              isIdle={isIdle}
-              battery={batteryLevel}
-              outputMode={outputMode}
-              currentLayer={currentLayer}
-              wpm={typingWpm}
-              customText={customText}
-              instances={instances}
-              showHousing={true}
-              scale={oledScale * 1.05}
-            />
+            {renderOledBay(activeDongleBlocks, 'dongle', oledScale * 1.05)}
           </div>
         </div>
       </div>
@@ -581,26 +685,7 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
             style={{ gap: `${Math.round(10 * scale)}px` }}
           >
             <div className="flex-1 flex justify-center">
-              <OledDisplayModule
-                width={shield.displayConfig.nativeResolution.width}
-                height={shield.displayConfig.nativeResolution.height}
-                blocks={activeLeftBlocks}
-                symbolsGrid={symbolsGrid}
-                symbolSlices={symbolSlices}
-                fontGrid={fontGrid}
-                fontGlyphs={fontGlyphs}
-                fontMappings={fontMappings}
-                side="single"
-                isIdle={isIdle}
-                battery={batteryLevel}
-                outputMode={outputMode}
-                currentLayer={currentLayer}
-                wpm={typingWpm}
-                customText={customText}
-                instances={instances}
-                showHousing={true}
-                scale={oledScale}
-              />
+              {renderOledBay(activeLeftBlocks, 'single')}
             </div>
             {geom.hasEncoder && renderEncoderKnob('tidbit_encoder')}
           </div>

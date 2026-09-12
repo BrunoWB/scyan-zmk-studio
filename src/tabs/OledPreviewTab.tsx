@@ -40,8 +40,8 @@ import {
   DEFAULT_IDLE_RIGHT_BLOCKS,
   DEFAULT_DONGLE_LAYOUT_BLOCKS,
   DEFAULT_IDLE_DONGLE_BLOCKS,
-  type ScreenSetupType,
 } from '../types/zmk';
+import { KNOWN_SHIELDS } from '../data/shieldsData';
 
 const BLOCK_COLORS: Record<string, string> = {
   'status-bar': '#38bdf8',
@@ -102,8 +102,8 @@ export interface OledPreviewTabProps {
   rightScreenDimensions?: { width: number; height: number };
   dongleScreenDimensions?: { width: number; height: number };
   symmetricSettings?: boolean;
-  screenSetup?: ScreenSetupType;
-  onScreenSetupChange?: (setup: ScreenSetupType) => void;
+  shieldId?: string;
+  onShieldIdChange?: (id: string) => void;
   enabledScreens?: ('left' | 'right' | 'dongle' | string)[];
   onEnabledScreensChange?: (screens: ('left' | 'right' | 'dongle' | string)[]) => void;
   customText: string;
@@ -142,10 +142,10 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   rightScreenDimensions,
   dongleScreenDimensions,
   symmetricSettings,
-  screenSetup,
-  onScreenSetupChange,
+  shieldId = 'corne',
+  onShieldIdChange: _onShieldIdChange,
   enabledScreens,
-  onEnabledScreensChange,
+  onEnabledScreensChange: _onEnabledScreensChange,
   customText,
   onCustomTextChange: _onCustomTextChange,
   instances,
@@ -162,35 +162,20 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   const activeRightBlocks = rightBlocks ?? DEFAULT_RIGHT_LAYOUT_BLOCKS;
   const activeDongleBlocks = dongleBlocks ?? DEFAULT_DONGLE_LAYOUT_BLOCKS;
 
-  // Screen setup & enabled screens topology
-  const [localScreenSetup, setLocalScreenSetup] = useState<ScreenSetupType>('split');
-  const effectiveScreenSetup = screenSetup ?? localScreenSetup;
-  const handleScreenSetupChange = onScreenSetupChange || setLocalScreenSetup;
+  const activeShield = useMemo(() => {
+    return KNOWN_SHIELDS.find(s => s.id === shieldId) || KNOWN_SHIELDS[0];
+  }, [shieldId]);
 
-  const [_localEnabledScreens, setLocalEnabledScreens] = useState<string[]>(['left', 'right']);
-  const effectiveEnabledScreens = enabledScreens ?? (
-    effectiveScreenSetup === 'split-dongle'
-      ? ['left', 'dongle', 'right']
-      : effectiveScreenSetup === 'dongle-only'
-      ? ['dongle']
-      : ['left', 'right']
-  );
-  const handleEnabledScreensChange = onEnabledScreensChange || setLocalEnabledScreens;
-
-  const handleSelectTopology = (preset: ScreenSetupType) => {
-    handleScreenSetupChange(preset);
-    if (preset === 'split') {
-      handleEnabledScreensChange(['left', 'right']);
-    } else if (preset === 'split-dongle') {
-      handleEnabledScreensChange(['left', 'dongle', 'right']);
-    } else if (preset === 'dongle-only') {
-      handleEnabledScreensChange(['dongle']);
+  const effectiveEnabledScreens = useMemo(() => {
+    if (enabledScreens && enabledScreens.length > 0) {
+      return enabledScreens;
     }
-  };
+    return ['central', 'peripheral'];
+  }, [enabledScreens]);
 
-  const hasDongle = effectiveEnabledScreens.includes('dongle') || effectiveScreenSetup === 'split-dongle' || effectiveScreenSetup === 'dongle-only';
-  const showLeftKeyboard = effectiveEnabledScreens.includes('left') || effectiveScreenSetup === 'split' || effectiveScreenSetup === 'split-dongle';
-  const showRightKeyboard = effectiveEnabledScreens.includes('right') || effectiveScreenSetup === 'split' || effectiveScreenSetup === 'split-dongle';
+  const hasDongle = effectiveEnabledScreens.includes('dongle');
+  const showLeftKeyboard = effectiveEnabledScreens.includes('central') || effectiveEnabledScreens.includes('left');
+  const showRightKeyboard = effectiveEnabledScreens.includes('peripheral') || effectiveEnabledScreens.includes('right');
 
   // Virtual screen dimensions per side
   const leftVWidth = screenDimensions?.width || 32;
@@ -1031,36 +1016,17 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
 
   return (
     <div className="oled-preview-fullscreen">
-      {/* SCREEN TOPOLOGY SELECTOR BAR */}
+      {/* SCREEN TOPOLOGY STATUS BAR */}
       <div className="blocks-screen-topology-bar">
         <div className="topology-section">
-          <span>Hardware Screen Setup:</span>
-          <div className="topology-pills-group" role="radiogroup" aria-label="Screen Setup Topology">
-            <button
-              type="button"
-              className={`topology-pill-btn ${effectiveScreenSetup === 'split' ? 'active' : ''}`}
-              onClick={() => handleSelectTopology('split')}
-              title="Dual Split: Left (Master) and Right (Peripheral)"
-            >
-              Dual Split (L + R)
-            </button>
-            <button
-              type="button"
-              className={`topology-pill-btn ${effectiveScreenSetup === 'split-dongle' ? 'active purple' : ''}`}
-              onClick={() => handleSelectTopology('split-dongle')}
-              title="Split + Dongle: Central Dongle Master + Dual Peripherals (3 Screens)"
-            >
-              Split + Dongle Master (3 Screens)
-            </button>
-            <button
-              type="button"
-              className={`topology-pill-btn ${effectiveScreenSetup === 'dongle-only' ? 'active purple' : ''}`}
-              onClick={() => handleSelectTopology('dongle-only')}
-              title="Dongle Master Only: Single Central Dongle Screen"
-            >
-              Dongle Master Only (1 Screen)
-            </button>
-          </div>
+          <span className="text-xs text-[#94a3b8] font-medium">Hardware Topology:</span>
+          <span className="px-2.5 py-1 rounded-md text-xs font-mono bg-[#161b26] border border-[#2d3748] text-accent font-semibold flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#00f0ff]" />
+            {activeShield.name}
+          </span>
+          <span className="text-xs text-[#64748b]">
+            ({effectiveEnabledScreens.length} Active {effectiveEnabledScreens.length === 1 ? 'Display' : 'Displays'})
+          </span>
         </div>
         {hasDongle && (
           <span className="text-xs text-purple-400 font-mono font-medium">
@@ -1338,52 +1304,13 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
               <h3 className="card-title">Live Keyboard Simulator Controls</h3>
             </div>
             <span className="badge-mode">
-              {hasDongle ? (effectiveScreenSetup === 'dongle-only' ? 'Dongle Display' : '3-Screen Multi-Display') : 'Dual Display Sync'}
+              {hasDongle
+                ? (!showLeftKeyboard && !showRightKeyboard ? 'Dongle Display' : `${effectiveEnabledScreens.length}-Screen Multi-Display`)
+                : (effectiveEnabledScreens.length > 2 ? `${effectiveEnabledScreens.length}-Screen Multi-Display` : 'Dual Display Sync')}
             </span>
           </div>
 
           <div className="controls-grid">
-            {/* Screen Topology / Hardware Setup */}
-            <div className="control-group full-width">
-              <label className="flex items-center gap-1">
-                <span>Hardware Screen Setup</span>
-                {hasDongle && (
-                  <span className="text-xs text-purple-400 font-mono font-medium ml-1">
-                    (Central Dongle Active)
-                  </span>
-                )}
-              </label>
-              <div className="widget-mode-radio-group flex-wrap w-fit" role="radiogroup" aria-label="Screen Setup Topology">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={effectiveScreenSetup === 'split'}
-                  className={`widget-mode-radio-btn ${effectiveScreenSetup === 'split' ? 'active' : ''}`}
-                  onClick={() => handleSelectTopology('split')}
-                >
-                  <span>Dual Split (Left + Right)</span>
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={effectiveScreenSetup === 'split-dongle'}
-                  className={`widget-mode-radio-btn ${effectiveScreenSetup === 'split-dongle' ? 'active' : ''}`}
-                  onClick={() => handleSelectTopology('split-dongle')}
-                >
-                  <span>Split + Dongle Master (3 Screens)</span>
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={effectiveScreenSetup === 'dongle-only'}
-                  className={`widget-mode-radio-btn ${effectiveScreenSetup === 'dongle-only' ? 'active' : ''}`}
-                  onClick={() => handleSelectTopology('dongle-only')}
-                >
-                  <span>Dongle Master Only (1 Screen)</span>
-                </button>
-              </div>
-            </div>
-
             {/* Screen State */}
             <div className="control-group">
               <label>Screen State</label>

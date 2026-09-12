@@ -594,8 +594,7 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     const symbolSlices: SpriteSlice[] = [];
     const metadata = {
       version: 1 as const,
-      screenSetup: 'split-dongle' as const,
-      enabledScreens: ['left', 'dongle', 'right'] as ('left' | 'right' | 'dongle')[],
+      enabledScreens: ['central', 'dongle', 'peripheral'] as ('central' | 'peripheral' | 'dongle')[],
       screenDimensions: { width: 32, height: 128 },
       dongleScreenDimensions: { width: 64, height: 128 },
       leftBlocks: [
@@ -625,8 +624,7 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     // Parse the generated header and verify 100% round-trip fidelity
     const parsed = parseCHeader(cCode);
     expect(parsed.metadata).toBeDefined();
-    expect(parsed.metadata?.screenSetup).toBe('split-dongle');
-    expect(parsed.metadata?.enabledScreens).toEqual(['left', 'dongle', 'right']);
+    expect(parsed.metadata?.enabledScreens).toEqual(['central', 'dongle', 'peripheral']);
     expect(parsed.metadata?.dongleScreenDimensions).toEqual({ width: 64, height: 128 });
     expect(parsed.metadata?.dongleBlocks?.length).toBe(2);
     expect(parsed.metadata?.dongleBlocks?.[0].widgetType).toBe('bongo');
@@ -639,7 +637,7 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     const testGrid = new BwpxGrid(16, 16);
     const metadata = {
       version: 1 as const,
-      screenSetup: 'split' as const,
+      enabledScreens: ['central', 'peripheral'],
       leftBlocks: [
         { id: 'b1', widgetType: 'battery', name: 'Battery', x: 0, y: 0, width: 17, height: 10, enabled: true, side: 'left' as const }
       ],
@@ -659,7 +657,6 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     const testGrid = new BwpxGrid(16, 16);
     const metadata = {
       version: 1 as const,
-      screenSetup: 'dongle-only' as const,
       enabledScreens: ['dongle'],
       dongleScreenDimensions: { width: 32, height: 128 },
       dongleBlocks: [
@@ -678,7 +675,7 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
 
     const parsed = parseCHeader(cCode);
     expect(parsed.metadata).toBeDefined();
-    expect(parsed.metadata?.screenSetup).toBe('dongle-only');
+    expect(parsed.metadata?.enabledScreens).toEqual(['dongle']);
     expect(parsed.metadata?.dongleBlocks?.length).toBe(1);
     expect(parsed.metadata?.dongleIdleTimeoutSec).toBe(15);
     expect(parsed.metadata?.dongleScreenOffTimeoutSec).toBe(45);
@@ -688,7 +685,7 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     const testGrid = new BwpxGrid(16, 16);
     const metadata = {
       version: 1 as const,
-      screenSetup: 'split-dongle' as const,
+      enabledScreens: ['central', 'dongle', 'peripheral'],
       widgetInstances: {
         'wpm-chart': [
           {
@@ -729,7 +726,7 @@ static const struct display_layout_block LAYOUT_DONGLE_ACTIVE_BLOCKS[1] = {
 `;
     const parsed = parseCHeader(rawDongleC);
     expect(parsed.metadata).toBeDefined();
-    expect(parsed.metadata?.screenSetup).toBe('split-dongle');
+    expect(parsed.metadata?.enabledScreens).toContain('dongle');
     expect(parsed.metadata?.dongleScreenDimensions).toEqual({ width: 68, height: 160 });
     expect(parsed.metadata?.dongleIdleScreensEnabled).toBe(true);
     expect(parsed.metadata?.dongleIdleTimeoutSec).toBe(20);
@@ -737,7 +734,7 @@ static const struct display_layout_block LAYOUT_DONGLE_ACTIVE_BLOCKS[1] = {
     expect(parsed.metadata?.dongleBlocks?.length).toBe(1);
   });
 
-  it('should gracefully default legacy 2-screen C header to split screenSetup', () => {
+  it('should gracefully normalize legacy 2-screen C header to central/peripheral enabledScreens', () => {
     const legacyC = `
 #define DISPLAY_VIRTUAL_WIDTH 32
 #define DISPLAY_VIRTUAL_HEIGHT 128
@@ -756,10 +753,9 @@ static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
 */
 `;
     const parsed = parseCHeader(legacyC);
-    expect(parsed.metadata?.screenSetup).toBeUndefined(); // raw parsed metadata doesn't have it
-    // App's fallback logic resolves:
-    const resolvedScreenSetup = parsed.metadata?.screenSetup ?? (parsed.metadata?.dongleBlocks && parsed.metadata.dongleBlocks.length > 0 ? 'split-dongle' : 'split');
-    expect(resolvedScreenSetup).toBe('split');
+    expect(parsed.metadata?.enabledScreens).toEqual(['central', 'peripheral']);
+    expect(parsed.metadata?.centralBlocks?.length).toBe(1);
+    expect(parsed.metadata?.peripheralBlocks?.length).toBe(1);
   });
 });
 
