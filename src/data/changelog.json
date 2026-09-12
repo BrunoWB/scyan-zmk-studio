@@ -14,6 +14,14 @@
     ],
     "patches": [
       {
+        "patch": "1.0.6",
+        "date": "2026-09-12",
+        "commitHash": "aa8bb28",
+        "changes": [
+          "perf: zero-render viewport pan dragging and zero-render selection moving"
+        ]
+      },
+      {
         "patch": "1.0.5",
         "date": "2026-09-12",
         "commitHash": "e595795",
