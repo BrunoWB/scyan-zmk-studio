@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
 
       - name: Setup Node
@@ -37,13 +37,24 @@ jobs:
       - name: Ensure .nojekyll present
         run: touch dist/.nojekyll
 
-      - name: Deploy to brunowb.github.io/nightly/scyan-zmk-studio/
-        uses: JamesIves/github-pages-deploy-action@v4
-        with:
-          token: ${{ secrets.GH_PAT_PAGES }}
-          repository-name: BrunoWB/brunowb.github.io
-          branch: main
-          folder: dist
-          target-folder: nightly/scyan-zmk-studio
-          clean: false
-          commit-message: "chore(nightly): deploy scyan-zmk-studio ${{ github.sha }} [skip ci]"
+      - name: Clone brunowb.github.io
+        run: |
+          git clone --depth=1 \
+            "https://x-access-token:${{ secrets.GH_PAT_PAGES }}@github.com/BrunoWB/brunowb.github.io.git" \
+            /tmp/user-site
+
+      - name: Sync dist into nightly subfolder
+        run: |
+          rm -rf /tmp/user-site/nightly/scyan-zmk-studio
+          mkdir -p /tmp/user-site/nightly/scyan-zmk-studio
+          cp -r dist/. /tmp/user-site/nightly/scyan-zmk-studio/
+
+      - name: Commit and push
+        run: |
+          cd /tmp/user-site
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add nightly/
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "chore(nightly): deploy scyan-zmk-studio ${{ github.sha }} [skip ci]"
+          git push origin main
