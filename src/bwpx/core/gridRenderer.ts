@@ -158,9 +158,7 @@ export function renderBaseCanvas(
 
   // 3. Active pixels
   ctx.fillStyle = pixelColor;
-  const allPixels = grid.getAllPixels();
-  for (let i = 0; i < allPixels.length; i++) {
-    const [x, y] = allPixels[i];
+  grid.forEachPixel((x, y) => {
     if (x >= startGridX && x <= endGridX && y >= startGridY && y <= endGridY) {
       const px = Math.round(x * zoom);
       const py = Math.round(y * zoom);
@@ -168,7 +166,7 @@ export function renderBaseCanvas(
       const ph = Math.round((y + 1) * zoom) - py;
       ctx.fillRect(px, py, pw, ph);
     }
-  }
+  });
 
   // 4. Sprite Slices Overlay
   if (slices && slices.length > 0) {

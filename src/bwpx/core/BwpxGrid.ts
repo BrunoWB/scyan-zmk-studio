@@ -7,24 +7,50 @@ export interface GridBounds {
   height: number;
 }
 
+/**
+ * Packs signed 16-bit integers (x, y) into a 32-bit signed integer.
+ * Supports coordinates from -32768 to 32767.
+ */
+export function packCoord(x: number, y: number): number {
+  return (x << 16) | (y & 0xffff);
+}
+
+/**
+ * Unpacks a 32-bit integer key into [x, y] coordinates.
+ */
+export function unpackCoord(key: number): [number, number] {
+  return [key >> 16, (key << 16) >> 16];
+}
+
 export class BwpxGrid {
   readonly width: number;
   readonly height: number;
-  private readonly pixels: Set<string>;
+  private readonly pixels: Set<number>;
 
-  constructor(width = 128, height = 34, initialData?: Uint8Array | number[] | Set<string>) {
+  constructor(width = 128, height = 34, initialData?: Uint8Array | number[] | Set<string> | Set<number>) {
     this.width = width;
     this.height = height;
-    this.pixels = new Set<string>();
+    this.pixels = new Set<number>();
 
     if (initialData instanceof Set) {
-      initialData.forEach(k => this.pixels.add(k));
+      for (const k of initialData) {
+        if (typeof k === 'number') {
+          this.pixels.add(k);
+        } else if (typeof k === 'string') {
+          const comma = k.indexOf(',');
+          if (comma !== -1) {
+            const x = parseInt(k.slice(0, comma), 10);
+            const y = parseInt(k.slice(comma + 1), 10);
+            this.pixels.add(packCoord(x, y));
+          }
+        }
+      }
     } else if (initialData && initialData.length > 0) {
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
           const idx = y * width + x;
           if (initialData[idx]) {
-            this.pixels.add(`${x},${y}`);
+            this.pixels.add(packCoord(x, y));
           }
         }
       }
@@ -38,7 +64,7 @@ export class BwpxGrid {
     const arr = new Uint8Array(this.width * this.height);
     for (let y = 0; y < this.height; y++) {
       for (let x = 0; x < this.width; x++) {
-        if (this.pixels.has(`${x},${y}`)) {
+        if (this.pixels.has(packCoord(x, y))) {
           arr[y * this.width + x] = 1;
         }
       }
@@ -58,11 +84,11 @@ export class BwpxGrid {
   }
 
   get(x: number, y: number): number {
-    return this.pixels.has(`${x},${y}`) ? 1 : 0;
+    return this.pixels.has(packCoord(x, y)) ? 1 : 0;
   }
 
   set(x: number, y: number, val: number): void {
-    const key = `${x},${y}`;
+    const key = packCoord(x, y);
     if (val) {
       this.pixels.add(key);
     } else {
@@ -71,7 +97,7 @@ export class BwpxGrid {
   }
 
   toggle(x: number, y: number): void {
-    const key = `${x},${y}`;
+    const key = packCoord(x, y);
     if (this.pixels.has(key)) {
       this.pixels.delete(key);
     } else {
@@ -100,15 +126,14 @@ export class BwpxGrid {
     let maxX = -Infinity;
     let maxY = -Infinity;
 
-    this.pixels.forEach(key => {
-      const comma = key.indexOf(',');
-      const x = parseInt(key.slice(0, comma), 10);
-      const y = parseInt(key.slice(comma + 1), 10);
+    for (const key of this.pixels) {
+      const x = key >> 16;
+      const y = (key << 16) >> 16;
       if (x < minX) minX = x;
       if (x > maxX) maxX = x;
       if (y < minY) minY = y;
       if (y > maxY) maxY = y;
-    });
+    }
 
     return {
       minX,
@@ -125,13 +150,19 @@ export class BwpxGrid {
    */
   getAllPixels(): [number, number][] {
     const list: [number, number][] = [];
-    this.pixels.forEach(key => {
-      const comma = key.indexOf(',');
-      const x = parseInt(key.slice(0, comma), 10);
-      const y = parseInt(key.slice(comma + 1), 10);
-      list.push([x, y]);
-    });
+    for (const key of this.pixels) {
+      list.push([key >> 16, (key << 16) >> 16]);
+    }
     return list;
+  }
+
+  /**
+   * Directly iterates over all active pixel coordinates without allocating an array.
+   */
+  forEachPixel(callback: (x: number, y: number) => void): void {
+    for (const key of this.pixels) {
+      callback(key >> 16, (key << 16) >> 16);
+    }
   }
 
   /**
@@ -324,11 +355,10 @@ export class BwpxGrid {
     if (!transparentZero) {
       this.clearRect({ x: dstX, y: dstY, width: src.width, height: src.height });
     }
-    src.pixels.forEach(key => {
-      const comma = key.indexOf(',');
-      const x = parseInt(key.slice(0, comma), 10);
-      const y = parseInt(key.slice(comma + 1), 10);
+    for (const key of src.pixels) {
+      const x = key >> 16;
+      const y = (key << 16) >> 16;
       this.set(dstX + x, dstY + y, 1);
-    });
+    }
   }
 }
