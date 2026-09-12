@@ -633,17 +633,6 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     });
   }, []);
 
-  const schedulePanRender = useCallback(() => {
-    if (panRafId.current !== null) return;
-    panRafId.current = requestAnimationFrame(() => {
-      panRafId.current = null;
-      if (!pendingPanRef.current) return;
-      const nextPan = pendingPanRef.current;
-      panRef.current = nextPan;
-      setPan(nextPan);
-      requestOverlayRender();
-    });
-  }, [setPan, requestOverlayRender]);
 
   const moveRafId = useRef<number | null>(null);
   const pendingMovingOffsetRef = useRef<{ dx: number; dy: number } | null>(null);
@@ -653,16 +642,19 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       moveRafId.current = null;
       if (!pendingMovingOffsetRef.current) return;
       const { dx, dy } = pendingMovingOffsetRef.current;
-      setMovingPixels(prev => (prev ? { ...prev, offset: { dx, dy } } : null));
-      setSelection(prev =>
-        prev
-          ? {
-              ...prev,
-              x: (movingPixelsRef.current ? movingPixelsRef.current.originalRect.x : selectionRef.current?.x || 0) + dx,
-              y: (movingPixelsRef.current ? movingPixelsRef.current.originalRect.y : selectionRef.current?.y || 0) + dy,
-            }
-          : null
-      );
+      if (movingPixelsRef.current) {
+        movingPixelsRef.current = {
+          ...movingPixelsRef.current,
+          offset: { dx, dy },
+        };
+      }
+      if (selectionRef.current && movingPixelsRef.current) {
+        selectionRef.current = {
+          ...selectionRef.current,
+          x: movingPixelsRef.current.originalRect.x + dx,
+          y: movingPixelsRef.current.originalRect.y + dy,
+        };
+      }
       requestOverlayRender();
     });
   }, [requestOverlayRender]);
@@ -1068,14 +1060,16 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       displayGrid = temp;
     }
 
+    const currentPan = panRef.current || pan;
+    const currentZoom = zoomRef.current || zoom;
     renderBaseCanvas(canvas, ctx, {
       grid: displayGrid,
-      zoom,
-      pan,
+      zoom: currentZoom,
+      pan: currentPan,
       pixelColor: '#ffffff',
       bgColor: '#0b0d11',
       showAxes: true,
-      showGridLines: zoom >= 5,
+      showGridLines: currentZoom >= 5,
       slices,
       selectedSliceId,
     });
@@ -1091,6 +1085,18 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     slices,
     selectedSliceId,
   ]);
+
+  const schedulePanRender = useCallback(() => {
+    if (panRafId.current !== null) return;
+    panRafId.current = requestAnimationFrame(() => {
+      panRafId.current = null;
+      if (!pendingPanRef.current) return;
+      const nextPan = pendingPanRef.current;
+      panRef.current = nextPan;
+      renderCanvas();
+      requestOverlayRender();
+    });
+  }, [renderCanvas, requestOverlayRender]);
 
   useEffect(() => {
     renderCanvas();
