@@ -520,6 +520,42 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   const isPanningRef = useRef<boolean>(isPanning);
   isPanningRef.current = isPanning;
 
+  const isDrawingStrokeRef = useRef<boolean>(false);
+  const workingGridRef = useRef<BwpxGrid>(grid);
+  if (!isDrawingStrokeRef.current) {
+    workingGridRef.current = grid;
+  }
+  const strokeRafId = useRef<number | null>(null);
+  const panRafId = useRef<number | null>(null);
+  const pendingPanRef = useRef<{ x: number; y: number } | null>(null);
+  const panStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const renderWorkingGrid = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    renderBaseCanvas(canvas, ctx, {
+      grid: workingGridRef.current,
+      zoom: zoomRef.current,
+      pan: panRef.current,
+      pixelColor: '#ffffff',
+      bgColor: '#0b0d11',
+      showAxes: true,
+      showGridLines: zoomRef.current >= 5,
+      slices: slicesRef.current,
+      selectedSliceId: selectedSliceIdRef.current,
+    });
+  }, []);
+
+  const scheduleStrokeRender = useCallback(() => {
+    if (strokeRafId.current !== null) return;
+    strokeRafId.current = requestAnimationFrame(() => {
+      strokeRafId.current = null;
+      renderWorkingGrid();
+    });
+  }, [renderWorkingGrid]);
+
   const requestOverlayRender = useCallback(() => {
     if (overlayRafId.current !== null) return;
     overlayRafId.current = requestAnimationFrame(() => {
@@ -579,6 +615,40 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       });
     });
   }, []);
+
+  const schedulePanRender = useCallback(() => {
+    if (panRafId.current !== null) return;
+    panRafId.current = requestAnimationFrame(() => {
+      panRafId.current = null;
+      if (!pendingPanRef.current) return;
+      const nextPan = pendingPanRef.current;
+      panRef.current = nextPan;
+      setPan(nextPan);
+      requestOverlayRender();
+    });
+  }, [setPan, requestOverlayRender]);
+
+  const moveRafId = useRef<number | null>(null);
+  const pendingMovingOffsetRef = useRef<{ dx: number; dy: number } | null>(null);
+  const scheduleMovingPixelsRender = useCallback(() => {
+    if (moveRafId.current !== null) return;
+    moveRafId.current = requestAnimationFrame(() => {
+      moveRafId.current = null;
+      if (!pendingMovingOffsetRef.current) return;
+      const { dx, dy } = pendingMovingOffsetRef.current;
+      setMovingPixels(prev => (prev ? { ...prev, offset: { dx, dy } } : null));
+      setSelection(prev =>
+        prev
+          ? {
+              ...prev,
+              x: (movingPixelsRef.current ? movingPixelsRef.current.originalRect.x : selectionRef.current?.x || 0) + dx,
+              y: (movingPixelsRef.current ? movingPixelsRef.current.originalRect.y : selectionRef.current?.y || 0) + dy,
+            }
+          : null
+      );
+      requestOverlayRender();
+    });
+  }, [requestOverlayRender]);
 
   // Clear free marquee selections when selection tool is deactivated
   const clearFreeSelections = useCallback(() => {
@@ -1085,7 +1155,10 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       drawButtonRef.current = 0;
       setDrawButton(0);
       setIsPanning(true);
-      setPanStart({ x: Math.round(e.clientX - pan.x), y: Math.round(e.clientY - pan.y) });
+      isPanningRef.current = true;
+      const pStart = { x: Math.round(e.clientX - pan.x), y: Math.round(e.clientY - pan.y) };
+      panStartRef.current = pStart;
+      setPanStart(pStart);
       return;
     }
 
@@ -1262,10 +1335,11 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     const val = isErasing ? 0 : 1;
 
     if (isErasing || activeTool === 'pencil') {
-      const temp = grid.clone();
-      drawBrushDot(temp, coords.x, coords.y, val, brushSize);
+      workingGridRef.current = grid.clone();
+      isDrawingStrokeRef.current = true;
+      drawBrushDot(workingGridRef.current, coords.x, coords.y, val, brushSize);
       strokeModifiedRef.current = true;
-      setGrid(temp);
+      renderWorkingGrid();
     } else if (activeTool === 'bucket') {
       const temp = grid.clone();
       floodFill(temp, coords.x, coords.y, val);
@@ -1275,10 +1349,11 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (isPanning) {
-      setPan({
-        x: Math.round(e.clientX - panStart.x),
-        y: Math.round(e.clientY - panStart.y),
-      });
+      const pStart = panStartRef.current || panStart;
+      const newX = Math.round(e.clientX - pStart.x);
+      const newY = Math.round(e.clientY - pStart.y);
+      pendingPanRef.current = { x: newX, y: newY };
+      schedulePanRender();
       return;
     }
 
@@ -1320,19 +1395,14 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
     // Quick move drag or selection drag with active movingPixels
     if (movingPixels && isDrawing && startPos) {
-      setDragCurrentPos(coords);
       const dx = coords.x - startPos.x;
       const dy = coords.y - startPos.y;
-      setMovingPixels(prev => (prev ? { ...prev, offset: { dx, dy } } : null));
-      setSelection(prev =>
-        prev
-          ? {
-              ...prev,
-              x: movingPixels.originalRect.x + dx,
-              y: movingPixels.originalRect.y + dy,
-            }
-          : null
-      );
+      pendingMovingOffsetRef.current = { dx, dy };
+      if (movingPixelsRef.current) {
+        movingPixelsRef.current = { ...movingPixelsRef.current, offset: { dx, dy } };
+      }
+      requestOverlayRender();
+      scheduleMovingPixelsRender();
       return;
     }
 
@@ -1431,18 +1501,18 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
     if (!isDrawing) return;
 
-    setDragCurrentPos(coords);
-
     // Continuous pencil / eraser drawing without gaps:
     if (isErasing || activeTool === 'pencil') {
       const val = isErasing ? 0 : 1;
       const last = lastDrawPosRef.current || startPos || coords;
-      const temp = grid.clone();
-      drawLine(temp, last.x, last.y, coords.x, coords.y, val, brushSize);
+      drawLine(workingGridRef.current, last.x, last.y, coords.x, coords.y, val, brushSize);
       lastDrawPosRef.current = coords;
       strokeModifiedRef.current = true;
-      setGrid(temp);
+      scheduleStrokeRender();
+      return;
     }
+
+    setDragCurrentPos(coords);
   };
 
   const handleMouseUp = (e?: React.MouseEvent) => {
@@ -1451,7 +1521,16 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     }
 
     if (isPanning) {
+      if (panRafId.current !== null) {
+        cancelAnimationFrame(panRafId.current);
+        panRafId.current = null;
+      }
+      if (pendingPanRef.current) {
+        setPan(pendingPanRef.current);
+        pendingPanRef.current = null;
+      }
       setIsPanning(false);
+      isPanningRef.current = false;
       return;
     }
 
@@ -1694,7 +1773,14 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
     // Commit single stroke to history on mouseUp if modified
     if (strokeModifiedRef.current) {
-      commitGridState(grid);
+      if (strokeRafId.current !== null) {
+        cancelAnimationFrame(strokeRafId.current);
+        strokeRafId.current = null;
+      }
+      isDrawingStrokeRef.current = false;
+      const finalGrid = workingGridRef.current;
+      commitGridState(finalGrid);
+      setGrid(finalGrid);
       strokeModifiedRef.current = false;
     }
 
@@ -2047,14 +2133,30 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       coordsDisplayRef.current.textContent = '--';
     }
     requestOverlayRender();
+    if (panRafId.current !== null) {
+      cancelAnimationFrame(panRafId.current);
+      panRafId.current = null;
+    }
+    if (pendingPanRef.current) {
+      setPan(pendingPanRef.current);
+      pendingPanRef.current = null;
+    }
     setIsPanning(false);
+    isPanningRef.current = false;
     drawButtonRef.current = 0;
     setDrawButton(0);
     if (movingPixels && movingPixels.active) {
       handleMouseUp();
     } else {
       if (strokeModifiedRef.current) {
-        commitGridState(grid);
+        if (strokeRafId.current !== null) {
+          cancelAnimationFrame(strokeRafId.current);
+          strokeRafId.current = null;
+        }
+        isDrawingStrokeRef.current = false;
+        const finalGrid = workingGridRef.current;
+        commitGridState(finalGrid);
+        setGrid(finalGrid);
         strokeModifiedRef.current = false;
       }
       setIsDrawing(false);
@@ -2063,7 +2165,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       setDragCurrentPos(null);
       lastDrawPosRef.current = null;
     }
-  }, [movingPixels, handleMouseUp, grid, commitGridState, requestOverlayRender]);
+  }, [movingPixels, handleMouseUp, commitGridState, requestOverlayRender, setPan]);
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
