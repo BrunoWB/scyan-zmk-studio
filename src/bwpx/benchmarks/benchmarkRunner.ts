@@ -107,10 +107,6 @@ function waitFrames(count: number): Promise<void> {
   });
 }
 
-function waitMs(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 function dispatchMouseEvent(
   target: HTMLElement,
   type: 'mousedown' | 'mousemove' | 'mouseup',
