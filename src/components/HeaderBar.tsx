@@ -154,6 +154,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   const [branches, setBranches] = useState<string[]>([]);
   const [isLoadingBranches, setIsLoadingBranches] = useState<boolean>(false);
   const [quickKeyInput, setQuickKeyInput] = useState<string>('');
+  const [manualRepoInput, setManualRepoInput] = useState<string>('');
   const [isAuthorizing, setIsAuthorizing] = useState<boolean>(false);
   const [authFeedback, setAuthFeedback] = useState<{ status: 'success' | 'failed'; message: string } | null>(null);
   const quickKeyInputRef = useRef<HTMLInputElement>(null);
@@ -212,6 +213,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
       setRepoSearch('');
       setAuthFeedback(null);
       setQuickKeyInput('');
+      setManualRepoInput('');
     }
   }, [isSettingsOpen, config]);
 
@@ -290,15 +292,29 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   // Handle saving chosen repository and branch
   const handleSaveSelection = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!tempConfig.owner?.trim() || !tempConfig.repo?.trim()) {
+      setAuthFeedback({
+        status: 'failed',
+        message: 'Please select or enter a valid repository before applying.',
+      });
+      return;
+    }
     setIsAuthorizing(true);
     setAuthFeedback(null);
     try {
       const testResult = await onTestConnection(tempConfig);
       if (testResult.status === 'connected') {
+        const resolvedOwner = testResult.resolvedOwner || testResult.repo?.fullName?.split('/')[0] || testResult.user?.login || tempConfig.owner;
+        const resolvedRepo = testResult.resolvedRepo || testResult.repo?.name || tempConfig.repo;
         const alignedBranch = testResult.repo?.defaultBranch && (tempConfig.branch === 'master' || !tempConfig.branch)
           ? testResult.repo.defaultBranch
           : tempConfig.branch;
-        const finalizedCfg = { ...tempConfig, branch: alignedBranch };
+        const finalizedCfg = {
+          ...tempConfig,
+          owner: resolvedOwner,
+          repo: resolvedRepo,
+          branch: alignedBranch,
+        };
         setTempConfig(finalizedCfg);
         saveStoredGitHubConfig(finalizedCfg);
         onConfigChange(finalizedCfg);
@@ -344,29 +360,61 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     setIsAuthorizing(true);
     setAuthFeedback(null);
 
+    // If user provided a manual target repo in disconnected state (or already had one in tempConfig)
+    let parsedOwner = tempConfig.owner?.trim() || '';
+    let parsedRepo = tempConfig.repo?.trim() || '';
+    if (manualRepoInput.trim()) {
+      const parts = manualRepoInput.trim().split('/');
+      if (parts.length >= 2) {
+        parsedOwner = parts[0].trim();
+        parsedRepo = parts.slice(1).join('/').trim();
+      } else {
+        parsedRepo = parts[0].trim();
+      }
+    }
+
     const newCfg: GitHubRepoConfig = {
       ...tempConfig,
       token: key,
+      owner: parsedOwner,
+      repo: parsedRepo,
     };
 
     try {
       const testResult = await onTestConnection(newCfg);
       if (testResult.status === 'connected') {
+        const resolvedOwner = testResult.resolvedOwner || testResult.repo?.fullName?.split('/')[0] || testResult.user?.login || newCfg.owner;
+        const resolvedRepo = testResult.resolvedRepo || testResult.repo?.name || newCfg.repo;
+
+        if (!resolvedRepo || !resolvedOwner) {
+          setAuthFeedback({
+            status: 'failed',
+            message: 'Connected with token, but no repository was selected. Please choose your ZMK repository below.',
+          });
+          return;
+        }
+
         const alignedBranch = testResult.repo?.defaultBranch && (newCfg.branch === 'master' || !newCfg.branch)
           ? testResult.repo.defaultBranch
           : newCfg.branch;
-        const finalizedCfg = { ...newCfg, branch: alignedBranch };
+        const finalizedCfg = {
+          ...newCfg,
+          owner: resolvedOwner,
+          repo: resolvedRepo,
+          branch: alignedBranch,
+        };
         setTempConfig(finalizedCfg);
         saveStoredGitHubConfig(finalizedCfg);
         onConfigChange(finalizedCfg);
         setAuthFeedback({
           status: 'success',
-          message: `Validated! Connected as @${testResult.user?.login || 'User'} with Contents Read & Write access to ${testResult.repo?.fullName || newCfg.repo}.`,
+          message: `Validated! Connected as @${testResult.user?.login || 'User'} with Contents Read & Write access to ${testResult.repo?.fullName || `${resolvedOwner}/${resolvedRepo}`}.`,
         });
 
         // Close modal and clean input only after successful validation
         setTimeout(() => {
           setQuickKeyInput('');
+          setManualRepoInput('');
           setAuthFeedback(null);
           setIsSettingsOpen(false);
         }, 1200);
@@ -385,7 +433,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     } finally {
       setIsAuthorizing(false);
     }
-  }, [quickKeyInput, tempConfig, onTestConnection, onConfigChange]);
+  }, [quickKeyInput, manualRepoInput, tempConfig, onTestConnection, onConfigChange]);
 
   const isValidTokenLength = (raw: string): boolean => {
     const token = raw.trim();
@@ -655,15 +703,21 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               ) : (
                 <GithubIcon size={12} className="text-[#00f0ff]" />
               )}
-              <span className="text-white font-medium">{config.owner}/{config.repo}</span>
+              <span className="text-white font-medium">
+                {config.owner && config.repo ? `${config.owner}/${config.repo}` : 'No Repository Selected'}
+              </span>
               <span className="text-[#94a3b8]">•</span>
               <span className="text-[#00f0ff] font-mono text-[11px] flex items-center gap-1">
                 <GitBranch size={11} />
                 {config.branch}
               </span>
-              {connection.repo?.hasPushAccess ? (
+              {config.owner && config.repo && connection.repo?.name?.toLowerCase() === config.repo.toLowerCase() && connection.repo?.hasPushAccess ? (
                 <span className="text-[10px] font-mono bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/40 px-1.5 py-0.2 rounded font-semibold ml-1">
                   PUSH OK
+                </span>
+              ) : !config.owner || !config.repo ? (
+                <span className="text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-semibold ml-1">
+                  NO REPO
                 </span>
               ) : (
                 <span className="text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-semibold ml-1">
@@ -851,16 +905,34 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                               <span className="text-xs text-[#94a3b8] font-mono">@{connection.user?.login}</span>
                             </div>
                             <div className="text-xs text-[#94a3b8] font-mono mt-0.5 truncate">
-                              Active: <code className="text-[#00f0ff]">{tempConfig.owner}/{tempConfig.repo}</code> on <code className="text-[#a953f6]">{tempConfig.branch}</code>
+                              {tempConfig.owner && tempConfig.repo ? (
+                                <>
+                                  Active: <code className="text-[#00f0ff]">{tempConfig.owner}/{tempConfig.repo}</code> on <code className="text-[#a953f6]">{tempConfig.branch}</code>
+                                </>
+                              ) : (
+                                <span className="text-amber-400 font-medium">No repository selected — choose below</span>
+                              )}
                             </div>
                           </div>
                         </div>
 
                         <div className="flex items-center justify-between pt-2 border-t border-[#1e2538] gap-2">
-                          {connection.repo?.hasPushAccess ? (
+                          {tempConfig.owner && tempConfig.repo && connection.repo && connection.repo.name.toLowerCase() === tempConfig.repo.toLowerCase() && connection.repo.hasPushAccess ? (
                             <Chip className="bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/30 text-xs font-mono font-semibold px-2.5 h-6">
                               <span className="flex items-center gap-1.5">
                                 <ShieldCheck size={12} /> Push Permission Verified
+                              </span>
+                            </Chip>
+                          ) : !tempConfig.owner || !tempConfig.repo ? (
+                            <Chip className="bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-mono font-semibold px-2.5 h-6">
+                              <span className="flex items-center gap-1.5">
+                                <ShieldAlert size={12} /> No Repository Selected
+                              </span>
+                            </Chip>
+                          ) : connection.repo && connection.repo.name.toLowerCase() !== tempConfig.repo.toLowerCase() ? (
+                            <Chip className="bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-mono font-semibold px-2.5 h-6">
+                              <span className="flex items-center gap-1.5">
+                                <ShieldAlert size={12} /> Unverified Selection
                               </span>
                             </Chip>
                           ) : (
@@ -914,12 +986,38 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                               <span>Loading accessible repositories...</span>
                             </div>
                           ) : filteredRepos.length === 0 ? (
-                            <div className="text-center py-6 text-xs text-[#94a3b8]">
-                              <span>No matching repositories found.</span>
+                            <div className="text-center py-6 text-xs text-[#94a3b8] space-y-2">
+                              <div>No matching repositories found.</div>
+                              {repoSearch.trim() && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const raw = repoSearch.trim();
+                                    const parts = raw.split('/');
+                                    if (parts.length >= 2) {
+                                      setTempConfig(prev => ({
+                                        ...prev,
+                                        owner: parts[0].trim(),
+                                        repo: parts.slice(1).join('/').trim(),
+                                      }));
+                                    } else {
+                                      setTempConfig(prev => ({
+                                        ...prev,
+                                        owner: prev.owner || connection.user?.login || '',
+                                        repo: raw,
+                                      }));
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1.5 bg-[#00f0ff]/10 hover:bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/30 px-3 py-1.5 rounded-lg text-xs font-mono transition-colors cursor-pointer"
+                                >
+                                  <span>Use target: <strong>{repoSearch.trim()}</strong></span>
+                                </button>
+                              )}
                             </div>
                           ) : (
                             filteredRepos.map(repo => {
                               const isCurrent =
+                                Boolean(tempConfig.owner && tempConfig.repo) &&
                                 tempConfig.owner.toLowerCase() === repo.owner.toLowerCase() &&
                                 tempConfig.repo.toLowerCase() === repo.name.toLowerCase();
 
@@ -1114,7 +1212,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                       <Button
                         size="sm"
                         type="submit"
-                        className="bg-[#00f0ff] hover:bg-[#38f2fd] text-[#0b0d13] font-bold text-xs px-5 h-9 rounded-xl shadow-[0_0_16px_rgba(0,240,255,0.3)] transition-all cursor-pointer"
+                        isDisabled={!tempConfig.owner || !tempConfig.repo || isAuthorizing}
+                        className="bg-[#00f0ff] hover:bg-[#38f2fd] disabled:opacity-50 text-[#0b0d13] font-bold text-xs px-5 h-9 rounded-xl shadow-[0_0_16px_rgba(0,240,255,0.3)] transition-all cursor-pointer"
                       >
                         Apply Repository Selection
                       </Button>
@@ -1147,7 +1246,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                           <span>Get GitHub Token</span>
                         </a>
 
-                        <div className="w-full max-w-sm">
+                        <div className="w-full max-w-sm space-y-2">
                           <input
                             ref={quickKeyInputRef}
                             type="password"
@@ -1163,10 +1262,24 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                                 handleProcessToken(quickKeyInput);
                               }
                             }}
-                            placeholder="Paste here and press Enter"
+                            placeholder="Personal Access Token (paste & press Enter)"
                             className="w-full bg-[#131722] border border-[#1e2538] focus:border-[#00f0ff]/50 rounded-xl px-3.5 py-2.5 text-xs text-center text-white placeholder-[#555e6e] outline-none font-mono transition-colors"
                             disabled={isAuthorizing}
                             autoFocus
+                          />
+                          <input
+                            type="text"
+                            value={manualRepoInput}
+                            onChange={e => setManualRepoInput(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleProcessToken(quickKeyInput);
+                              }
+                            }}
+                            placeholder="Repository (e.g. owner/zmk-config) — optional"
+                            className="w-full bg-[#131722] border border-[#1e2538] focus:border-[#00f0ff]/50 rounded-xl px-3.5 py-2 text-xs text-center text-white placeholder-[#555e6e] outline-none font-mono transition-colors"
+                            disabled={isAuthorizing}
                           />
                         </div>
 

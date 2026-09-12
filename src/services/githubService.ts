@@ -139,17 +139,26 @@ export async function verifyGitHubConnection(config: GitHubRepoConfig): Promise<
           affiliation: 'owner,collaborator',
         });
         if (listRes.data.length > 0) {
-          const zmkRepo = listRes.data.find(r =>
+          const isZmk = (r: (typeof listRes.data)[0]) =>
             r.name.toLowerCase().includes('zmk') ||
-            Boolean(r.description && r.description.toLowerCase().includes('zmk'))
-          ) || listRes.data[0];
+            r.name.toLowerCase().includes('keymap') ||
+            Boolean(r.description && r.description.toLowerCase().includes('zmk'));
 
-          if (!owner) owner = zmkRepo.owner.login;
-          if (!repo) repo = zmkRepo.name;
-          if (!user.avatarUrl) {
-            user.login = zmkRepo.owner.login;
-            user.name = zmkRepo.owner.login;
-            user.avatarUrl = zmkRepo.owner.avatar_url;
+          // Prioritize: 1) ZMK repo with push access, 2) Any repo with push access, 3) Any ZMK repo, 4) Most recently updated repo
+          const zmkRepoWithPush = listRes.data.find(r => Boolean(r.permissions?.push) && isZmk(r));
+          const anyRepoWithPush = listRes.data.find(r => Boolean(r.permissions?.push));
+          const zmkRepo = listRes.data.find(r => isZmk(r));
+
+          const candidate = zmkRepoWithPush || anyRepoWithPush || zmkRepo || listRes.data[0];
+
+          if (candidate) {
+            if (!owner) owner = candidate.owner.login;
+            if (!repo) repo = candidate.name;
+            if (!user.avatarUrl) {
+              user.login = candidate.owner.login;
+              user.name = candidate.owner.login;
+              user.avatarUrl = candidate.owner.avatar_url;
+            }
           }
         }
       } catch (listErr) {
@@ -487,7 +496,7 @@ export async function fetchUserRepositories(token: string): Promise<GitHubReposi
       affiliation: 'owner,collaborator',
     });
 
-    return res.data.map(repo => {
+    const items: GitHubRepositoryItem[] = res.data.map(repo => {
       const isZmk =
         repo.name.toLowerCase().includes('zmk') ||
         repo.name.toLowerCase().includes('keymap') ||
@@ -506,6 +515,15 @@ export async function fetchUserRepositories(token: string): Promise<GitHubReposi
         isZmkConfig: Boolean(isZmk),
       };
     });
+
+    // When fine-grained tokens are used or when write-accessible repositories exist,
+    // restrict selection to repositories where push access is verified so the selector
+    // does not list unrelated public read-only repositories.
+    const pushAccessible = items.filter(r => r.hasPushAccess);
+    if (pushAccessible.length > 0) {
+      return pushAccessible;
+    }
+    return items;
   } catch (err) {
     console.error('Failed to list user repositories:', err);
     return [];

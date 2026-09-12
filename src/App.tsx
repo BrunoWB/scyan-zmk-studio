@@ -1103,9 +1103,9 @@ export function App() {
 
   // Save & Commit to GitHub
   const handleSave = async () => {
-    if (!isConnected) {
+    if (!isConnected || !config.owner || !config.repo) {
       setIsSettingsOpen(true);
-      showToast('error', 'Please configure and connect your GitHub repository in settings first.');
+      showToast('error', 'Please configure and connect a valid GitHub repository in settings first.');
       return;
     }
 
