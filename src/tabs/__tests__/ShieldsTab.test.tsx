@@ -114,6 +114,54 @@ describe('ShieldsTab', () => {
     }
   });
 
+  it('renders blank keycaps in the keyboard geometry sandbox without matrix wires or switch labels', () => {
+    const html = renderToString(
+      <ShieldsTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+      />
+    );
+
+    // Sandbox header and blank keycaps
+    expect(html).toContain('Physical Keyboard Geometry &amp; OLED Mount Sandbox');
+    expect(html).toContain('Blank Keycaps Geometry:');
+    expect(html).toContain('data-keycap="blank"');
+    expect(html).toContain('shield-blank-keycap');
+    expect(html).toContain('shield-blank-thumb');
+    // Corne snap-off toggle
+    expect(html).toContain('6-Col (42k)');
+    expect(html).toContain('5-Col Snap-off (36k)');
+  });
+
+  it('validates layoutGeometry on all 10 shields in KNOWN_SHIELDS catalog', () => {
+    for (const shield of KNOWN_SHIELDS) {
+      expect(shield.layoutGeometry).toBeDefined();
+      expect(shield.layoutGeometry.type).toMatch(/^(split-pair|unibody|dongle|numpad)$/);
+      expect(shield.layoutGeometry.oledMount).toBeTruthy();
+      expect(shield.layoutGeometry.oledLabel).toBeTruthy();
+      expect(shield.layoutGeometry.description).toBeTruthy();
+
+      if (shield.layoutGeometry.type === 'split-pair') {
+        expect(shield.layoutGeometry.columns).toBeGreaterThanOrEqual(5);
+        expect(shield.layoutGeometry.rows).toBeGreaterThanOrEqual(3);
+        expect(shield.layoutGeometry.columnStaggers.length).toBe(shield.layoutGeometry.columns);
+        expect(shield.layoutGeometry.thumbCount).toBeGreaterThanOrEqual(2);
+      } else if (shield.layoutGeometry.type === 'unibody') {
+        expect(shield.layoutGeometry.columns).toBeGreaterThanOrEqual(5);
+        expect(shield.layoutGeometry.rows).toBe(3);
+        expect(shield.layoutGeometry.thumbCount).toBeGreaterThanOrEqual(4);
+      } else if (shield.layoutGeometry.type === 'dongle') {
+        expect(shield.layoutGeometry.columns).toBe(0);
+        expect(shield.layoutGeometry.rows).toBe(0);
+      } else if (shield.layoutGeometry.type === 'numpad') {
+        expect(shield.layoutGeometry.columns).toBe(4);
+        expect(shield.layoutGeometry.rows).toBe(5);
+        expect(shield.layoutGeometry.hasEncoder).toBe(true);
+      }
+    }
+  });
+
   it('renders gracefully even when blocks, glyphs, and mappings are empty arrays', () => {
     const html = renderToString(
       <ShieldsTab

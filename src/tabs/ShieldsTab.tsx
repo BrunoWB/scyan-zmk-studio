@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { BwpxGrid } from '../bwpx/core/BwpxGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../types/zmk';
 import {
@@ -14,7 +14,7 @@ import {
 } from '../types/zmk';
 import type { WidgetInstanceMap } from '../types/widget';
 import { KNOWN_SHIELDS, type ShieldDefinition } from '../data/shieldsData';
-import { OledDisplayModule } from '../components/OledDisplayModule';
+import { ShieldKeyboardGeometry } from '../components/ShieldKeyboardGeometry';
 import {
   Search,
   Cpu,
@@ -26,9 +26,9 @@ import {
   Usb,
   Bluetooth,
   ChevronRight,
-  Sparkles,
   Sliders,
   CheckCircle2,
+  Keyboard,
 } from 'lucide-react';
 
 export interface ShieldsTabProps {
@@ -81,6 +81,8 @@ export const ShieldsTab: React.FC<ShieldsTabProps> = ({
   const [batteryLevel, setBatteryLevel] = useState(88);
   const [currentLayer, setCurrentLayer] = useState(0);
   const [typingWpm, setTypingWpm] = useState(48);
+  const [corneColumns, setCorneColumns] = useState<5 | 6>(6);
+  const [sandboxScale, setSandboxScale] = useState<number>(1.0);
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
@@ -89,6 +91,29 @@ export const ShieldsTab: React.FC<ShieldsTabProps> = ({
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
   }, []);
+
+  const handleKeystroke = useCallback(() => {
+    setTypingWpm((w) => Math.min(130, Math.max(25, w + Math.floor(Math.random() * 6) - 1)));
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        document.querySelector('.modal-overlay') ||
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      if (e.repeat) return;
+      handleKeystroke();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeystroke]);
 
   const filteredShields = useMemo(() => {
     return KNOWN_SHIELDS.filter((shield) => {
@@ -413,113 +438,126 @@ export const ShieldsTab: React.FC<ShieldsTabProps> = ({
               </div>
             </div>
 
-            <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Left Column: Live OLED Display Module Showcase */}
-              <div className="lg:col-span-6 flex flex-col items-center justify-center p-6 bg-[#0a0c12] border border-[#1e2538] rounded-xl">
-                <div className="text-[11px] font-mono text-[#64748b] uppercase tracking-wider mb-4 flex items-center gap-1.5">
-                  <Sparkles className="size-3 text-[#00f0ff]" />
-                  <span>Live OLED Blitter Emulation ({selectedShield.displayConfig.displayType})</span>
-                </div>
+            <div className="p-6 flex flex-col gap-6">
+              {/* Keyboard Physical Blank Keys & OLED Mounting Sandbox */}
+              <div className="flex flex-col bg-[#0a0c12] border border-[#1e2538] rounded-xl overflow-hidden">
+                {/* Sandbox Control Bar */}
+                <div className="px-5 py-3 bg-[#0e121c] border-b border-[#1e2538] flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Keyboard className="size-4 text-[#00f0ff]" />
+                    <span className="text-xs font-mono font-bold uppercase tracking-wider text-white">
+                      Physical Keyboard Geometry & OLED Mount Sandbox
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#00f0ff]/10 text-[#00f0ff] border border-[#00f0ff]/30 font-semibold">
+                      {selectedShield.layoutGeometry.oledLabel}
+                    </span>
+                  </div>
 
-                {/* Display Screens Cluster */}
-                <div className="flex flex-wrap items-center justify-center gap-8 py-2">
-                  {selectedShield.category === 'split-pair' ? (
-                    <>
-                      {/* Left Screen (Master) */}
-                      <div className="flex flex-col items-center">
-                        <OledDisplayModule
-                          width={selectedShield.displayConfig.nativeResolution.width}
-                          height={selectedShield.displayConfig.nativeResolution.height}
-                          blocks={activeLeftBlocks}
-                          symbolsGrid={symbolsGrid}
-                          symbolSlices={effectiveSymbolSlices}
-                          fontGrid={fontGrid}
-                          fontGlyphs={effectiveFontGlyphs}
-                          fontMappings={effectiveFontMappings}
-                          side="left"
-                          badge="Left Half (Master)"
-                          isIdle={isIdle}
-                          battery={batteryLevel}
-                          outputMode={outputMode}
-                          currentLayer={currentLayer}
-                          wpm={typingWpm}
-                          customText={customText}
-                          instances={instances}
-                          showHousing={true}
-                          showLiveDot={true}
-                          scale={1.1}
-                        />
+                  <div className="flex items-center gap-3">
+                    {/* Corne 6-col vs 5-col Snap-off Toggle */}
+                    {selectedShield.id === 'corne' && (
+                      <div className="flex items-center bg-[#0b0d13] border border-[#1e2538] rounded-lg p-0.5 text-xs font-mono">
+                        <button
+                          type="button"
+                          onClick={() => setCorneColumns(6)}
+                          className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+                            corneColumns === 6
+                              ? 'bg-[#00f0ff]/20 text-[#00f0ff] font-bold'
+                              : 'text-[#94a3b8] hover:text-white'
+                          }`}
+                        >
+                          6-Col (42k)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCorneColumns(5)}
+                          className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+                            corneColumns === 5
+                              ? 'bg-[#00f0ff]/20 text-[#00f0ff] font-bold'
+                              : 'text-[#94a3b8] hover:text-white'
+                          }`}
+                        >
+                          5-Col Snap-off (36k)
+                        </button>
                       </div>
+                    )}
 
-                      {/* Right Screen (Peripheral) */}
-                      <div className="flex flex-col items-center">
-                        <OledDisplayModule
-                          width={selectedShield.displayConfig.nativeResolution.width}
-                          height={selectedShield.displayConfig.nativeResolution.height}
-                          blocks={activeRightBlocks}
-                          symbolsGrid={symbolsGrid}
-                          symbolSlices={effectiveSymbolSlices}
-                          fontGrid={fontGrid}
-                          fontGlyphs={effectiveFontGlyphs}
-                          fontMappings={effectiveFontMappings}
-                          side="right"
-                          badge="Right Half (Peripheral)"
-                          isIdle={isIdle}
-                          battery={Math.max(10, batteryLevel - 4)}
-                          outputMode={outputMode}
-                          currentLayer={currentLayer}
-                          wpm={typingWpm}
-                          customText={customText}
-                          instances={instances}
-                          showHousing={true}
-                          scale={1.1}
-                        />
-                      </div>
-                    </>
-                  ) : (
-                    /* Single Piece / Dongle Screen */
-                    <div className="flex flex-col items-center">
-                      <OledDisplayModule
-                        width={selectedShield.displayConfig.nativeResolution.width}
-                        height={selectedShield.displayConfig.nativeResolution.height}
-                        blocks={selectedShield.id === 'xiao-dongle' ? activeDongleBlocks : activeLeftBlocks}
-                        symbolsGrid={symbolsGrid}
-                        symbolSlices={effectiveSymbolSlices}
-                        fontGrid={fontGrid}
-                        fontGlyphs={effectiveFontGlyphs}
-                        fontMappings={effectiveFontMappings}
-                        side={selectedShield.id === 'xiao-dongle' ? 'dongle' : 'single'}
-                        badge={selectedShield.id === 'xiao-dongle' ? 'Central Dongle Master' : 'Center Unibody Display'}
-                        isIdle={isIdle}
-                        battery={batteryLevel}
-                        outputMode={outputMode}
-                        currentLayer={currentLayer}
-                        wpm={typingWpm}
-                        customText={customText}
-                        instances={instances}
-                        showHousing={true}
-                        showLiveDot={true}
-                        scale={1.1}
-                      />
+                    {/* Sandbox Scale Zoom Controls */}
+                    <div className="flex items-center bg-[#0b0d13] border border-[#1e2538] rounded-lg p-0.5 text-xs font-mono">
+                      {[0.85, 1.0, 1.15].map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setSandboxScale(s)}
+                          className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+                            sandboxScale === s
+                              ? 'bg-[#00f0ff]/20 text-[#00f0ff] font-bold'
+                              : 'text-[#94a3b8] hover:text-white'
+                          }`}
+                        >
+                          {s}x
+                        </button>
+                      ))}
                     </div>
-                  )}
+                  </div>
                 </div>
 
-                {/* Mounting Orientation Note */}
-                <div className="mt-4 text-center px-4 py-2 rounded-lg bg-[#131722] border border-[#1e2538] text-[11px] text-[#94a3b8] font-mono">
-                  Orientation:{' '}
-                  <span className="text-[#00f0ff] font-semibold">
-                    {selectedShield.displayConfig.defaultOrientation.toUpperCase()}
-                  </span>{' '}
-                  ({selectedShield.displayConfig.nativeResolution.width}×
-                  {selectedShield.displayConfig.nativeResolution.height} px virtual buffer •{' '}
-                  {selectedShield.displayConfig.rotation}° blit transform)
+                {/* Live Keyboard Visualizer */}
+                <div className="p-6 flex flex-col items-center justify-center overflow-x-auto min-h-[300px]">
+                  <ShieldKeyboardGeometry
+                    shield={selectedShield}
+                    symbolsGrid={symbolsGrid}
+                    symbolSlices={effectiveSymbolSlices}
+                    fontGrid={fontGrid}
+                    fontGlyphs={effectiveFontGlyphs}
+                    fontMappings={effectiveFontMappings}
+                    activeLeftBlocks={activeLeftBlocks}
+                    activeRightBlocks={activeRightBlocks}
+                    activeDongleBlocks={activeDongleBlocks}
+                    isIdle={isIdle}
+                    batteryLevel={batteryLevel}
+                    outputMode={outputMode}
+                    currentLayer={currentLayer}
+                    typingWpm={typingWpm}
+                    customText={customText}
+                    instances={instances}
+                    corneColumns={corneColumns}
+                    scale={sandboxScale}
+                    onKeystroke={handleKeystroke}
+                  />
+
+                  {/* Sandbox Hint & Placement Description */}
+                  <div className="mt-5 text-center text-xs text-[#94a3b8] max-w-2xl leading-relaxed font-mono">
+                    <span className="text-[#00f0ff] font-semibold">Blank Keycaps Geometry:</span>{' '}
+                    {selectedShield.layoutGeometry.description} Click blank keys to test tactile press response.
+                  </div>
+                </div>
+
+                {/* Mounting Orientation & Transform Banner */}
+                <div className="px-5 py-2.5 bg-[#0e121c] border-t border-[#1e2538] flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+                  <div className="text-[#94a3b8]">
+                    Mounting:{' '}
+                    <span className="text-[#00f0ff] font-semibold">
+                      {selectedShield.layoutGeometry.oledMount.toUpperCase()}
+                    </span>{' '}
+                    ({selectedShield.displayConfig.physicalMount})
+                  </div>
+                  <div className="text-[#64748b]">
+                    Orientation:{' '}
+                    <span className="text-[#00f0ff] font-semibold">
+                      {selectedShield.displayConfig.defaultOrientation.toUpperCase()}
+                    </span>{' '}
+                    ({selectedShield.displayConfig.nativeResolution.width}×
+                    {selectedShield.displayConfig.nativeResolution.height} px virtual buffer •{' '}
+                    {selectedShield.displayConfig.rotation}° blit transform)
+                  </div>
                 </div>
               </div>
 
-              {/* Right Column: Hardware Specs, Mounting Pinouts, and ZMK Flags */}
-              <div className="lg:col-span-6 flex flex-col justify-between gap-4">
-                <div className="space-y-4">
+              {/* Specs, Mounting Pinouts, and ZMK Flags Panel */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Left Specs Column */}
+                <div className="lg:col-span-6 space-y-4">
                   <div>
                     <h3 className="text-xs font-mono uppercase tracking-wider text-[#94a3b8] mb-1">
                       Mounting Geometry & Housing
@@ -533,11 +571,14 @@ export const ShieldsTab: React.FC<ShieldsTabProps> = ({
                     <h3 className="text-xs font-mono uppercase tracking-wider text-[#94a3b8] mb-1">
                       Runtime Blitting & Behavior
                     </h3>
-                    <p className="text-xs text-[#cbd5e1] leading-relaxed">
+                    <p className="text-xs text-[#cbd5e1] leading-relaxed bg-[#0b0d13] p-3 rounded-lg border border-[#1e2538]">
                       {selectedShield.behaviorNotes}
                     </p>
                   </div>
+                </div>
 
+                {/* Right Specs Column: Pinouts, Controllers, and West Build */}
+                <div className="lg:col-span-6 space-y-4">
                   {/* Pinout & Bus Table */}
                   <div>
                     <h3 className="text-xs font-mono uppercase tracking-wider text-[#94a3b8] mb-1">
@@ -662,73 +703,28 @@ export const ShieldsTab: React.FC<ShieldsTabProps> = ({
                     </p>
                   </div>
 
-                  {/* OLED Screen Mini-Housing Sandbox */}
-                  <div className="bg-[#0b0d13] border border-[#1e2538] rounded-lg p-3 my-2 flex items-center justify-center gap-4 min-h-[140px]">
-                    {isSplit ? (
-                      <>
-                        <OledDisplayModule
-                          width={shield.displayConfig.nativeResolution.width}
-                          height={shield.displayConfig.nativeResolution.height}
-                          blocks={activeLeftBlocks}
-                          symbolsGrid={symbolsGrid}
-                          symbolSlices={effectiveSymbolSlices}
-                          fontGrid={fontGrid}
-                          fontGlyphs={effectiveFontGlyphs}
-                          fontMappings={effectiveFontMappings}
-                          side="left"
-                          badge="Left"
-                          isIdle={isIdle}
-                          battery={batteryLevel}
-                          outputMode={outputMode}
-                          currentLayer={currentLayer}
-                          wpm={typingWpm}
-                          customText={customText}
-                          instances={instances}
-                          scale={0.7}
-                        />
-                        <OledDisplayModule
-                          width={shield.displayConfig.nativeResolution.width}
-                          height={shield.displayConfig.nativeResolution.height}
-                          blocks={activeRightBlocks}
-                          symbolsGrid={symbolsGrid}
-                          symbolSlices={effectiveSymbolSlices}
-                          fontGrid={fontGrid}
-                          fontGlyphs={effectiveFontGlyphs}
-                          fontMappings={effectiveFontMappings}
-                          side="right"
-                          badge="Right"
-                          isIdle={isIdle}
-                          battery={Math.max(10, batteryLevel - 4)}
-                          outputMode={outputMode}
-                          currentLayer={currentLayer}
-                          wpm={typingWpm}
-                          customText={customText}
-                          instances={instances}
-                          scale={0.7}
-                        />
-                      </>
-                    ) : (
-                      <OledDisplayModule
-                        width={shield.displayConfig.nativeResolution.width}
-                        height={shield.displayConfig.nativeResolution.height}
-                        blocks={shield.id === 'xiao-dongle' ? activeDongleBlocks : activeLeftBlocks}
-                        symbolsGrid={symbolsGrid}
-                        symbolSlices={effectiveSymbolSlices}
-                        fontGrid={fontGrid}
-                        fontGlyphs={effectiveFontGlyphs}
-                        fontMappings={effectiveFontMappings}
-                        side={shield.id === 'xiao-dongle' ? 'dongle' : 'single'}
-                        badge={shield.id === 'xiao-dongle' ? 'Dongle Master' : 'Center Display'}
-                        isIdle={isIdle}
-                        battery={batteryLevel}
-                        outputMode={outputMode}
-                        currentLayer={currentLayer}
-                        wpm={typingWpm}
-                        customText={customText}
-                        instances={instances}
-                        scale={0.75}
-                      />
-                    )}
+                  {/* Keyboard Blank Keys Mini Sandbox */}
+                  <div className="bg-[#0b0d13] border border-[#1e2538] rounded-lg p-3 my-2 flex items-center justify-center min-h-[140px] overflow-hidden">
+                    <ShieldKeyboardGeometry
+                      shield={shield}
+                      symbolsGrid={symbolsGrid}
+                      symbolSlices={effectiveSymbolSlices}
+                      fontGrid={fontGrid}
+                      fontGlyphs={effectiveFontGlyphs}
+                      fontMappings={effectiveFontMappings}
+                      activeLeftBlocks={activeLeftBlocks}
+                      activeRightBlocks={activeRightBlocks}
+                      activeDongleBlocks={activeDongleBlocks}
+                      isIdle={isIdle}
+                      batteryLevel={batteryLevel}
+                      outputMode={outputMode}
+                      currentLayer={currentLayer}
+                      typingWpm={typingWpm}
+                      customText={customText}
+                      instances={instances}
+                      compact={true}
+                      scale={0.65}
+                    />
                   </div>
 
                   {/* Card Footer Specs & Action */}

@@ -14,6 +14,29 @@ export interface ShieldDisplayConfig {
   };
 }
 
+export interface ShieldLayoutGeometry {
+  type: 'split-pair' | 'unibody' | 'dongle' | 'numpad';
+  columns: number;
+  rows: number;
+  columnStaggers: number[];
+  thumbCount: number;
+  oledMount:
+    | 'inner-vertical'
+    | 'top-inner-horizontal'
+    | 'inner-horizontal'
+    | 'center-notch'
+    | 'top-center'
+    | 'top-horizontal'
+    | 'dongle-center';
+  oledLabel: string;
+  hasEncoder?: boolean;
+  encoderCount?: number;
+  encoderLabel?: string;
+  hasSnapOff?: boolean;
+  angle?: number;
+  description: string;
+}
+
 export interface ShieldDefinition {
   id: string;
   name: string;
@@ -23,6 +46,7 @@ export interface ShieldDefinition {
   formFactor: string;
   layoutDesc: string;
   displayConfig: ShieldDisplayConfig;
+  layoutGeometry: ShieldLayoutGeometry;
   features: string[];
   controllerCompatibility: string[];
   zmkTarget: string;
@@ -57,6 +81,18 @@ export const KNOWN_SHIELDS: ShieldDefinition[] = [
         vcc: 'VCC (3.3V / RAW)',
         gnd: 'GND',
       },
+    },
+    layoutGeometry: {
+      type: 'split-pair',
+      columns: 6,
+      rows: 3,
+      columnStaggers: [14, 8, -2, -8, 0, 4],
+      thumbCount: 3,
+      oledMount: 'inner-vertical',
+      oledLabel: 'Inner Vertical Bay (Parallel to MCU)',
+      hasSnapOff: true,
+      description:
+        'Columnar stagger split with 3 rows, 6 columns per half, and 3 thumb keys. Outer 6th column can snap off for a 3x5+3 compact footprint.',
     },
     features: [
       'Dual 128x32 OLED screens',
@@ -101,6 +137,20 @@ CONFIG_SSD1306=y`,
         gnd: 'GND',
       },
     },
+    layoutGeometry: {
+      type: 'split-pair',
+      columns: 6,
+      rows: 4,
+      columnStaggers: [10, 6, -2, -6, 0, 4],
+      thumbCount: 4,
+      oledMount: 'top-inner-horizontal',
+      oledLabel: 'Top-Inner Horizontal Bay',
+      hasEncoder: true,
+      encoderCount: 1,
+      encoderLabel: 'Optional Rotary Encoder in outer/top slot',
+      description:
+        '4 rows with dedicated number row, 6 columns per half, 4 thumb/inner keys, and horizontal OLED mounted at the top-inner edge.',
+    },
     features: [
       'Dual 128x32 OLED screens',
       'Native horizontal status bar blit (128x32)',
@@ -140,6 +190,20 @@ CONFIG_SSD1306=y`,
         vcc: 'VCC (3.3V)',
         gnd: 'GND',
       },
+    },
+    layoutGeometry: {
+      type: 'split-pair',
+      columns: 6,
+      rows: 4,
+      columnStaggers: [10, 6, -2, -6, 0, 4],
+      thumbCount: 5,
+      oledMount: 'top-inner-horizontal',
+      oledLabel: 'Top-Inner Horizontal Bay with Encoder',
+      hasEncoder: true,
+      encoderCount: 2,
+      encoderLabel: 'Dual EC11 Rotary Encoders',
+      description:
+        '4-row matrix with dedicated number row, 5-key ergonomic thumb arc, dual EC11 encoders, and top-inner horizontal OLED modules.',
     },
     features: [
       'Dual 128x32 OLED screens',
@@ -182,6 +246,17 @@ CONFIG_EC11_TRIGGER_GLOBAL_THREAD=y`,
         gnd: 'GND',
       },
     },
+    layoutGeometry: {
+      type: 'split-pair',
+      columns: 5,
+      rows: 3,
+      columnStaggers: [14, 4, -6, 0, 4],
+      thumbCount: 2,
+      oledMount: 'inner-vertical',
+      oledLabel: 'Inner MCU Overlay Bay',
+      description:
+        'Minimalist 34-key layout (3x5+2) with vertical OLED mounted directly over the microcontroller socket.',
+    },
     features: [
       'Ultra-minimalist 34-key footprint',
       'Extremely low power wireless optimization',
@@ -222,6 +297,20 @@ CONFIG_ZMK_DISPLAY_STATUS_SCREEN_BUILT_IN=y`,
         gnd: 'GND',
       },
     },
+    layoutGeometry: {
+      type: 'split-pair',
+      columns: 6,
+      rows: 3,
+      columnStaggers: [24, 16, -2, -10, 0, 6],
+      thumbCount: 5,
+      oledMount: 'inner-horizontal',
+      oledLabel: 'Inner High-Res 128x64 Bay',
+      hasEncoder: true,
+      encoderCount: 2,
+      encoderLabel: 'Dual Encoders Support',
+      description:
+        'Aggressive pinky stagger matching natural finger lengths, fanning 5-key thumb cluster, and 128x64 high-res OLED.',
+    },
     features: [
       'High-resolution 128x64 or 128x32 OLED support',
       'Up to 2 rotary encoders per half',
@@ -261,6 +350,17 @@ CONFIG_SSD1306_DEFAULT_CONTRAST=128`,
         vcc: 'VCC',
         gnd: 'GND',
       },
+    },
+    layoutGeometry: {
+      type: 'split-pair',
+      columns: 6,
+      rows: 4,
+      columnStaggers: [10, 4, -4, -8, 0, 4],
+      thumbCount: 4,
+      oledMount: 'top-inner-horizontal',
+      oledLabel: 'Top-Inner Corner Bay',
+      description:
+        'Keebio signature 4x6+4 ergonomic split with top-inner corner horizontal 128x32 OLED display.',
     },
     features: [
       'Dual 128x32 OLED displays',
@@ -305,6 +405,18 @@ CONFIG_SSD1306=y`,
         gnd: 'GND',
       },
     },
+    layoutGeometry: {
+      type: 'unibody',
+      columns: 6,
+      rows: 3,
+      columnStaggers: [10, 6, -2, -6, 0, 4],
+      thumbCount: 5,
+      oledMount: 'center-notch',
+      oledLabel: 'Center V-Notch Diamond Bay',
+      angle: 12,
+      description:
+        'Single-piece unibody with hands angled inward at 12°, central horizontal 128x32 OLED in diamond cutout, and 5 shared center thumb keys.',
+    },
     features: [
       'Central unified 128x32 horizontal OLED',
       'Single PCB unibody architecture',
@@ -345,6 +457,18 @@ CONFIG_ZMK_DISPLAY_STATUS_SCREEN_BUILT_IN=y`,
         gnd: 'GND',
       },
     },
+    layoutGeometry: {
+      type: 'unibody',
+      columns: 5,
+      rows: 3,
+      columnStaggers: [10, 4, -4, 0, 4],
+      thumbCount: 4,
+      oledMount: 'top-center',
+      oledLabel: 'Top Center Bridge Bay',
+      angle: 10,
+      description:
+        'Ultra-compact unibody with 3x5 keys per hand, top-centered horizontal OLED, and shared thumb keys.',
+    },
     features: [
       'Extreme minimalist unibody footprint',
       'Centered single OLED display',
@@ -383,6 +507,17 @@ CONFIG_SSD1306=y`,
         vcc: '3.3V',
         gnd: 'GND',
       },
+    },
+    layoutGeometry: {
+      type: 'dongle',
+      columns: 0,
+      rows: 0,
+      columnStaggers: [],
+      thumbCount: 0,
+      oledMount: 'dongle-center',
+      oledLabel: 'Central Dongle Enclosure',
+      description:
+        'Wireless USB dongle enclosure with USB-A plug on top and integrated vertical 32x128 OLED telemetry screen (0 keys).',
     },
     features: [
       'Central Dongle Master architecture',
@@ -425,6 +560,20 @@ CONFIG_ZMK_SPLIT_BLE_CENTRAL_BATTERY_LEVEL_PROXY=y`,
         vcc: '3.3V',
         gnd: 'GND',
       },
+    },
+    layoutGeometry: {
+      type: 'numpad',
+      columns: 4,
+      rows: 5,
+      columnStaggers: [0, 0, 0, 0],
+      thumbCount: 0,
+      oledMount: 'top-horizontal',
+      oledLabel: 'Top Horizontal Header Bay',
+      hasEncoder: true,
+      encoderCount: 1,
+      encoderLabel: 'Top Rotary Encoder',
+      description:
+        '19-key mechanical numpad with top-mounted horizontal OLED display, rotary encoder, and blank numpad keycaps.',
     },
     features: [
       'Top-mounted 128x32 or 128x64 OLED display',

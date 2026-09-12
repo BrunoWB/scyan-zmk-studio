@@ -2866,3 +2866,308 @@
   border: 1px solid rgba(0, 240, 255, 0.4);
 }
 
+/* =========================================================================
+   SHIELD KEYBOARD BLANK KEYS SANDBOX STYLING
+   ========================================================================= */
+.shield-sandbox-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  position: relative;
+  user-select: none;
+}
+
+.shield-split-wrapper {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 28px;
+  position: relative;
+  max-width: 100%;
+}
+
+/* Case Body (Minimalist Neon Border aesthetic) */
+.shield-half-case {
+  background: rgba(13, 16, 23, 0.9);
+  border: 1.5px solid #00d2ff;
+  border-radius: 16px;
+  padding: 12px 14px 14px 14px;
+  position: relative;
+  box-shadow:
+    0 0 16px rgba(0, 210, 255, 0.2),
+    0 0 2px rgba(0, 210, 255, 0.5),
+    inset 0 0 12px rgba(0, 210, 255, 0.04);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.shield-half-case:hover {
+  border-color: #00f0ff;
+  box-shadow:
+    0 0 24px rgba(0, 240, 255, 0.35),
+    0 0 4px rgba(0, 240, 255, 0.7),
+    inset 0 0 16px rgba(0, 240, 255, 0.06);
+}
+
+.shield-unibody-case {
+  background: rgba(13, 16, 23, 0.92);
+  border: 1.5px solid #00d2ff;
+  border-radius: 20px;
+  padding: 16px 20px 18px 20px;
+  position: relative;
+  box-shadow:
+    0 0 20px rgba(0, 210, 255, 0.22),
+    0 0 2px rgba(0, 210, 255, 0.5),
+    inset 0 0 14px rgba(0, 210, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.shield-unibody-case:hover {
+  border-color: #00f0ff;
+  box-shadow:
+    0 0 28px rgba(0, 240, 255, 0.38),
+    0 0 4px rgba(0, 240, 255, 0.7),
+    inset 0 0 18px rgba(0, 240, 255, 0.07);
+}
+
+.shield-numpad-case {
+  background: rgba(13, 16, 23, 0.92);
+  border: 1.5px solid #00d2ff;
+  border-radius: 16px;
+  padding: 14px 16px 16px 16px;
+  position: relative;
+  box-shadow:
+    0 0 18px rgba(0, 210, 255, 0.22),
+    0 0 2px rgba(0, 210, 255, 0.5),
+    inset 0 0 12px rgba(0, 210, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.shield-numpad-case:hover {
+  border-color: #00f0ff;
+  box-shadow:
+    0 0 26px rgba(0, 240, 255, 0.35),
+    0 0 4px rgba(0, 240, 255, 0.7),
+    inset 0 0 16px rgba(0, 240, 255, 0.06);
+}
+
+/* Compact Mode Modifiers (for Gallery Cards) */
+.shield-split-wrapper.compact {
+  gap: 8px;
+}
+
+.shield-half-case.compact {
+  padding: 6px 8px 8px 8px;
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(0, 210, 255, 0.15);
+}
+
+.shield-unibody-case.compact {
+  padding: 8px 10px 10px 10px;
+  border-radius: 12px;
+  box-shadow: 0 0 12px rgba(0, 210, 255, 0.15);
+  gap: 6px;
+}
+
+.shield-numpad-case.compact {
+  padding: 8px 10px 10px 10px;
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(0, 210, 255, 0.15);
+  gap: 6px;
+}
+
+.shield-sandbox-container.compact .case-screw {
+  display: none;
+}
+
+.shield-blank-keycap.compact,
+.shield-blank-thumb.compact {
+  border-radius: 4px;
+  box-shadow:
+    0 1.5px 0 #10131a,
+    0 2px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* Blank Keycaps Aesthetic */
+.shield-blank-keycap {
+  background: #202533;
+  border: 1px solid #323c4f;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow:
+    0 3px 0 #10131a,
+    0 4px 6px rgba(0, 0, 0, 0.45),
+    inset 0 1px 1px rgba(255, 255, 255, 0.08);
+  user-select: none;
+  transition: all 0.08s ease;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.shield-blank-keycap:hover {
+  background: #293042;
+  border-color: #45526c;
+  transform: translateY(-1px);
+  box-shadow:
+    0 4px 0 #10131a,
+    0 6px 8px rgba(0, 0, 0, 0.5),
+    inset 0 1px 1px rgba(255, 255, 255, 0.12);
+}
+
+.shield-blank-keycap:active,
+.shield-blank-keycap.pressed {
+  transform: translateY(2px) !important;
+  box-shadow:
+    0 1px 0 #10131a,
+    0 2px 3px rgba(0, 0, 0, 0.5) !important;
+  background: rgba(0, 240, 255, 0.25) !important;
+  border-color: #00f0ff !important;
+}
+
+/* Homing bump for index fingers */
+.shield-homing-bump {
+  position: absolute;
+  bottom: 5px;
+  width: 9px;
+  height: 2px;
+  background: #64748b;
+  border-radius: 2px;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* Blank Thumb Keys */
+.shield-blank-thumb {
+  background: #1c212c;
+  border: 1px solid #2d3546;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow:
+    0 3px 0 #0f1218,
+    0 4px 5px rgba(0, 0, 0, 0.45),
+    inset 0 1px 1px rgba(255, 255, 255, 0.06);
+  user-select: none;
+  transition: all 0.08s ease;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.shield-blank-thumb:hover {
+  background: #252b3a;
+  border-color: #3f4a62;
+  transform: translateY(-1px);
+}
+
+.shield-blank-thumb:active,
+.shield-blank-thumb.pressed {
+  transform: translateY(2px) !important;
+  box-shadow:
+    0 1px 0 #0f1218,
+    0 2px 3px rgba(0, 0, 0, 0.5) !important;
+  background: rgba(0, 240, 255, 0.25) !important;
+  border-color: #00f0ff !important;
+}
+
+/* Rotary Encoder Dial Knob */
+.shield-encoder-knob {
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #475569, #1e293b 70%);
+  border: 1.5px solid #64748b;
+  box-shadow:
+    0 3px 0 #0f172a,
+    0 4px 8px rgba(0, 0, 0, 0.6),
+    inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.shield-encoder-knob:hover {
+  border-color: #00f0ff;
+  box-shadow:
+    0 3px 0 #0f172a,
+    0 4px 10px rgba(0, 240, 255, 0.3),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
+}
+
+.shield-encoder-knob:active,
+.shield-encoder-knob.pressed {
+  transform: scale(0.95);
+  border-color: #00f0ff;
+}
+
+.encoder-indicator-notch {
+  position: absolute;
+  top: 3px;
+  width: 2px;
+  height: 6px;
+  background: #00f0ff;
+  border-radius: 1px;
+  box-shadow: 0 0 4px #00f0ff;
+}
+
+/* Snap-off column indicator */
+.shield-snapoff-column {
+  border: 1px dashed rgba(0, 240, 255, 0.4);
+  border-radius: 8px;
+  padding: 2px;
+  background: rgba(0, 240, 255, 0.03);
+  position: relative;
+}
+
+.shield-snapoff-label {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  font-family: monospace;
+  color: #00f0ff;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+/* Interconnect cable between split halves */
+.shield-interconnect-cable {
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.4) 20%, rgba(0, 240, 255, 0.4) 80%, transparent);
+  width: 36px;
+  margin-top: 40px;
+  position: relative;
+}
+
+.shield-interconnect-cable::after {
+  content: 'TRRS / BLE';
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  font-family: monospace;
+  color: #64748b;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+
