@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: nightly-pages
@@ -19,8 +19,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -36,12 +34,16 @@ jobs:
         env:
           VITE_BASE_PATH: /nightly/scyan-zmk-studio/
 
-      - name: Deploy to gh-pages subfolder
+      - name: Ensure .nojekyll present
+        run: touch dist/.nojekyll
+
+      - name: Deploy to brunowb.github.io/nightly/scyan-zmk-studio/
         uses: JamesIves/github-pages-deploy-action@v4
         with:
-          branch: gh-pages
+          token: ${{ secrets.GH_PAT_PAGES }}
+          repository-name: BrunoWB/brunowb.github.io
+          branch: main
           folder: dist
           target-folder: nightly/scyan-zmk-studio
-          # Do NOT wipe the rest of gh-pages (production deploy lives at root)
           clean: false
-          commit-message: "chore(nightly): deploy ${{ github.sha }} [skip ci]"
+          commit-message: "chore(nightly): deploy scyan-zmk-studio ${{ github.sha }} [skip ci]"
