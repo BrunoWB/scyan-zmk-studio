@@ -259,4 +259,59 @@ describe('OledPreviewTab dynamic screen dimensions & widget moving', () => {
     expect(html).not.toContain('dongle-usb-metal');
     expect(html).not.toContain('dongle-usb-pin');
   });
+
+  it('keeps drag zones completely invisible during resting state (zero clutter)', () => {
+    const html = renderToString(
+      <OledPreviewTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText="TEST"
+        onCustomTextChange={() => {}}
+        leftBlocks={sampleLeftBlocks}
+        rightBlocks={sampleRightBlocks}
+        enabledScreens={['central', 'peripheral']}
+      />
+    );
+
+    // Units are realignable wrappers
+    expect(html).toContain('preview-realignable-unit');
+    expect(html).toContain('draggable="true"');
+
+    // Drop slots and swap overlays are completely absent when idle (not dragging)
+    expect(html).not.toContain('preview-realign-drop-slot');
+    expect(html).not.toContain('preview-unit-swap-overlay');
+    expect(html).not.toContain('Drop to realign position');
+    expect(html).not.toContain('Swap Position');
+  });
+
+  it('renders reordered configuration according to enabledScreens order', () => {
+    const html = renderToString(
+      <OledPreviewTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText="TEST"
+        onCustomTextChange={() => {}}
+        leftBlocks={sampleLeftBlocks}
+        rightBlocks={sampleRightBlocks}
+        dongleBlocks={[]}
+        // Inverted: peripheral first, then dongle, then central
+        enabledScreens={['peripheral', 'dongle', 'central']}
+      />
+    );
+
+    // All 3 units rendered
+    expect(html).toContain('corne-half-case right-half');
+    expect(html).toContain('dongle-unit-case');
+    expect(html).toContain('corne-half-case left-half');
+
+    // Check DOM order: right-half appears before dongle-unit-case, which appears before left-half
+    const rightIdx = html.indexOf('corne-half-case right-half');
+    const dongleIdx = html.indexOf('dongle-unit-case');
+    const leftIdx = html.indexOf('corne-half-case left-half');
+
+    expect(rightIdx).toBeLessThan(dongleIdx);
+    expect(dongleIdx).toBeLessThan(leftIdx);
+  });
 });

@@ -60,6 +60,41 @@ export interface TopologyGridCanvasProps {
   onKeystroke?: () => void;
 }
 
+/**
+ * Validates that all parts in partKeys form a single connected orthogonal component
+ * originating from masterKey. Prevents disconnected islands.
+ */
+function isConnectedToMaster(partKeys: string[], masterKey: string): boolean {
+  if (partKeys.length <= 1) return true;
+  const keySet = new Set(partKeys);
+  if (!keySet.has(masterKey)) return false;
+
+  const visited = new Set<string>();
+  const queue: string[] = [masterKey];
+  visited.add(masterKey);
+
+  const offsets = [
+    { dx: 0, dy: -1 }, // Up
+    { dx: 0, dy: 1 },  // Down
+    { dx: -1, dy: 0 }, // Left
+    { dx: 1, dy: 0 },  // Right
+  ];
+
+  while (queue.length > 0) {
+    const curr = queue.shift()!;
+    const [cx, cy] = curr.split(',').map(Number);
+    for (const { dx, dy } of offsets) {
+      const nKey = `${cx + dx},${cy + dy}`;
+      if (keySet.has(nKey) && !visited.has(nKey)) {
+        visited.add(nKey);
+        queue.push(nKey);
+      }
+    }
+  }
+
+  return visited.size === keySet.size;
+}
+
 export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
   placedParts,
   onPlacedPartsChange,
@@ -89,6 +124,7 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
 }) => {
   const [zoomScale, setZoomScale] = useState<number>(0.85);
   const [hoveredDropSlot, setHoveredDropSlot] = useState<string | null>(null);
+  const [draggingPartKey, setDraggingPartKey] = useState<string | null>(null);
 
   // Fallback layout displays if not provided
   const effectiveLayoutDisplays = useMemo<Record<string, LayoutDisplayItem>>(() => {
@@ -167,9 +203,8 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
     return { minX: mx, maxX: Mx, minY: my, maxY: My };
   }, [placedParts, placedKeys, isEmpty]);
 
-  // Compute all available neighbor slots (Left, Right, Up, Down of all placed parts)
+  // Compute available neighbor slots that maintain single-component connectivity to the master shield
   const neighborSlots = useMemo(() => {
-    const slots = new Set<string>();
     const offsets = [
       { dx: 0, dy: -1 }, // Up
       { dx: 0, dy: 1 },  // Down
@@ -177,20 +212,76 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
       { dx: 1, dy: 0 },  // Right
     ];
 
-    for (const key of placedKeys) {
-      const item = placedParts[key];
-      for (const { dx, dy } of offsets) {
-        const nx = item.x + dx;
-        const ny = item.y + dy;
-        const nKey = `${nx},${ny}`;
-        if (!placedParts[nKey]) {
-          slots.add(nKey);
+    if (isEmpty) {
+      return new Set<string>(['0,0']);
+    }
+
+    const currentMasterKey =
+      effectiveMasterShieldKey && placedParts[effectiveMasterShieldKey]
+        ? effectiveMasterShieldKey
+        : placedKeys[0];
+
+    const validSlots = new Set<string>();
+
+    if (draggingPartKey && placedParts[draggingPartKey]) {
+      // An existing part is being moved
+      const remainingKeys = placedKeys.filter((k) => k !== draggingPartKey);
+
+      if (remainingKeys.length === 0) {
+        // Only one part on board, can move to any neighbor of its current position or stay
+        validSlots.add(draggingPartKey);
+        const item = placedParts[draggingPartKey];
+        for (const { dx, dy } of offsets) {
+          validSlots.add(`${item.x + dx},${item.y + dy}`);
+        }
+        return validSlots;
+      }
+
+      // Candidate slots: orthogonal neighbors of remaining parts + the draggingPartKey itself
+      const candidates = new Set<string>();
+      candidates.add(draggingPartKey);
+
+      for (const key of remainingKeys) {
+        const item = placedParts[key];
+        for (const { dx, dy } of offsets) {
+          const nKey = `${item.x + dx},${item.y + dy}`;
+          if (!remainingKeys.includes(nKey)) {
+            candidates.add(nKey);
+          }
+        }
+      }
+
+      // Check each candidate for connectivity to the master shield
+      for (const candKey of candidates) {
+        const hypotheticalMaster = draggingPartKey === currentMasterKey ? candKey : currentMasterKey;
+        const hypotheticalKeys = [...remainingKeys, candKey];
+        if (isConnectedToMaster(hypotheticalKeys, hypotheticalMaster)) {
+          validSlots.add(candKey);
+        }
+      }
+    } else {
+      // No part currently dragging, or dragging new part from palette
+      const candidates = new Set<string>();
+      for (const key of placedKeys) {
+        const item = placedParts[key];
+        for (const { dx, dy } of offsets) {
+          const nKey = `${item.x + dx},${item.y + dy}`;
+          if (!placedParts[nKey]) {
+            candidates.add(nKey);
+          }
+        }
+      }
+
+      for (const candKey of candidates) {
+        const hypotheticalKeys = [...placedKeys, candKey];
+        if (isConnectedToMaster(hypotheticalKeys, currentMasterKey)) {
+          validSlots.add(candKey);
         }
       }
     }
 
-    return slots;
-  }, [placedParts, placedKeys]);
+    return validSlots;
+  }, [placedParts, placedKeys, isEmpty, effectiveMasterShieldKey, draggingPartKey]);
 
   // Grid bounds for rendering rows and columns
   const gridBounds = useMemo(() => {
@@ -227,6 +318,12 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
     (e: React.DragEvent, targetX: number, targetY: number) => {
       e.preventDefault();
       setHoveredDropSlot(null);
+      setDraggingPartKey(null);
+
+      const targetKey = `${targetX},${targetY}`;
+      if (!neighborSlots.has(targetKey)) {
+        return;
+      }
 
       try {
         const raw = e.dataTransfer.getData('application/json');
@@ -236,7 +333,6 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
         if (payload.moveFrom) {
           // Move from another cell
           const fromKey = `${payload.moveFrom.x},${payload.moveFrom.y}`;
-          const targetKey = `${targetX},${targetY}`;
           const sourceItem = placedParts[fromKey];
           if (!sourceItem) return;
 
@@ -301,6 +397,7 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
       updateMasterShieldKey,
       unassignedDisplays,
       isEmpty,
+      neighborSlots,
     ]
   );
 
@@ -750,10 +847,14 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
                           isDisplayDropTarget={isDisplayDropTarget}
                           onDelete={() => handleDeletePart(colX, rowY)}
                           onDragStart={(e) => {
+                            setDraggingPartKey(cellKey);
                             e.dataTransfer.setData(
                               'application/json',
                               JSON.stringify({ moveFrom: { x: colX, y: rowY } })
                             );
+                          }}
+                          onDragEnd={() => {
+                            setDraggingPartKey(null);
                           }}
                           onKeystroke={onKeystroke}
                         />

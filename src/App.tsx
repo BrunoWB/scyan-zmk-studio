@@ -1408,7 +1408,7 @@ export function App() {
   // Lossless display swapping & master shield binding helpers
   const getScreenData = useCallback(
     (id: string) => {
-      if (id === 'left') {
+      if (id === 'left' || id === 'central') {
         return {
           blocks: leftBlocks,
           idleBlocks: idleLeftBlocks,
@@ -1418,7 +1418,7 @@ export function App() {
           screenOffTimeoutSec,
         };
       }
-      if (id === 'right') {
+      if (id === 'right' || id === 'peripheral') {
         return {
           blocks: rightBlocks,
           idleBlocks: idleRightBlocks,
@@ -1443,7 +1443,7 @@ export function App() {
         blocks: p.blocks || [],
         idleBlocks: p.idleBlocks || [],
         dimensions: p.screenDimensions || { width: 32, height: 128 },
-        idleScreensEnabled: p.idleScreensEnabled ?? true,
+        idleScreensEnabled: p.idleScreensEnabled ?? false,
         idleTimeoutSec: p.idleTimeoutSec ?? 30,
         screenOffTimeoutSec: p.screenOffTimeoutSec ?? 60,
         customTitle: p.name,
@@ -1485,14 +1485,14 @@ export function App() {
         customTitle?: string;
       }
     ) => {
-      if (id === 'left') {
+      if (id === 'left' || id === 'central') {
         setLeftBlocks(data.blocks);
         setIdleLeftBlocks(data.idleBlocks);
         setScreenDimensions(data.dimensions);
         setIdleScreensEnabled(data.idleScreensEnabled);
         setIdleTimeoutSec(data.idleTimeoutSec);
         setScreenOffTimeoutSec(data.screenOffTimeoutSec);
-      } else if (id === 'right') {
+      } else if (id === 'right' || id === 'peripheral') {
         setRightBlocks(data.blocks);
         setIdleRightBlocks(data.idleBlocks);
         setRightScreenDimensions(data.dimensions);
@@ -1764,6 +1764,7 @@ export function App() {
                 syncTrigger={syncTrigger}
                 keymapLayout={keymapLayout}
                 onKeymapLayoutChange={setKeymapLayout}
+                onSwapDisplays={handleSwapDisplays}
               />
             )}
 

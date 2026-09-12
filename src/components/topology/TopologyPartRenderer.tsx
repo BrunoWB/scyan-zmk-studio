@@ -33,6 +33,7 @@ export interface TopologyPartRendererProps {
   isDisplayDropTarget?: boolean;
   onDelete?: () => void;
   onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
   onKeystroke?: () => void;
 }
 
@@ -63,6 +64,7 @@ export const TopologyPartRenderer: React.FC<TopologyPartRendererProps> = ({
   isDisplayDropTarget = false,
   onDelete,
   onDragStart,
+  onDragEnd,
   onKeystroke,
 }) => {
   const onlySide =
@@ -72,6 +74,7 @@ export const TopologyPartRenderer: React.FC<TopologyPartRendererProps> = ({
     <div
       draggable
       onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       className="relative group cursor-grab active:cursor-grabbing select-none transition-all duration-200"
     >
       {/* On Hover: Floating Grip Bar & Controls */}

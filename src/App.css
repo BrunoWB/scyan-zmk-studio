@@ -115,6 +115,51 @@
   flex-shrink: 0;
 }
 
+/* Realign Drag & Drop Zones in Preview Tab (Hidden until drag starts) */
+.preview-realignable-unit {
+  position: relative;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+}
+
+.preview-realign-drop-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  min-height: 180px;
+  border: 2px dashed rgba(0, 240, 255, 0.35);
+  border-radius: 14px;
+  background: rgba(0, 240, 255, 0.04);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.preview-realign-drop-slot:hover,
+.preview-realign-drop-slot.hovered {
+  border-color: #00f0ff;
+  background: rgba(0, 240, 255, 0.18);
+  box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+  transform: scaleY(1.03);
+}
+
+.preview-unit-swap-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 240, 255, 0.14);
+  border: 2px dashed #00f0ff;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+  box-shadow: 0 0 24px rgba(0, 240, 255, 0.35);
+}
+
 /* Case Body (Minimalist Neon Border aesthetic) */
 .corne-half-case {
   background: rgba(13, 16, 23, 0.85);

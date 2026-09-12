@@ -162,4 +162,24 @@ describe('TopologySandboxTab', () => {
     expect(html).toContain('Drag to swap or move to another shield');
     expect(html).toContain('Drag Display');
   });
+
+  it('does not render candidate drop slots that would cause a grid disconnect from the master shield', () => {
+    const html = renderToString(
+      <TopologySandboxTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        enabledScreens={['left', 'right']}
+      />
+    );
+
+    // Initial placed parts are (0,0) [master] and (1,0)
+    // Orthogonal connected neighbors are: (-1,0), (0,-1), (0,1), (2,0), (1,-1), (1,1)
+    expect(html).toContain('Drop or attach part at (-1, 0)');
+    expect(html).toContain('Drop or attach part at (2, 0)');
+
+    // Disconnected slots (e.g. non-adjacent like (3,0) or (5,5)) must not be shown as drop slots
+    expect(html).not.toContain('Drop or attach part at (5, 5)');
+    expect(html).not.toContain('Drop or attach part at (3, 0)');
+  });
 });
