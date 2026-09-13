@@ -399,4 +399,137 @@ describe('SideSettingsPanel (Side-Docked Display & Power Panels)', () => {
     expect(html).toContain('disabled=""');
     expect(html).toContain('Cannot delete display: at least one display is required');
   });
+
+  it('standardizes screen specs so both Corne (32x128) and Lily58 (128x32) match the 128x32 preset', () => {
+    const corneHtml = renderToString(
+      <SideSettingsPanel
+        side="left"
+        isOpen={true}
+        onClose={() => {}}
+        screenDimensions={{ width: 32, height: 128 }}
+        onScreenDimensionsChange={() => {}}
+        rotation={90}
+      />
+    );
+    expect(corneHtml).toContain('128 × 32 (0.91&quot; OLED)');
+    expect(corneHtml).toContain('<option value="128x32" selected=""');
+
+    const lilyHtml = renderToString(
+      <SideSettingsPanel
+        side="left"
+        isOpen={true}
+        onClose={() => {}}
+        screenDimensions={{ width: 128, height: 32 }}
+        onScreenDimensionsChange={() => {}}
+        rotation={0}
+      />
+    );
+    expect(lilyHtml).toContain('128 × 32 (0.91&quot; OLED)');
+    expect(lilyHtml).toContain('<option value="128x32" selected=""');
+  });
+
+  it('renders rotation radio buttons (0°, 90°, 180°, 270°) with accessible radiogroup', () => {
+    const html = renderToString(
+      <SideSettingsPanel
+        side="left"
+        isOpen={true}
+        onClose={() => {}}
+        screenDimensions={{ width: 32, height: 128 }}
+        onScreenDimensionsChange={() => {}}
+        rotation={90}
+      />
+    );
+
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toContain('Screen Rotation');
+    expect(html).toContain('0°');
+    expect(html).toContain('90°');
+    expect(html).toContain('180°');
+    expect(html).toContain('270°');
+    expect(html).toContain('type="radio"');
+    expect(html).toContain('checked="" value="90"');
+  });
+
+  it('standardizes nice!view preset for both horizontal (160x68) and vertical (68x160) orientations', () => {
+    const horizontalHtml = renderToString(
+      <SideSettingsPanel
+        side="left"
+        isOpen={true}
+        onClose={() => {}}
+        screenDimensions={{ width: 160, height: 68 }}
+        onScreenDimensionsChange={() => {}}
+        rotation={0}
+      />
+    );
+    expect(horizontalHtml).toContain('160 × 68 (nice!view)');
+    expect(horizontalHtml).toContain('<option value="160x68" selected=""');
+
+    const verticalHtml = renderToString(
+      <SideSettingsPanel
+        side="left"
+        isOpen={true}
+        onClose={() => {}}
+        screenDimensions={{ width: 68, height: 160 }}
+        onScreenDimensionsChange={() => {}}
+        rotation={90}
+      />
+    );
+    expect(verticalHtml).toContain('160 × 68 (nice!view)');
+    expect(verticalHtml).toContain('<option value="160x68" selected=""');
+  });
+
+  it('isolates radio input names using unique IDs so groups do not clash in the DOM', () => {
+    const asymmetricHtml = renderToString(
+      <BlockSettingsSection
+        isOpen={true}
+        onClose={() => {}}
+        screenDimensions={{ width: 32, height: 128 }}
+        onScreenDimensionsChange={() => {}}
+        rotation={90}
+        symmetricSettings={false}
+        rightScreenDimensions={{ width: 128, height: 32 }}
+        rightRotation={0}
+      />
+    );
+
+    const nameMatches = asymmetricHtml.match(/name="rotation-[^"]+"/g);
+    expect(nameMatches).not.toBeNull();
+    // At least 2 distinct radio groups (central and peripheral)
+    const uniqueNames = new Set(nameMatches);
+    expect(uniqueNames.size).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('Shield Dictionary Orientation & Screen Resolution', () => {
+  it('returns standardized hardware resolution and default oriented resolution', async () => {
+    const {
+      getShieldDefaultRotation,
+      getShieldHardwareResolution,
+      getShieldDefaultResolution,
+    } = await import('../../data/shieldsData');
+
+    expect(getShieldHardwareResolution('corne')).toEqual({ width: 128, height: 32 });
+    expect(getShieldDefaultRotation('corne')).toBe(90);
+    expect(getShieldDefaultResolution('corne')).toEqual({ width: 32, height: 128 });
+
+    expect(getShieldHardwareResolution('lily58')).toEqual({ width: 128, height: 32 });
+    expect(getShieldDefaultRotation('lily58')).toBe(0);
+    expect(getShieldDefaultResolution('lily58')).toEqual({ width: 128, height: 32 });
+
+    expect(getShieldHardwareResolution('ferris-sweep')).toEqual({ width: 128, height: 32 });
+    expect(getShieldDefaultRotation('ferris-sweep')).toBe(90);
+    expect(getShieldDefaultResolution('ferris-sweep')).toEqual({ width: 32, height: 128 });
+
+    expect(getShieldHardwareResolution('kyria')).toEqual({ width: 128, height: 64 });
+    expect(getShieldDefaultRotation('kyria')).toBe(0);
+    expect(getShieldDefaultResolution('kyria')).toEqual({ width: 128, height: 64 });
+
+    expect(getShieldHardwareResolution('xiao-dongle')).toEqual({ width: 128, height: 32 });
+    expect(getShieldDefaultRotation('xiao-dongle')).toBe(90);
+    expect(getShieldDefaultResolution('xiao-dongle')).toEqual({ width: 32, height: 128 });
+
+    expect(getShieldHardwareResolution('reviung41')).toEqual({ width: 128, height: 32 });
+    expect(getShieldDefaultRotation('reviung41')).toBe(0);
+    expect(getShieldDefaultResolution('reviung41')).toEqual({ width: 128, height: 32 });
+  });
 });

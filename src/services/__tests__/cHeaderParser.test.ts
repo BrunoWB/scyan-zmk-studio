@@ -768,6 +768,58 @@ static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
     expect(cCode).toContain('#define DISPLAY_HW_HEIGHT      32');
     expect(cCode).toContain('"shieldId": "lily58"');
   });
+
+  it('generates and parses display rotation defines and metadata roundtrip', () => {
+    const assets = getDefaultAssets();
+    const metadata: HeaderMetadata = {
+      version: 1,
+      centralBlocks: [],
+      peripheralBlocks: [],
+      screenDimensions: { width: 32, height: 128 },
+      rotation: 90,
+      peripheralScreenDimensions: { width: 128, height: 32 },
+      peripheralRotation: 0,
+      symmetricSettings: false,
+    };
+    const cCode = generateCHeader(assets.symbolsGrid, assets.symbolSlices, assets.fontGrid, assets.fontMappings, metadata);
+
+    expect(cCode).toContain('#define DISPLAY_ROTATION       90');
+    expect(cCode).toContain('#define DISPLAY_ROTATION_DEGREES 90');
+    expect(cCode).toContain('#define SCYAN_ROTATION         90');
+    expect(cCode).toContain('#define CONFIG_SCYAN_ROTATION_90 1');
+    expect(cCode).toContain('#define DISPLAY_ROTATION_PERIPHERAL       0');
+    expect(cCode).toContain('#define DISPLAY_ROTATION_DEGREES_PERIPHERAL 0');
+    expect(cCode).toContain('#define DISPLAY_ROTATION_RIGHT       DISPLAY_ROTATION_PERIPHERAL');
+
+    const parsed = parseCHeader(cCode);
+    expect(parsed.metadata?.rotation).toBe(90);
+    expect(parsed.metadata?.peripheralRotation).toBe(0);
+    expect(parsed.metadata?.symmetricSettings).toBe(false);
+  });
+
+  it('deduces best assumption rotation from shieldId or dimensions when rotation macro is absent', () => {
+    const rawCorne = `
+#define DISPLAY_VIRTUAL_WIDTH 32
+#define DISPLAY_VIRTUAL_HEIGHT 128
+`;
+    const parsedCorne = parseCHeader(rawCorne);
+    expect(parsedCorne.metadata?.rotation).toBe(90);
+
+    const rawLily = `
+#define DISPLAY_VIRTUAL_WIDTH 128
+#define DISPLAY_VIRTUAL_HEIGHT 32
+`;
+    const parsedLily = parseCHeader(rawLily);
+    expect(parsedLily.metadata?.rotation).toBe(0);
+
+    const rawConfigMacro = `
+#define DISPLAY_VIRTUAL_WIDTH 32
+#define DISPLAY_VIRTUAL_HEIGHT 128
+#define CONFIG_SCYAN_ROTATION_270 1
+`;
+    const parsedCustomRot = parseCHeader(rawConfigMacro);
+    expect(parsedCustomRot.metadata?.rotation).toBe(270);
+  });
 });
 
 

@@ -873,12 +873,14 @@ describe('User Repository Test Set (BrunoWB/zmk-config)', () => {
       expect(lily).toEqual({
         shieldId: 'lily58',
         defaultResolution: { width: 128, height: 32 },
+        defaultRotation: 0,
       });
 
       const corne = inferShieldFromRepo('corne-zmk', undefined, ['config/corne.conf']);
       expect(corne).toEqual({
         shieldId: 'corne',
         defaultResolution: { width: 32, height: 128 },
+        defaultRotation: 90,
       });
 
       const unknown = inferShieldFromRepo('generic-repo', 'config/custom.keymap');

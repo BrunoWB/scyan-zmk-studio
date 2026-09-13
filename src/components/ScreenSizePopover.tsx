@@ -3,11 +3,17 @@ import { Settings, X, Monitor, Moon, Clock, Power, Check, Plus, Minus, SlidersHo
 import { trackEvent } from '../services/analytics';
 
 export const PRESET_SCREEN_SIZES = [
-  { label: '32 × 128 (Corne, Sweep, Tidbit)', width: 32, height: 128 },
-  { label: '128 × 32 (Lily58, Sofle, Reviung, Iris)', width: 128, height: 32 },
-  { label: '128 × 64 (Kyria)', width: 128, height: 64 },
-  { label: '68 × 160 (nice!view)', width: 68, height: 160 },
+  { label: '128 × 32 (0.91" OLED)', width: 128, height: 32 },
+  { label: '128 × 64 (0.96" OLED)', width: 128, height: 64 },
+  { label: '160 × 68 (nice!view)', width: 160, height: 68 },
   { label: 'Custom', width: 0, height: 0 },
+];
+
+export const ROTATION_OPTIONS: { value: 0 | 90 | 180 | 270; label: string; tooltip: string }[] = [
+  { value: 0, label: '0°', tooltip: 'Horizontal / Normal (0°)' },
+  { value: 90, label: '90°', tooltip: 'Vertical / Clockwise (90°)' },
+  { value: 180, label: '180°', tooltip: 'Inverted Horizontal (180°)' },
+  { value: 270, label: '270°', tooltip: 'Inverted Vertical (270°)' },
 ];
 
 export const IDLE_TIMEOUT_PRESETS = [
@@ -186,6 +192,8 @@ export interface BlockSettingsSectionProps {
   // Left / Unified settings
   screenDimensions: { width: number; height: number };
   onScreenDimensionsChange: (dims: { width: number; height: number }) => void;
+  rotation?: 0 | 90 | 180 | 270;
+  onRotationChange?: (rotation: 0 | 90 | 180 | 270) => void;
   idleScreensEnabled?: boolean;
   onIdleScreensEnabledChange?: (enabled: boolean) => void;
   idleTimeoutSec?: number;
@@ -200,6 +208,8 @@ export interface BlockSettingsSectionProps {
   // Right-specific settings (used when symmetricSettings === false)
   rightScreenDimensions?: { width: number; height: number };
   onRightScreenDimensionsChange?: (dims: { width: number; height: number }) => void;
+  rightRotation?: 0 | 90 | 180 | 270;
+  onRightRotationChange?: (rotation: 0 | 90 | 180 | 270) => void;
   rightIdleScreensEnabled?: boolean;
   onRightIdleScreensEnabledChange?: (enabled: boolean) => void;
   rightIdleTimeoutSec?: number;
@@ -217,6 +227,8 @@ interface SideSettingsBlockProps {
   themeColor?: 'cyan' | 'purple' | 'amber';
   screenDimensions: { width: number; height: number };
   onScreenDimensionsChange: (dims: { width: number; height: number }) => void;
+  rotation?: 0 | 90 | 180 | 270;
+  onRotationChange?: (rotation: 0 | 90 | 180 | 270) => void;
   idleScreensEnabled: boolean;
   onIdleScreensEnabledChange: (enabled: boolean) => void;
   idleTimeoutSec: number;
@@ -234,6 +246,8 @@ const SideSettingsBlock: React.FC<SideSettingsBlockProps> = ({
   themeColor = 'cyan',
   screenDimensions,
   onScreenDimensionsChange,
+  rotation,
+  onRotationChange,
   idleScreensEnabled,
   onIdleScreensEnabledChange,
   idleTimeoutSec,
@@ -243,18 +257,63 @@ const SideSettingsBlock: React.FC<SideSettingsBlockProps> = ({
   layout = 'horizontal',
   disabled = false,
 }) => {
+  const radioGroupId = React.useId();
+  const hwW = Math.max(screenDimensions.width, screenDimensions.height);
+  const hwH = Math.min(screenDimensions.width, screenDimensions.height);
   const matchedPreset = PRESET_SCREEN_SIZES.find(
-    p => p.width === screenDimensions.width && p.height === screenDimensions.height
+    p => p.width > 0 && p.width === hwW && p.height === hwH
   );
   const [isCustomMode, setIsCustomMode] = useState(!matchedPreset);
+
+  const isCurrentlyVertical = screenDimensions.width < screenDimensions.height;
+  const effectiveRotation: 0 | 90 | 180 | 270 = rotation !== undefined
+    ? rotation
+    : (isCurrentlyVertical ? 90 : 0);
 
   useEffect(() => {
     if (!matchedPreset) {
       setIsCustomMode(true);
-    } else {
-      setIsCustomMode(false);
     }
-  }, [screenDimensions.width, screenDimensions.height, matchedPreset]);
+  }, [matchedPreset]);
+
+  const handleRotationSelect = (newRot: 0 | 90 | 180 | 270) => {
+    if (disabled) return;
+    onRotationChange?.(newRot);
+    trackEvent('screen_rotation_changed', {
+      rotation: newRot,
+      side: sideName || 'Left',
+    });
+
+    const isNewRotVertical = newRot === 90 || newRot === 270;
+    const isCurVertical = effectiveRotation === 90 || effectiveRotation === 270;
+
+    // Swap dimensions if orientation changes between horizontal and vertical
+    if (isNewRotVertical !== isCurVertical) {
+      onScreenDimensionsChange({
+        width: screenDimensions.height,
+        height: screenDimensions.width,
+      });
+    }
+  };
+
+  const handlePresetSelect = (val: string) => {
+    if (val === 'custom') {
+      setIsCustomMode(true);
+      return;
+    }
+    setIsCustomMode(false);
+    trackEvent('screen_size_changed', {
+      size: val,
+      side: sideName || 'Left',
+    });
+    const [specW, specH] = val.split('x').map(Number);
+    const hwWidth = Math.max(specW, specH);
+    const hwHeight = Math.min(specW, specH);
+    const isVert = effectiveRotation === 90 || effectiveRotation === 270;
+    onScreenDimensionsChange(
+      isVert ? { width: hwHeight, height: hwWidth } : { width: hwWidth, height: hwHeight }
+    );
+  };
 
   const handleIdleChange = (val: number) => {
     if (disabled) return;
@@ -344,20 +403,7 @@ const SideSettingsBlock: React.FC<SideSettingsBlockProps> = ({
                 </label>
                 <select
                   value={isCustomMode ? 'custom' : (matchedPreset ? `${matchedPreset.width}x${matchedPreset.height}` : 'custom')}
-                  onChange={e => {
-                    const val = e.target.value;
-                    if (val === 'custom') {
-                      setIsCustomMode(true);
-                      return;
-                    }
-                    setIsCustomMode(false);
-                    trackEvent('screen_size_changed', {
-                      size: val,
-                      side: sideName || 'Left',
-                    });
-                    const [w, h] = val.split('x').map(Number);
-                    onScreenDimensionsChange({ width: w, height: h });
-                  }}
+                  onChange={e => handlePresetSelect(e.target.value)}
                   disabled={disabled}
                   className={`w-full text-xs font-mono bg-[#141720] border border-[#232936] text-white rounded px-2 py-1.5 ${
                     isPurple ? 'focus:border-[#a953f6]' : 'focus:border-[#00f0ff]'
@@ -369,6 +415,57 @@ const SideSettingsBlock: React.FC<SideSettingsBlockProps> = ({
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-mono uppercase text-[#64748b] block mb-1">
+                  Screen Rotation
+                </label>
+                <div
+                  role="radiogroup"
+                  aria-label={`${sideName} Screen Rotation`}
+                  className="grid grid-cols-4 gap-1 p-1 bg-[#141720] border border-[#232936] rounded-lg"
+                >
+                  {ROTATION_OPTIONS.map(opt => {
+                    const isSelected = effectiveRotation === opt.value;
+                    return (
+                      <label
+                        key={opt.value}
+                        title={opt.tooltip}
+                        className={`flex items-center justify-center gap-1 py-1 px-1 rounded cursor-pointer transition-all text-xs font-mono select-none ${
+                          disabled ? 'opacity-40 cursor-not-allowed' : ''
+                        } ${
+                          isSelected
+                            ? isPurple
+                              ? 'bg-[#a953f6]/20 text-[#a953f6] border border-[#a953f6]/40 font-bold shadow-[0_0_8px_rgba(169,83,246,0.2)]'
+                              : 'bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/40 font-bold shadow-[0_0_8px_rgba(0,240,255,0.2)]'
+                            : 'text-[#94a3b8] hover:text-white hover:bg-white/5 border border-transparent'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name={`rotation-${radioGroupId}`}
+                          value={opt.value}
+                          checked={isSelected}
+                          disabled={disabled}
+                          onChange={() => handleRotationSelect(opt.value)}
+                          aria-label={`${sideName} Rotation ${opt.label}`}
+                          className="sr-only"
+                        />
+                        <span
+                          className={`size-2 rounded-full border transition-colors shrink-0 ${
+                            isSelected
+                              ? isPurple
+                                ? 'bg-[#a953f6] border-[#a953f6]'
+                                : 'bg-[#00f0ff] border-[#00f0ff]'
+                              : 'border-[#64748b] bg-transparent'
+                          }`}
+                        />
+                        <span>{opt.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
 
               {isCustomMode && (
@@ -576,6 +673,8 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
   onClose,
   screenDimensions,
   onScreenDimensionsChange,
+  rotation,
+  onRotationChange,
   idleScreensEnabled = true,
   onIdleScreensEnabledChange,
   idleTimeoutSec = 30,
@@ -586,6 +685,8 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
   onSymmetricSettingsChange,
   rightScreenDimensions,
   onRightScreenDimensionsChange,
+  rightRotation,
+  onRightRotationChange,
   rightIdleScreensEnabled,
   onRightIdleScreensEnabledChange,
   rightIdleTimeoutSec,
@@ -620,6 +721,7 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
     // When toggling symmetric back ON, synchronize right side with left side
     if (next) {
       if (onRightScreenDimensionsChange) onRightScreenDimensionsChange(screenDimensions);
+      if (onRightRotationChange && rotation !== undefined) onRightRotationChange(rotation);
       if (onRightIdleScreensEnabledChange) onRightIdleScreensEnabledChange(idleScreensEnabled);
       if (onRightIdleTimeoutSecChange) onRightIdleTimeoutSecChange(idleTimeoutSec);
       if (onRightScreenOffTimeoutSecChange) onRightScreenOffTimeoutSecChange(screenOffTimeoutSec);
@@ -630,6 +732,10 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
   const effectiveRightDimensions = effectiveSymmetric
     ? screenDimensions
     : (rightScreenDimensions ?? screenDimensions);
+
+  const effectiveRightRotation = effectiveSymmetric
+    ? rotation
+    : (rightRotation !== undefined ? rightRotation : rotation);
 
   const effectiveRightIdleEnabled = effectiveSymmetric
     ? idleScreensEnabled
@@ -648,6 +754,13 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
     onScreenDimensionsChange(dims);
     if (effectiveSymmetric && onRightScreenDimensionsChange) {
       onRightScreenDimensionsChange(dims);
+    }
+  };
+
+  const handleLeftRotationChange = (rot: 0 | 90 | 180 | 270) => {
+    if (onRotationChange) onRotationChange(rot);
+    if (effectiveSymmetric && onRightRotationChange) {
+      onRightRotationChange(rot);
     }
   };
 
@@ -754,6 +867,8 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
               themeColor="cyan"
               screenDimensions={screenDimensions}
               onScreenDimensionsChange={handleLeftDimensionsChange}
+              rotation={rotation}
+              onRotationChange={handleLeftRotationChange}
               idleScreensEnabled={idleScreensEnabled}
               onIdleScreensEnabledChange={handleLeftIdleEnabledChange}
               idleTimeoutSec={idleTimeoutSec}
@@ -771,6 +886,8 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
                 themeColor="cyan"
                 screenDimensions={screenDimensions}
                 onScreenDimensionsChange={handleLeftDimensionsChange}
+                rotation={rotation}
+                onRotationChange={handleLeftRotationChange}
                 idleScreensEnabled={idleScreensEnabled}
                 onIdleScreensEnabledChange={handleLeftIdleEnabledChange}
                 idleTimeoutSec={idleTimeoutSec}
@@ -787,6 +904,8 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
                 themeColor="purple"
                 screenDimensions={effectiveRightDimensions}
                 onScreenDimensionsChange={onRightScreenDimensionsChange || (() => {})}
+                rotation={effectiveRightRotation}
+                onRotationChange={onRightRotationChange || (() => {})}
                 idleScreensEnabled={effectiveRightIdleEnabled}
                 onIdleScreensEnabledChange={onRightIdleScreensEnabledChange || (() => {})}
                 idleTimeoutSec={effectiveRightIdleTimeout}
@@ -885,6 +1004,8 @@ export interface SideSettingsPanelProps {
   // Master / Left settings
   screenDimensions: { width: number; height: number };
   onScreenDimensionsChange: (dims: { width: number; height: number }) => void;
+  rotation?: 0 | 90 | 180 | 270;
+  onRotationChange?: (rotation: 0 | 90 | 180 | 270) => void;
   idleScreensEnabled?: boolean;
   onIdleScreensEnabledChange?: (enabled: boolean) => void;
   idleTimeoutSec?: number;
@@ -899,6 +1020,8 @@ export interface SideSettingsPanelProps {
   // Right-specific settings (used when side === 'right' and symmetricSettings === false)
   rightScreenDimensions?: { width: number; height: number };
   onRightScreenDimensionsChange?: (dims: { width: number; height: number }) => void;
+  rightRotation?: 0 | 90 | 180 | 270;
+  onRightRotationChange?: (rotation: 0 | 90 | 180 | 270) => void;
   rightIdleScreensEnabled?: boolean;
   onRightIdleScreensEnabledChange?: (enabled: boolean) => void;
   rightIdleTimeoutSec?: number;
@@ -926,6 +1049,8 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
   onClose,
   screenDimensions,
   onScreenDimensionsChange,
+  rotation,
+  onRotationChange,
   idleScreensEnabled = true,
   onIdleScreensEnabledChange,
   idleTimeoutSec = 30,
@@ -936,6 +1061,8 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
   onSymmetricSettingsChange,
   rightScreenDimensions,
   onRightScreenDimensionsChange,
+  rightRotation,
+  onRightRotationChange,
   rightIdleScreensEnabled,
   onRightIdleScreensEnabledChange,
   rightIdleTimeoutSec,
@@ -977,6 +1104,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
     // When toggling symmetric back ON, synchronize right side with left side (dimensions & timeouts)
     if (next) {
       if (onRightScreenDimensionsChange) onRightScreenDimensionsChange(screenDimensions);
+      if (onRightRotationChange && rotation !== undefined) onRightRotationChange(rotation);
       if (onRightIdleTimeoutSecChange) onRightIdleTimeoutSecChange(idleTimeoutSec);
       if (onRightScreenOffTimeoutSecChange) onRightScreenOffTimeoutSecChange(screenOffTimeoutSec);
     }
@@ -986,6 +1114,10 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
   const effectiveRightDimensions = effectiveSymmetric
     ? screenDimensions
     : (rightScreenDimensions ?? screenDimensions);
+
+  const effectiveRightRotation = effectiveSymmetric
+    ? rotation
+    : (rightRotation !== undefined ? rightRotation : rotation);
 
   // Idle toggles are independent per display
   const effectiveRightIdleEnabled = rightIdleScreensEnabled !== undefined ? rightIdleScreensEnabled : idleScreensEnabled;
@@ -1003,6 +1135,13 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
     onScreenDimensionsChange(dims);
     if (effectiveSymmetric && onRightScreenDimensionsChange) {
       onRightScreenDimensionsChange(dims);
+    }
+  };
+
+  const handleLeftRotationChange = (rot: 0 | 90 | 180 | 270) => {
+    if (onRotationChange) onRotationChange(rot);
+    if (effectiveSymmetric && onRightRotationChange) {
+      onRightRotationChange(rot);
     }
   };
 
@@ -1100,6 +1239,8 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
                 themeColor="cyan"
                 screenDimensions={screenDimensions}
                 onScreenDimensionsChange={handleLeftDimensionsChange}
+                rotation={rotation}
+                onRotationChange={handleLeftRotationChange}
                 idleScreensEnabled={idleScreensEnabled}
                 onIdleScreensEnabledChange={handleLeftIdleEnabledChange}
                 idleTimeoutSec={idleTimeoutSec}
@@ -1177,6 +1318,8 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
                   themeColor="purple"
                   screenDimensions={effectiveRightDimensions}
                   onScreenDimensionsChange={effectiveSymmetric ? () => {} : (onRightScreenDimensionsChange || (() => {}))}
+                  rotation={effectiveRightRotation}
+                  onRotationChange={effectiveSymmetric ? () => {} : (onRightRotationChange || (() => {}))}
                   idleScreensEnabled={effectiveRightIdleEnabled}
                   onIdleScreensEnabledChange={effectiveSymmetric ? () => {} : (onRightIdleScreensEnabledChange || (() => {}))}
                   idleTimeoutSec={effectiveRightIdleTimeout}

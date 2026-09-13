@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import type { ShieldDefinition } from '../data/shieldsData';
+import { getShieldDefaultResolution, type ShieldDefinition } from '../data/shieldsData';
 import { OledDisplayModule } from './OledDisplayModule';
 import { BwpxGrid } from '../bwpx/core/BwpxGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../types/zmk';
@@ -232,8 +232,9 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
     defaultSide: 'central' | 'peripheral' | 'single' | 'left' | 'right' | string = 'central',
     customOledScale: number = oledScale
   ) => {
-    const defaultW = shield.displayConfig.nativeResolution.width;
-    const defaultH = shield.displayConfig.nativeResolution.height;
+    const defaultRes = getShieldDefaultResolution(shield.id);
+    const defaultW = defaultRes.width;
+    const defaultH = defaultRes.height;
 
     // Check if displayConfigOverride was passed
     if (displayConfigOverride !== undefined) {

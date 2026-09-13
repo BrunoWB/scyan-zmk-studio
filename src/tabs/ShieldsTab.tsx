@@ -9,7 +9,13 @@ import {
   DEFAULT_FONT_MAPPINGS,
 } from '../types/zmk';
 import type { WidgetInstanceMap } from '../types/widget';
-import { KNOWN_SHIELDS, getShieldDefinition, type ShieldDefinition } from '../data/shieldsData';
+import {
+  KNOWN_SHIELDS,
+  getShieldDefinition,
+  getShieldDefaultResolution,
+  getShieldDefaultRotation,
+  type ShieldDefinition,
+} from '../data/shieldsData';
 import { ShieldKeyboardGeometry } from '../components/ShieldKeyboardGeometry';
 import {
   Layers,
@@ -35,7 +41,8 @@ export interface ShieldsTabProps {
   customText?: string;
   onApplyDimensions?: (
     dimensions: { width: number; height: number },
-    rightDimensions?: { width: number; height: number }
+    rightDimensions?: { width: number; height: number },
+    rotation?: 0 | 90 | 180 | 270
   ) => void;
   onSelectShield?: (shieldId: string) => void;
   onNavigateToPreview?: () => void;
@@ -122,9 +129,10 @@ export const ShieldsTab: React.FC<ShieldsTabProps> = ({
 
   const handleApplyShieldConfig = useCallback(
     (shield: ShieldDefinition) => {
-      const res = shield.displayConfig.nativeResolution;
+      const virtRes = getShieldDefaultResolution(shield.id);
+      const rot = getShieldDefaultRotation(shield.id);
       if (onApplyDimensions) {
-        onApplyDimensions(res, res);
+        onApplyDimensions(virtRes, virtRes, rot);
       }
       if (onSelectShield) {
         onSelectShield(shield.id);

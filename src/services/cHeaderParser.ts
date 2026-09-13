@@ -4,12 +4,14 @@ import type { WidgetInstanceMap } from '../types/widget';
 import { DEFAULT_SYMBOL_SLICES, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS } from '../types/zmk';
 import defaultInstallHeader from '../assets/scyan_assets.install.h?raw';
 import { measureTextWidth, getWidgetNaturalSize, getWidgetDefinition, normalizeWidgetType, resolveWidgetInstance } from './widgetRegistry';
+import { getShieldDefaultRotation } from '../data/shieldsData';
 
 export interface PeripheralScreenData {
   name?: string;
   blocks?: LayoutBlock[];
   idleBlocks?: LayoutBlock[];
   screenDimensions?: { width: number; height: number };
+  rotation?: 0 | 90 | 180 | 270;
   idleScreensEnabled?: boolean;
   idleTimeoutSec?: number;
   screenOffTimeoutSec?: number;
@@ -25,6 +27,7 @@ export interface HeaderMetadata {
   /** Dynamic peripheral screens dictionary for arbitrary N peripherals (keyed by screen ID e.g. 'peripheral-2') */
   peripheralScreens?: Record<string, PeripheralScreenData>;
   screenDimensions?: { width: number; height: number };
+  rotation?: 0 | 90 | 180 | 270;
   widgetInstances?: WidgetInstanceMap;
   /** Seconds of inactivity before switching to the idle layout (default 30) */
   idleTimeoutSec?: number;
@@ -36,6 +39,9 @@ export interface HeaderMetadata {
   symmetricSettings?: boolean;
   /** Peripheral screen dimensions when asymmetric */
   peripheralScreenDimensions?: { width: number; height: number };
+  /** Peripheral display rotation when asymmetric */
+  peripheralRotation?: 0 | 90 | 180 | 270;
+  rightRotation?: 0 | 90 | 180 | 270;
   /** Peripheral idle screens toggle when asymmetric */
   peripheralIdleScreensEnabled?: boolean;
   /** Peripheral idle timeout in seconds when asymmetric */
@@ -430,7 +436,28 @@ export function parseCHeader(cCode: string): ParsedAssets {
     const parsedRightScreenOffTimeoutSec = rightSleepTimeoutMsMatch ? Math.round(parseInt(rightSleepTimeoutMsMatch[1], 10) / 1000) : undefined;
     const parsedRightIdleScreensEnabled = rightIdleScreensMatch ? (parseInt(rightIdleScreensMatch[1], 10) !== 0) : undefined;
 
-    const isAsymmetricC = !!(rightScreenDims || parsedRightIdleTimeoutSec !== undefined || parsedRightScreenOffTimeoutSec !== undefined || parsedRightIdleScreensEnabled !== undefined);
+    // 6d. Parse display rotation defines
+    const rotMacroMatch = cCode.match(/#define\s+(?:DISPLAY_ROTATION|DISPLAY_ROTATION_DEGREES|SCYAN_ROTATION)\s+(\d+)/);
+    let parsedRotation: (0 | 90 | 180 | 270) | undefined;
+    if (rotMacroMatch) {
+      const val = parseInt(rotMacroMatch[1], 10);
+      if (val === 0 || val === 90 || val === 180 || val === 270) parsedRotation = val;
+    }
+    if (parsedRotation === undefined) {
+      if (/#define\s+CONFIG_SCYAN_ROTATION_270\s+1/.test(cCode)) parsedRotation = 270;
+      else if (/#define\s+CONFIG_SCYAN_ROTATION_180\s+1/.test(cCode)) parsedRotation = 180;
+      else if (/#define\s+CONFIG_SCYAN_ROTATION_0\s+1/.test(cCode)) parsedRotation = 0;
+      else if (/#define\s+CONFIG_SCYAN_ROTATION_90\s+1/.test(cCode)) parsedRotation = 90;
+    }
+
+    const rightRotMacroMatch = cCode.match(/#define\s+(?:DISPLAY_ROTATION_PERIPHERAL|DISPLAY_ROTATION_RIGHT|SCYAN_ROTATION_PERIPHERAL|SCYAN_ROTATION_RIGHT)\s+(\d+)/);
+    let parsedRightRotation: (0 | 90 | 180 | 270) | undefined;
+    if (rightRotMacroMatch) {
+      const val = parseInt(rightRotMacroMatch[1], 10);
+      if (val === 0 || val === 90 || val === 180 || val === 270) parsedRightRotation = val;
+    }
+
+    const isAsymmetricC = !!(rightScreenDims || parsedRightRotation !== undefined || parsedRightIdleTimeoutSec !== undefined || parsedRightScreenOffTimeoutSec !== undefined || parsedRightIdleScreensEnabled !== undefined);
 
     // 7. If metadata JSON was missing or incomplete, reconstruct from C layout block arrays
     if (!metadata || (!metadata.centralBlocks && !metadata.peripheralBlocks && !(metadata as any).leftBlocks && !metadata.peripheralScreens)) {
@@ -649,25 +676,30 @@ export function parseCHeader(cCode: string): ParsedAssets {
         const resolvedIdleCentral = idleCentralBlocks || metadata?.idleCentralBlocks;
         const resolvedIdlePeripheral = idlePeripheralBlocks || metadata?.idlePeripheralBlocks;
         const resolvedPeripheralDims = rightScreenDims || metadata?.peripheralScreenDimensions;
-        metadata = {
-          version: 1,
-          centralBlocks: resolvedCentral,
-          peripheralBlocks: resolvedPeripheral,
-          idleCentralBlocks: resolvedIdleCentral,
-          idlePeripheralBlocks: resolvedIdlePeripheral,
-          leftBlocks: resolvedCentral,
-          rightBlocks: resolvedPeripheral,
-          idleLeftBlocks: resolvedIdleCentral,
-          idleRightBlocks: resolvedIdlePeripheral,
-          screenDimensions: screenDims || metadata?.screenDimensions,
-          peripheralScreens: metadata?.peripheralScreens,
-          widgetInstances: metadata?.widgetInstances,
-          idleTimeoutSec: metadata?.idleTimeoutSec ?? parsedIdleTimeoutSec,
-          screenOffTimeoutSec: metadata?.screenOffTimeoutSec ?? parsedScreenOffTimeoutSec,
-          idleScreensEnabled: metadata?.idleScreensEnabled ?? parsedIdleScreensEnabled,
-          symmetricSettings: metadata?.symmetricSettings ?? (!isAsymmetricC),
-          peripheralScreenDimensions: resolvedPeripheralDims,
-          rightScreenDimensions: resolvedPeripheralDims,
+          const resolvedRotation = metadata?.rotation ?? parsedRotation ?? (metadata?.shieldId ? getShieldDefaultRotation(metadata.shieldId) : (screenDims && screenDims.width < screenDims.height ? 90 : 0));
+          const resolvedPeripheralRot = metadata?.peripheralRotation ?? metadata?.rightRotation ?? parsedRightRotation ?? (isAsymmetricC && rightScreenDims ? (rightScreenDims.width < rightScreenDims.height ? 90 : 0) : resolvedRotation);
+          metadata = {
+            version: 1,
+            centralBlocks: resolvedCentral,
+            peripheralBlocks: resolvedPeripheral,
+            idleCentralBlocks: resolvedIdleCentral,
+            idlePeripheralBlocks: resolvedIdlePeripheral,
+            leftBlocks: resolvedCentral,
+            rightBlocks: resolvedPeripheral,
+            idleLeftBlocks: resolvedIdleCentral,
+            idleRightBlocks: resolvedIdlePeripheral,
+            screenDimensions: screenDims || metadata?.screenDimensions,
+            peripheralScreens: metadata?.peripheralScreens,
+            widgetInstances: metadata?.widgetInstances,
+            idleTimeoutSec: metadata?.idleTimeoutSec ?? parsedIdleTimeoutSec,
+            screenOffTimeoutSec: metadata?.screenOffTimeoutSec ?? parsedScreenOffTimeoutSec,
+            idleScreensEnabled: metadata?.idleScreensEnabled ?? parsedIdleScreensEnabled,
+            symmetricSettings: metadata?.symmetricSettings ?? (!isAsymmetricC),
+            rotation: resolvedRotation,
+            peripheralScreenDimensions: resolvedPeripheralDims,
+            peripheralRotation: resolvedPeripheralRot,
+            rightScreenDimensions: resolvedPeripheralDims,
+            rightRotation: resolvedPeripheralRot,
           peripheralIdleTimeoutSec: metadata?.peripheralIdleTimeoutSec ?? parsedRightIdleTimeoutSec,
           rightIdleTimeoutSec: metadata?.peripheralIdleTimeoutSec ?? parsedRightIdleTimeoutSec,
           peripheralScreenOffTimeoutSec: metadata?.peripheralScreenOffTimeoutSec ?? parsedRightScreenOffTimeoutSec,
@@ -682,11 +714,53 @@ export function parseCHeader(cCode: string): ParsedAssets {
           shieldId: metadata?.shieldId,
         };
       }
-    } else if (screenDims && !metadata.screenDimensions) {
+    }
+
+    const hasMetadataComment = !!(metaMatch && metaMatch[1]);
+    if (!hasMetadataComment) {
+      if (screenDims) {
+        if (!metadata) metadata = { version: 1 };
+        metadata.screenDimensions = screenDims;
+        metadata.rotation = parsedRotation ?? (screenDims.width < screenDims.height ? 90 : 0);
+      }
+      if (rightScreenDims) {
+        if (!metadata) metadata = { version: 1 };
+        metadata.peripheralScreenDimensions = rightScreenDims;
+        metadata.rightScreenDimensions = rightScreenDims;
+        metadata.peripheralRotation = parsedRightRotation ?? (rightScreenDims.width < rightScreenDims.height ? 90 : 0);
+        metadata.rightRotation = metadata.peripheralRotation;
+      }
+    } else if (screenDims && (!metadata || !metadata.screenDimensions)) {
+      if (!metadata) metadata = { version: 1 };
       metadata.screenDimensions = screenDims;
     }
-    // Merge parsed timer values into existing metadata if not already present
+    // Merge parsed timer values and rotation into existing metadata if not already present
     if (metadata) {
+      if (metadata.rotation === undefined) {
+        if (parsedRotation !== undefined) {
+          metadata.rotation = parsedRotation;
+        } else if (metadata.shieldId) {
+          metadata.rotation = getShieldDefaultRotation(metadata.shieldId);
+        } else if (metadata.screenDimensions) {
+          metadata.rotation = metadata.screenDimensions.width < metadata.screenDimensions.height ? 90 : 0;
+        } else {
+          metadata.rotation = 90;
+        }
+      }
+      if (metadata.peripheralRotation === undefined) {
+        if (metadata.symmetricSettings === false && parsedRightRotation !== undefined) {
+          metadata.peripheralRotation = parsedRightRotation;
+        } else if (metadata.symmetricSettings === false && metadata.rightRotation !== undefined) {
+          metadata.peripheralRotation = metadata.rightRotation;
+        } else if (metadata.symmetricSettings === false && metadata.peripheralScreenDimensions) {
+          metadata.peripheralRotation = metadata.peripheralScreenDimensions.width < metadata.peripheralScreenDimensions.height ? 90 : 0;
+        } else {
+          metadata.peripheralRotation = metadata.rotation;
+        }
+      }
+      if (metadata.rightRotation === undefined) {
+        metadata.rightRotation = metadata.peripheralRotation;
+      }
       if (parsedIdleTimeoutSec !== undefined && metadata.idleTimeoutSec === undefined) {
         metadata.idleTimeoutSec = parsedIdleTimeoutSec;
       }
@@ -972,6 +1046,9 @@ export function generateCHeader(
     ? (metadata?.peripheralIdleScreensEnabled ?? (metadata as any)?.rightIdleScreensEnabled)
     : idleScreensEnabled;
 
+  const rotation = metadata?.rotation ?? (virtWidth < virtHeight ? 90 : 0);
+  const peripheralRotation = metadata?.peripheralRotation ?? metadata?.rightRotation ?? (isSymmetric ? rotation : (peripheralVirtWidth < peripheralVirtHeight ? 90 : 0));
+
   let c = `/* Auto-generated 2-Atlas spritesheet architecture for Corne vertical OLED display */
 /* Generated by ZMK Display Studio */
 #pragma once
@@ -984,15 +1061,25 @@ export function generateCHeader(
 #define DISPLAY_VIRTUAL_HEIGHT ${virtHeight}
 #define DISPLAY_HW_WIDTH       ${hwWidth}
 #define DISPLAY_HW_HEIGHT      ${hwHeight}
+#define DISPLAY_ROTATION       ${rotation}
+#define DISPLAY_ROTATION_DEGREES ${rotation}
+#define SCYAN_ROTATION         ${rotation}
+#ifndef CONFIG_SCYAN_ROTATION_${rotation}
+#define CONFIG_SCYAN_ROTATION_${rotation} 1
+#endif
 ${!isSymmetric ? `#define DISPLAY_VIRTUAL_WIDTH_PERIPHERAL  ${peripheralVirtWidth}
 #define DISPLAY_VIRTUAL_HEIGHT_PERIPHERAL ${peripheralVirtHeight}
 #define DISPLAY_HW_WIDTH_PERIPHERAL       ${peripheralHwWidth}
 #define DISPLAY_HW_HEIGHT_PERIPHERAL      ${peripheralHwHeight}
+#define DISPLAY_ROTATION_PERIPHERAL       ${peripheralRotation}
+#define DISPLAY_ROTATION_DEGREES_PERIPHERAL ${peripheralRotation}
+#define SCYAN_ROTATION_PERIPHERAL         ${peripheralRotation}
 /* Legacy right aliases */
 #define DISPLAY_VIRTUAL_WIDTH_RIGHT  DISPLAY_VIRTUAL_WIDTH_PERIPHERAL
 #define DISPLAY_VIRTUAL_HEIGHT_RIGHT DISPLAY_VIRTUAL_HEIGHT_PERIPHERAL
 #define DISPLAY_HW_WIDTH_RIGHT       DISPLAY_HW_WIDTH_PERIPHERAL
 #define DISPLAY_HW_HEIGHT_RIGHT      DISPLAY_HW_HEIGHT_PERIPHERAL
+#define DISPLAY_ROTATION_RIGHT       DISPLAY_ROTATION_PERIPHERAL
 ` : ''}/* Display power-management timers & idle configuration */
 #define ZMK_DISPLAY_IDLE_SCREENS_ENABLED ${idleScreensEnabled ? 1 : 0}
 #define SCYAN_IDLE_SCREENS_ENABLED       ${idleScreensEnabled ? 1 : 0}
@@ -1555,12 +1642,15 @@ static const struct display_font font_default = {
       idlePeripheralBlocks: metadata.idlePeripheralBlocks || (metadata as any).idleRightBlocks,
       peripheralScreens: metadata.peripheralScreens,
       screenDimensions: metadata.screenDimensions,
+      rotation: metadata.rotation,
       widgetInstances: metadata.widgetInstances,
       idleTimeoutSec: metadata.idleTimeoutSec,
       screenOffTimeoutSec: metadata.screenOffTimeoutSec,
       idleScreensEnabled: metadata.idleScreensEnabled,
       symmetricSettings: metadata.symmetricSettings,
       peripheralScreenDimensions: metadata.peripheralScreenDimensions || (metadata as any).rightScreenDimensions,
+      peripheralRotation: metadata.peripheralRotation || metadata.rightRotation,
+      rightRotation: metadata.peripheralRotation || metadata.rightRotation,
       peripheralIdleScreensEnabled: metadata.peripheralIdleScreensEnabled || (metadata as any).rightIdleScreensEnabled,
       peripheralIdleTimeoutSec: metadata.peripheralIdleTimeoutSec || (metadata as any).rightIdleTimeoutSec,
       peripheralScreenOffTimeoutSec: metadata.peripheralScreenOffTimeoutSec || (metadata as any).rightScreenOffTimeoutSec,

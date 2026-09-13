@@ -40,6 +40,8 @@ export interface BlocksTabProps {
   onPeripheralScreensChange?: (screens: Record<string, PeripheralScreenData>) => void;
   screenDimensions?: { width: number; height: number };
   onScreenDimensionsChange?: (dimensions: { width: number; height: number }) => void;
+  rotation?: 0 | 90 | 180 | 270;
+  onRotationChange?: (rotation: 0 | 90 | 180 | 270) => void;
   idleScreensEnabled?: boolean;
   onIdleScreensEnabledChange?: (enabled: boolean) => void;
   idleTimeoutSec?: number;
@@ -50,6 +52,8 @@ export interface BlocksTabProps {
   onSymmetricSettingsChange?: (symmetric: boolean) => void;
   peripheralScreenDimensions?: { width: number; height: number };
   onPeripheralScreenDimensionsChange?: (dimensions: { width: number; height: number }) => void;
+  peripheralRotation?: 0 | 90 | 180 | 270;
+  onPeripheralRotationChange?: (rotation: 0 | 90 | 180 | 270) => void;
   peripheralIdleScreensEnabled?: boolean;
   onPeripheralIdleScreensEnabledChange?: (enabled: boolean) => void;
   peripheralIdleTimeoutSec?: number;
@@ -58,6 +62,8 @@ export interface BlocksTabProps {
   onPeripheralScreenOffTimeoutSecChange?: (sec: number) => void;
   rightScreenDimensions?: { width: number; height: number };
   onRightScreenDimensionsChange?: (dimensions: { width: number; height: number }) => void;
+  rightRotation?: 0 | 90 | 180 | 270;
+  onRightRotationChange?: (rotation: 0 | 90 | 180 | 270) => void;
   rightIdleScreensEnabled?: boolean;
   onRightIdleScreensEnabledChange?: (enabled: boolean) => void;
   rightIdleTimeoutSec?: number;
@@ -119,6 +125,8 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   layerNames,
   screenDimensions = { width: 32, height: 128 },
   onScreenDimensionsChange,
+  rotation,
+  onRotationChange,
   idleScreensEnabled,
   onIdleScreensEnabledChange,
   idleTimeoutSec,
@@ -129,6 +137,8 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   onSymmetricSettingsChange,
   peripheralScreenDimensions,
   onPeripheralScreenDimensionsChange,
+  peripheralRotation,
+  onPeripheralRotationChange,
   peripheralIdleScreensEnabled,
   onPeripheralIdleScreensEnabledChange,
   peripheralIdleTimeoutSec,
@@ -137,6 +147,8 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   onPeripheralScreenOffTimeoutSecChange,
   rightScreenDimensions,
   onRightScreenDimensionsChange,
+  rightRotation,
+  onRightRotationChange,
   rightIdleScreensEnabled,
   onRightIdleScreensEnabledChange,
   rightIdleTimeoutSec,
@@ -184,6 +196,9 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   const handlePeripheralBlocksChange = onPeripheralBlocksChange || onRightBlocksChange;
   const handleIdleCentralBlocksChange = onIdleCentralBlocksChange || onIdleLeftBlocksChange;
   const handleIdlePeripheralBlocksChange = onIdlePeripheralBlocksChange || onIdleRightBlocksChange;
+
+  const effectivePeripheralRotation = peripheralRotation ?? rightRotation ?? rotation;
+  const handlePeripheralRotationChange = onPeripheralRotationChange ?? onRightRotationChange;
 
   // Dynamic peripheral screens state
   const [localPeripheralScreens, setLocalPeripheralScreens] = useState<Record<string, PeripheralScreenData>>({});
@@ -308,6 +323,9 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     handleSymmetricSettingsChange(next);
     if (next) {
       handlePeripheralDimensionsChange(screenDimensions);
+      if (handlePeripheralRotationChange && rotation !== undefined) {
+        handlePeripheralRotationChange(rotation);
+      }
       handlePeripheralIdleTimeoutChange(effectiveIdleTimeoutSec);
       handlePeripheralScreenOffTimeoutChange(effectiveScreenOffTimeoutSec);
     }
@@ -323,6 +341,9 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
           handleCentralBlocksChange?.(effectivePeripheralBlocks);
           handleIdleCentralBlocksChange?.(effectiveIdlePeripheralBlocks);
           onScreenDimensionsChange?.(effectivePeripheralScreenDimensions);
+          if (onRotationChange && effectivePeripheralRotation !== undefined) {
+            onRotationChange(effectivePeripheralRotation);
+          }
           handleCentralIdleEnabledChange(effectivePeripheralIdleScreensEnabled);
           handleCentralIdleTimeoutChange(effectivePeripheralIdleTimeoutSec);
           handleCentralScreenOffTimeoutChange(effectivePeripheralScreenOffTimeoutSec);
@@ -331,6 +352,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
             blocks: [...DEFAULT_PERIPHERAL_LAYOUT_BLOCKS],
             idleBlocks: [...DEFAULT_IDLE_PERIPHERAL_BLOCKS],
             screenDimensions: { width: 32, height: 128 },
+            rotation: 90,
             idleScreensEnabled: true,
             idleTimeoutSec: 30,
             screenOffTimeoutSec: 60,
@@ -338,6 +360,9 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
           handleCentralBlocksChange?.(pData.blocks || []);
           handleIdleCentralBlocksChange?.(pData.idleBlocks || []);
           onScreenDimensionsChange?.(pData.screenDimensions || { width: 32, height: 128 });
+          if (onRotationChange && pData.rotation !== undefined) {
+            onRotationChange(pData.rotation);
+          }
           handleCentralIdleEnabledChange(pData.idleScreensEnabled ?? true);
           handleCentralIdleTimeoutChange(pData.idleTimeoutSec ?? 30);
           handleCentralScreenOffTimeoutChange(pData.screenOffTimeoutSec ?? 60);
@@ -363,11 +388,16 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         handleIdleCentralBlocksChange?.(oldIdlePeripheral);
         handleIdlePeripheralBlocksChange?.(oldIdleCentral);
 
-        // 3. Swap dimensions
+        // 3. Swap dimensions and rotation
         const oldCentralDims = { ...screenDimensions };
         const oldPeripheralDims = { ...effectivePeripheralScreenDimensions };
         onScreenDimensionsChange?.(oldPeripheralDims);
         handlePeripheralDimensionsChange(oldCentralDims);
+
+        const oldCentralRot = rotation ?? 90;
+        const oldPeripheralRot = effectivePeripheralRotation ?? 90;
+        onRotationChange?.(oldPeripheralRot);
+        handlePeripheralRotationChange?.(oldCentralRot);
 
         // 4. Swap timeouts & power settings
         const oldCentralIdleEnabled = effectiveIdleScreensEnabled;
@@ -392,6 +422,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
           blocks: [...DEFAULT_PERIPHERAL_LAYOUT_BLOCKS],
           idleBlocks: [...DEFAULT_IDLE_PERIPHERAL_BLOCKS],
           screenDimensions: { width: 32, height: 128 },
+          rotation: 90,
           idleScreensEnabled: true,
           idleTimeoutSec: 30,
           screenOffTimeoutSec: 60,
@@ -400,6 +431,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         const oldCentral = [...effectiveCentralBlocks];
         const oldIdleCentral = [...effectiveIdleCentralBlocks];
         const oldCentralDims = { ...screenDimensions };
+        const oldCentralRot = rotation ?? 90;
         const oldCentralIdleEnabled = effectiveIdleScreensEnabled;
         const oldCentralIdleTimeout = effectiveIdleTimeoutSec;
         const oldCentralOffTimeout = effectiveScreenOffTimeoutSec;
@@ -407,6 +439,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         handleCentralBlocksChange?.(pData.blocks || []);
         handleIdleCentralBlocksChange?.(pData.idleBlocks || []);
         onScreenDimensionsChange?.(pData.screenDimensions || { width: 32, height: 128 });
+        onRotationChange?.(pData.rotation ?? 90);
         handleIdleScreensEnabledChange(pData.idleScreensEnabled ?? true);
         handleIdleTimeoutSecChange(pData.idleTimeoutSec ?? 30);
         handleScreenOffTimeoutSecChange(pData.screenOffTimeoutSec ?? 60);
@@ -418,6 +451,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
             blocks: oldCentral,
             idleBlocks: oldIdleCentral,
             screenDimensions: oldCentralDims,
+            rotation: oldCentralRot,
             idleScreensEnabled: oldCentralIdleEnabled,
             idleTimeoutSec: oldCentralIdleTimeout,
             screenOffTimeoutSec: oldCentralOffTimeout,
@@ -436,6 +470,8 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       effectivePeripheralScreens,
       screenDimensions,
       effectivePeripheralScreenDimensions,
+      rotation,
+      effectivePeripheralRotation,
       effectiveIdleScreensEnabled,
       effectivePeripheralIdleScreensEnabled,
       effectiveIdleTimeoutSec,
@@ -448,6 +484,8 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       handleIdlePeripheralBlocksChange,
       onScreenDimensionsChange,
       handlePeripheralDimensionsChange,
+      onRotationChange,
+      handlePeripheralRotationChange,
       handleIdleScreensEnabledChange,
       handlePeripheralIdleEnabledChange,
       handleIdleTimeoutSecChange,
@@ -1162,6 +1200,8 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       isOverlay={isOverlay}
       screenDimensions={screenDimensions}
       onScreenDimensionsChange={handleCentralDimensionsChange}
+      rotation={rotation}
+      onRotationChange={onRotationChange}
       idleScreensEnabled={effectiveIdleScreensEnabled}
       onIdleScreensEnabledChange={handleCentralIdleEnabledChange}
       idleTimeoutSec={effectiveIdleTimeoutSec}
@@ -1172,6 +1212,8 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       onSymmetricSettingsChange={handleSymmetricChange}
       rightScreenDimensions={effectivePeripheralScreenDimensions}
       onRightScreenDimensionsChange={handlePeripheralDimensionsChange}
+      rightRotation={effectivePeripheralRotation}
+      onRightRotationChange={handlePeripheralRotationChange}
       rightIdleScreensEnabled={effectivePeripheralIdleScreensEnabled}
       onRightIdleScreensEnabledChange={handlePeripheralIdleEnabledChange}
       rightIdleTimeoutSec={effectivePeripheralIdleTimeoutSec}
@@ -1194,6 +1236,8 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         isOverlay={isOverlay}
         screenDimensions={cfg.dimensions}
         onScreenDimensionsChange={cfg.onDimensionsChange}
+        rotation={effectivePeripheralRotation}
+        onRotationChange={handlePeripheralRotationChange}
         idleScreensEnabled={cfg.idleEnabled}
         onIdleScreensEnabledChange={cfg.onIdleEnabledChange}
         idleTimeoutSec={cfg.idleTimeout}
@@ -1204,6 +1248,8 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         onSymmetricSettingsChange={handleSymmetricChange}
         rightScreenDimensions={cfg.dimensions}
         onRightScreenDimensionsChange={cfg.onDimensionsChange}
+        rightRotation={effectivePeripheralRotation}
+        onRightRotationChange={handlePeripheralRotationChange}
         rightIdleScreensEnabled={cfg.idleEnabled}
         onRightIdleScreensEnabledChange={cfg.onIdleEnabledChange}
         rightIdleTimeoutSec={cfg.idleTimeout}

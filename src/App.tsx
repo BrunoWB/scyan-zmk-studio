@@ -30,6 +30,7 @@ import {
   parseZmkKeymap,
   inferShieldFromRepo,
   getShieldDefaultResolution,
+  getShieldDefaultRotation,
 } from './services/keymapService';
 import { remapBlockCoordinates } from './services/blocksLayout';
 import type {
@@ -278,6 +279,34 @@ export function App() {
     return def.metadata?.peripheralScreenOffTimeoutSec ?? def.metadata?.rightScreenOffTimeoutSec ?? def.metadata?.screenOffTimeoutSec ?? 60;
   });
 
+  const [rotation, setRotation] = useState<0 | 90 | 180 | 270>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-screen-rotation');
+      if (saved !== null) {
+        const val = Number(saved);
+        if (val === 0 || val === 90 || val === 180 || val === 270) return val as 0 | 90 | 180 | 270;
+      }
+    } catch {}
+    const def = getDefaultAssets();
+    if (def.metadata?.rotation !== undefined) return def.metadata.rotation;
+    return getShieldDefaultRotation('corne');
+  });
+
+  const [peripheralRotation, setPeripheralRotation] = useState<0 | 90 | 180 | 270>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-peripheral-screen-rotation') || localStorage.getItem('zmk-right-screen-rotation');
+      if (saved !== null) {
+        const val = Number(saved);
+        if (val === 0 || val === 90 || val === 180 || val === 270) return val as 0 | 90 | 180 | 270;
+      }
+    } catch {}
+    const def = getDefaultAssets();
+    if (def.metadata?.peripheralRotation !== undefined) return def.metadata.peripheralRotation;
+    if (def.metadata?.rightRotation !== undefined) return def.metadata.rightRotation;
+    if (def.metadata?.rotation !== undefined) return def.metadata.rotation;
+    return getShieldDefaultRotation('corne');
+  });
+
   const handleCentralDimensionsChange = useCallback(
     (newDims: { width: number; height: number }) => {
       setScreenDimensions((prevDims) => {
@@ -303,6 +332,25 @@ export function App() {
         setIdlePeripheralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims));
         return newDims;
       });
+      markDimensionsCustomized();
+    },
+    [markDimensionsCustomized]
+  );
+
+  const handleRotationChange = useCallback(
+    (newRot: 0 | 90 | 180 | 270) => {
+      setRotation(newRot);
+      if (symmetricSettings) {
+        setPeripheralRotation(newRot);
+      }
+      markDimensionsCustomized();
+    },
+    [symmetricSettings, markDimensionsCustomized]
+  );
+
+  const handlePeripheralRotationChange = useCallback(
+    (newRot: 0 | 90 | 180 | 270) => {
+      setPeripheralRotation(newRot);
       markDimensionsCustomized();
     },
     [markDimensionsCustomized]
@@ -409,6 +457,18 @@ export function App() {
       localStorage.setItem('zmk-screen-dimensions', JSON.stringify(screenDimensions));
     } catch {}
   }, [screenDimensions]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-screen-rotation', String(rotation));
+    } catch {}
+  }, [rotation]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-peripheral-screen-rotation', String(peripheralRotation));
+    } catch {}
+  }, [peripheralRotation]);
 
   useEffect(() => {
     try {
@@ -669,6 +729,15 @@ export function App() {
         setScreenDimensions(parsed.metadata.screenDimensions);
         markDimensionsCustomized();
       }
+      if (parsed.metadata.rotation !== undefined) {
+        setRotation(parsed.metadata.rotation);
+      }
+      const pRot = parsed.metadata.peripheralRotation ?? parsed.metadata.rightRotation;
+      if (pRot !== undefined) {
+        setPeripheralRotation(pRot);
+      } else if (parsed.metadata.rotation !== undefined) {
+        setPeripheralRotation(parsed.metadata.rotation);
+      }
       if (parsed.metadata.widgetInstances) {
         const instMap = { ...parsed.metadata.widgetInstances };
         if (instMap['loop'] && !instMap['animation']) {
@@ -752,6 +821,9 @@ export function App() {
       'zmk-right-idle-screens-enabled',
       'zmk-right-idle-timeout-sec',
       'zmk-right-screen-off-timeout-sec',
+      'zmk-screen-rotation',
+      'zmk-peripheral-screen-rotation',
+      'zmk-right-screen-rotation',
       'zmk-shield-id',
       'zmk-enabled-screens',
       'zmk-peripheral-screens',
@@ -768,6 +840,8 @@ export function App() {
     setHasUserCustomizedDimensions(false);
     hasUserCustomizedDimensionsRef.current = false;
     setPeripheralScreens({});
+    setRotation(getShieldDefaultRotation('corne'));
+    setPeripheralRotation(getShieldDefaultRotation('corne'));
     applyParsedAssets(getDefaultAssets());
     setCustomText('BRUNOWB');
   }, [applyParsedAssets]);
@@ -809,10 +883,13 @@ export function App() {
 
       if (!hasUserCustomizedDimensionsRef.current) {
         const defaultRes = getShieldDefaultResolution(detectedShield);
+        const defaultRot = getShieldDefaultRotation(detectedShield);
         handleCentralDimensionsChange(defaultRes);
         handlePeripheralDimensionsChange(defaultRes);
+        setRotation(defaultRot);
+        setPeripheralRotation(defaultRot);
         if (sourceDesc) {
-          showToast('success', `Detected ${detectedShield} from ${sourceDesc}: aligned canvas to ${defaultRes.width}x${defaultRes.height} px`);
+          showToast('success', `Detected ${detectedShield} from ${sourceDesc}: aligned canvas to ${defaultRes.width}x${defaultRes.height} px (${defaultRot}°)`);
         }
       }
     },
@@ -1244,12 +1321,14 @@ export function App() {
         idleCentralBlocks,
         idlePeripheralBlocks,
         screenDimensions,
+        rotation,
         widgetInstances,
         idleTimeoutSec,
         screenOffTimeoutSec,
         idleScreensEnabled,
         symmetricSettings,
         peripheralScreenDimensions: symmetricSettings ? undefined : peripheralScreenDimensions,
+        peripheralRotation: symmetricSettings ? undefined : peripheralRotation,
         peripheralIdleScreensEnabled: symmetricSettings ? undefined : peripheralIdleScreensEnabled,
         peripheralIdleTimeoutSec: symmetricSettings ? undefined : peripheralIdleTimeoutSec,
         peripheralScreenOffTimeoutSec: symmetricSettings ? undefined : peripheralScreenOffTimeoutSec,
@@ -1361,12 +1440,14 @@ export function App() {
         idleCentralBlocks,
         idlePeripheralBlocks,
         screenDimensions,
+        rotation,
         widgetInstances,
         idleTimeoutSec,
         screenOffTimeoutSec,
         idleScreensEnabled,
         symmetricSettings,
         peripheralScreenDimensions: symmetricSettings ? undefined : peripheralScreenDimensions,
+        peripheralRotation: symmetricSettings ? undefined : peripheralRotation,
         peripheralIdleScreensEnabled: symmetricSettings ? undefined : peripheralIdleScreensEnabled,
         peripheralIdleTimeoutSec: symmetricSettings ? undefined : peripheralIdleTimeoutSec,
         peripheralScreenOffTimeoutSec: symmetricSettings ? undefined : peripheralScreenOffTimeoutSec,
@@ -1431,6 +1512,7 @@ export function App() {
           blocks: centralBlocks,
           idleBlocks: idleCentralBlocks,
           dimensions: screenDimensions,
+          rotation,
           idleScreensEnabled,
           idleTimeoutSec,
           screenOffTimeoutSec,
@@ -1441,6 +1523,7 @@ export function App() {
           blocks: peripheralBlocks,
           idleBlocks: idlePeripheralBlocks,
           dimensions: peripheralScreenDimensions,
+          rotation: peripheralRotation,
           idleScreensEnabled: peripheralIdleScreensEnabled,
           idleTimeoutSec: peripheralIdleTimeoutSec,
           screenOffTimeoutSec: peripheralScreenOffTimeoutSec,
@@ -1451,6 +1534,7 @@ export function App() {
         blocks: p.blocks || [],
         idleBlocks: p.idleBlocks || [],
         dimensions: p.screenDimensions || { width: 32, height: 128 },
+        rotation: p.rotation ?? (p.screenDimensions && p.screenDimensions.width < p.screenDimensions.height ? 90 : 0),
         idleScreensEnabled: p.idleScreensEnabled ?? false,
         idleTimeoutSec: p.idleTimeoutSec ?? 30,
         screenOffTimeoutSec: p.screenOffTimeoutSec ?? 60,
@@ -1461,12 +1545,14 @@ export function App() {
       centralBlocks,
       idleCentralBlocks,
       screenDimensions,
+      rotation,
       idleScreensEnabled,
       idleTimeoutSec,
       screenOffTimeoutSec,
       peripheralBlocks,
       idlePeripheralBlocks,
       peripheralScreenDimensions,
+      peripheralRotation,
       peripheralIdleScreensEnabled,
       peripheralIdleTimeoutSec,
       peripheralScreenOffTimeoutSec,
@@ -1481,6 +1567,7 @@ export function App() {
         blocks: LayoutBlock[];
         idleBlocks: LayoutBlock[];
         dimensions: { width: number; height: number };
+        rotation?: 0 | 90 | 180 | 270;
         idleScreensEnabled: boolean;
         idleTimeoutSec: number;
         screenOffTimeoutSec: number;
@@ -1493,6 +1580,7 @@ export function App() {
         setCentralBlocks(remappedBlocks);
         setIdleCentralBlocks(remappedIdle);
         setScreenDimensions(data.dimensions);
+        if (data.rotation !== undefined) setRotation(data.rotation);
         markDimensionsCustomized();
         setIdleScreensEnabled(data.idleScreensEnabled);
         setIdleTimeoutSec(data.idleTimeoutSec);
@@ -1503,6 +1591,7 @@ export function App() {
         setPeripheralBlocks(remappedBlocks);
         setIdlePeripheralBlocks(remappedIdle);
         setPeripheralScreenDimensions(data.dimensions);
+        if (data.rotation !== undefined) setPeripheralRotation(data.rotation);
         markDimensionsCustomized();
         setPeripheralIdleScreensEnabled(data.idleScreensEnabled);
         setPeripheralIdleTimeoutSec(data.idleTimeoutSec);
@@ -1517,6 +1606,7 @@ export function App() {
               blocks: remapBlockCoordinates(data.blocks, oldDims, data.dimensions),
               idleBlocks: remapBlockCoordinates(data.idleBlocks, oldDims, data.dimensions),
               screenDimensions: data.dimensions,
+              rotation: data.rotation ?? prev[id]?.rotation,
               idleScreensEnabled: data.idleScreensEnabled,
               idleTimeoutSec: data.idleTimeoutSec,
               screenOffTimeoutSec: data.screenOffTimeoutSec,
@@ -1825,6 +1915,8 @@ export function App() {
                 onIdlePeripheralBlocksChange={setIdlePeripheralBlocks}
                 screenDimensions={screenDimensions}
                 onScreenDimensionsChange={handleCentralDimensionsChange}
+                rotation={rotation}
+                onRotationChange={handleRotationChange}
                 idleScreensEnabled={idleScreensEnabled}
                 onIdleScreensEnabledChange={setIdleScreensEnabled}
                 idleTimeoutSec={idleTimeoutSec}
@@ -1835,6 +1927,8 @@ export function App() {
                 onSymmetricSettingsChange={setSymmetricSettings}
                 peripheralScreenDimensions={peripheralScreenDimensions}
                 onPeripheralScreenDimensionsChange={handlePeripheralDimensionsChange}
+                peripheralRotation={peripheralRotation}
+                onPeripheralRotationChange={handlePeripheralRotationChange}
                 peripheralIdleScreensEnabled={peripheralIdleScreensEnabled}
                 onPeripheralIdleScreensEnabledChange={setPeripheralIdleScreensEnabled}
                 peripheralIdleTimeoutSec={peripheralIdleTimeoutSec}
@@ -1877,12 +1971,16 @@ export function App() {
                 idlePeripheralBlocks={idlePeripheralBlocks}
                 instances={widgetInstances}
                 customText={customText}
-                onApplyDimensions={(dims, rightDims) => {
+                onApplyDimensions={(dims, rightDims, rot) => {
                   handleCentralDimensionsChange(dims);
                   if (rightDims) handlePeripheralDimensionsChange(rightDims);
+                  if (rot !== undefined) {
+                    setRotation(rot);
+                    setPeripheralRotation(rot);
+                  }
                   setToast({
                     type: 'success',
-                    message: `Applied shield resolution: ${dims.width}x${dims.height} px`,
+                    message: `Applied shield resolution: ${dims.width}x${dims.height} px (${rot ?? 0}°)`,
                   });
                 }}
                 onSelectShield={(id) => {

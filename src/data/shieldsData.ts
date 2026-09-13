@@ -5,7 +5,7 @@ export interface ShieldDisplayConfig {
   physicalMount: string;
   displayType: string;
   bus: 'I2C' | 'SPI';
-  rotation: 90 | 270 | 0;
+  rotation: 0 | 90 | 180 | 270;
   pinout: {
     sda: string;
     scl: string;
@@ -70,7 +70,7 @@ export const KNOWN_SHIELDS: ShieldDefinition[] = [
     layoutDesc: 'Columnar stagger split keyboard with 3 thumb keys per half and snap-off 6th column.',
     displayConfig: {
       screenCount: 2,
-      nativeResolution: { width: 32, height: 128 },
+      nativeResolution: { width: 128, height: 32 },
       defaultOrientation: 'vertical',
       physicalMount: 'Vertical socket bay parallel to the inner column, directly flanking the microcontroller.',
       displayType: '0.91" SSD1306 OLED (128x32 physical)',
@@ -234,7 +234,7 @@ CONFIG_EC11_TRIGGER_GLOBAL_THREAD=y`,
     layoutDesc: 'Minimalist 34-key split keyboard using direct pin matrix or shift registers with 2 thumb keys.',
     displayConfig: {
       screenCount: 2,
-      nativeResolution: { width: 32, height: 128 },
+      nativeResolution: { width: 128, height: 32 },
       defaultOrientation: 'vertical',
       physicalMount: 'Vertical socket or daughterboard directly overlying the central microcontroller.',
       displayType: '0.91" SSD1306 OLED or nice!view (160x68 Sharp Memory)',
@@ -496,7 +496,7 @@ CONFIG_SSD1306=y`,
     layoutDesc: 'Central master receiver node bridging dual wireless split halves to the host computer with custom OLED telemetry.',
     displayConfig: {
       screenCount: 1,
-      nativeResolution: { width: 32, height: 128 },
+      nativeResolution: { width: 128, height: 32 },
       defaultOrientation: 'vertical',
       physicalMount: 'Integrated directly into the dongle body enclosure with USB-A plug protruding.',
       displayType: '0.91" SSD1306 OLED (128x32 physical)',
@@ -602,7 +602,7 @@ CONFIG_SSD1306=y`,
     layoutDesc: 'Generic standalone OLED display mount with direct telemetry for custom shields and handwired keyboards.',
     displayConfig: {
       screenCount: 1,
-      nativeResolution: { width: 32, height: 128 },
+      nativeResolution: { width: 128, height: 32 },
       defaultOrientation: 'vertical',
       physicalMount: 'Direct custom PCB mounting with isolated OLED enclosure.',
       displayType: '0.91" SSD1306 OLED (128x32 physical)',
@@ -654,6 +654,47 @@ export function getShieldDefinition(shieldId?: string | null): ShieldDefinition 
     id: shieldId,
     name: shieldId === 'unknown' ? 'Custom / Unknown Shield' : `${shieldId} (Custom Shield)`,
   };
+}
+
+/**
+ * Returns the default rotation angle (0, 90, 180, 270) defined in the shield dictionary.
+ * Defaults to 90° for vertical shields (Corne, Sweep) and 0° for horizontal (Lily58, Sofle).
+ */
+export function getShieldDefaultRotation(shieldId?: string | null): 0 | 90 | 180 | 270 {
+  const def = getShieldDefinition(shieldId);
+  if (def?.displayConfig?.rotation !== undefined) {
+    return def.displayConfig.rotation as 0 | 90 | 180 | 270;
+  }
+  if (def?.displayConfig?.defaultOrientation === 'vertical') {
+    return 90;
+  }
+  return 0;
+}
+
+/**
+ * Returns the standardized hardware screen spec dimensions (e.g. 128x32, 128x64) from the shield dictionary.
+ */
+export function getShieldHardwareResolution(shieldId?: string | null): { width: number; height: number } {
+  const def = getShieldDefinition(shieldId);
+  const native = def?.displayConfig?.nativeResolution || { width: 128, height: 32 };
+  const w = Math.max(native.width, native.height);
+  const h = Math.min(native.width, native.height);
+  return { width: w, height: h };
+}
+
+/**
+ * Returns the active virtual display resolution for a shield ID, applying its default orientation / rotation.
+ * E.g., Corne (128x32 hardware @ 90° vertical) returns { width: 32, height: 128 }.
+ * Lily58 (128x32 hardware @ 0° horizontal) returns { width: 128, height: 32 }.
+ */
+export function getShieldDefaultResolution(shieldId?: string | null): { width: number; height: number } {
+  const def = getShieldDefinition(shieldId);
+  if (!def?.displayConfig) return { width: 32, height: 128 };
+  const { nativeResolution, rotation, defaultOrientation } = def.displayConfig;
+  const isVertical = rotation === 90 || rotation === 270 || defaultOrientation === 'vertical';
+  const minDim = Math.min(nativeResolution.width, nativeResolution.height);
+  const maxDim = Math.max(nativeResolution.width, nativeResolution.height);
+  return isVertical ? { width: minDim, height: maxDim } : { width: maxDim, height: minDim };
 }
 
 export type ShieldPartSide = 'left' | 'right' | 'single' | 'dongle';
