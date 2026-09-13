@@ -5,7 +5,6 @@ import {
   WIDGET_REGISTRY,
   getWidgetDefinition,
   renderWidgetById,
-  getWidgetsByTier,
   getWidgetNaturalSize,
   normalizeWidgetType,
 } from '../services/widgetRegistry';
@@ -101,7 +100,6 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   layerNames,
 }) => {
   const [activeWidgetId, setActiveWidgetId] = useState<string>(initialActiveWidgetId || WIDGET_REGISTRY[0]?.id || 'status-bar');
-  const [selectedTier, setSelectedTier] = useState<'all' | 1 | 2 | 3>('all');
   
   const effectiveLayerNames = useMemo(() => {
     if (layerNames && layerNames.length > 0) return layerNames;
@@ -296,8 +294,6 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
     onInstancesChange(updatedMap);
   };
 
-  const filteredWidgets = selectedTier === 'all' ? WIDGET_REGISTRY : getWidgetsByTier(selectedTier);
-
   return (
     <div className="widgets-tab-container">
       {/* Left Sidebar */}
@@ -306,29 +302,18 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
           <h3 className="sidebar-title">Widget Templates</h3>
           <span className="text-[10px] font-mono text-accent">{WIDGET_REGISTRY.length} total</span>
         </div>
-        <p className="sidebar-desc">Select a template to configure its instances.</p>
-
-        <div className="widget-tier-filter-row">
-          <button className={`btn-filter-tag ${selectedTier === 'all' ? 'active' : ''}`} onClick={() => setSelectedTier('all')}>All</button>
-          <button className={`btn-filter-tag ${selectedTier === 1 ? 'active' : ''}`} onClick={() => setSelectedTier(1)}>T1</button>
-          <button className={`btn-filter-tag ${selectedTier === 2 ? 'active' : ''}`} onClick={() => setSelectedTier(2)}>T2</button>
-          <button className={`btn-filter-tag ${selectedTier === 3 ? 'active' : ''}`} onClick={() => setSelectedTier(3)}>T3</button>
-        </div>
 
         <div className="widgets-nav-list">
           {([1, 2, 3] as const).map(tierNum => {
-            if (selectedTier !== 'all' && selectedTier !== tierNum) return null;
-            const tierWidgets = filteredWidgets.filter(w => w.tier === tierNum);
+            const tierWidgets = WIDGET_REGISTRY.filter(w => w.tier === tierNum);
             if (tierWidgets.length === 0) return null;
 
             return (
               <div key={tierNum} className="widget-tier-section mb-3">
-                {selectedTier === 'all' && (
-                  <div className="widget-tier-section-header">
-                    <span className={`tier-badge-pill tier-${tierNum}`}>T{tierNum}</span>
-                    <span className="widget-tier-section-title">{TIER_METADATA[tierNum].label}</span>
-                  </div>
-                )}
+                <div className="widget-tier-section-header">
+                  <span className={`tier-badge-pill tier-${tierNum}`}>T{tierNum}</span>
+                  <span className="widget-tier-section-title">{TIER_METADATA[tierNum].label}</span>
+                </div>
                 <div className="flex flex-col gap-1.5">
                   {tierWidgets.map(widget => {
                     const isActive = activeWidget.id === widget.id;
