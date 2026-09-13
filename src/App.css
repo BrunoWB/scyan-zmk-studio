@@ -2332,6 +2332,7 @@
   box-sizing: border-box;
   min-height: 0;
   height: 100%;
+  position: relative;
   transition: border-color 0.25s ease, background-color 0.25s ease, opacity 0.25s ease;
 }
 
@@ -2342,11 +2343,22 @@
 .oled-panel-column.oled-panel-compact {
   opacity: 0.75;
   cursor: pointer;
+  padding: 8px 12px;
 }
 
 .oled-panel-column.oled-panel-compact:hover {
   opacity: 1;
   border-color: rgba(0, 210, 255, 0.4);
+}
+
+.oled-floating-badge {
+  user-select: none;
+  pointer-events: auto;
+}
+
+.oled-floating-actions {
+  user-select: none;
+  pointer-events: auto;
 }
 
 /* Animated collapsible bottom toolbar using 0fr -> 1fr CSS Grid */
