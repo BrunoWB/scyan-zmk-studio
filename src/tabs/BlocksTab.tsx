@@ -15,6 +15,7 @@ import { GhostDragOverlay } from './blocks/GhostDragOverlay';
 import { PeripheralMasterWarningModal } from './blocks/PeripheralMasterWarningModal';
 import { SideSettingsPanel } from '../components/ScreenSizePopover';
 import { trackEvent } from '../services/analytics';
+import { remapBlockCoordinates } from '../services/blocksLayout';
 import type { PeripheralScreenData } from '../services/cHeaderParser';
 import { Plus } from 'lucide-react';
 
@@ -657,7 +658,16 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       idleBlocks: pData.idleBlocks ?? DEFAULT_IDLE_PERIPHERAL_BLOCKS,
       onIdleBlocksChange: (newBlocks: LayoutBlock[]) => updatePeripheral({ idleBlocks: newBlocks }),
       dimensions: pData.screenDimensions ?? { width: 32, height: 128 },
-      onDimensionsChange: (dims: { width: number; height: number }) => updatePeripheral({ screenDimensions: dims }),
+      onDimensionsChange: (dims: { width: number; height: number }) => {
+        const oldDims = pData.screenDimensions ?? { width: 32, height: 128 };
+        const currentBlocks = pData.blocks ?? DEFAULT_PERIPHERAL_LAYOUT_BLOCKS;
+        const currentIdleBlocks = pData.idleBlocks ?? DEFAULT_IDLE_PERIPHERAL_BLOCKS;
+        updatePeripheral({
+          screenDimensions: dims,
+          blocks: remapBlockCoordinates(currentBlocks, oldDims, dims),
+          idleBlocks: remapBlockCoordinates(currentIdleBlocks, oldDims, dims),
+        });
+      },
       idleEnabled: pData.idleScreensEnabled ?? true,
       onIdleEnabledChange: (enabled: boolean) => updatePeripheral({ idleScreensEnabled: enabled }),
       idleTimeout: pData.idleTimeoutSec ?? 30,

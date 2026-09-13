@@ -5,6 +5,7 @@ import {
   DEFAULT_RIGHT_LAYOUT_BLOCKS,
 } from '../../types/zmk';
 import { getWidgetDefinition } from '../widgetRegistry';
+import { remapBlockCoordinates } from '../blocksLayout';
 
 describe('Blocks Tab Layout & Interaction Mechanics', () => {
   // Helper for computing drop target side and clamped Y
@@ -369,7 +370,115 @@ describe('Blocks Tab Layout & Interaction Mechanics', () => {
       const wpm = getWidgetDefinition('wpm')!;
       expect(wpm.defaultWidth).toBe(28);
       expect(wpm.defaultHeight).toBe(10);
+    });
+  });
 
+  describe('Graceful Widget Pixel Coordinate Remapping (remapBlockCoordinates)', () => {
+    it('returns unmodified blocks if dimensions are identical or invalid', () => {
+      const blocks: LayoutBlock[] = [
+        { id: 'b1', name: 'Test', x: 5, y: 10, width: 15, height: 10, enabled: true },
+      ];
+      expect(remapBlockCoordinates(blocks, { width: 32, height: 128 }, { width: 32, height: 128 })).toBe(blocks);
+      expect(remapBlockCoordinates([], { width: 32, height: 128 }, { width: 128, height: 32 })).toEqual([]);
+    });
+
+    it('scales coordinates proportionally when orientation is unchanged (vertical -> vertical)', () => {
+      const blocks: LayoutBlock[] = [
+        { id: 'b1', name: 'Center Block', x: 8, y: 32, width: 16, height: 16, enabled: true },
+      ];
+      // 32x128 -> 64x256 (doubling both dimensions)
+      // x: 8 / 32 = 25% -> 0.25 * 64 = 16
+      // y: 32 / 128 = 25% -> 0.25 * 256 = 64
+      const result = remapBlockCoordinates(blocks, { width: 32, height: 128 }, { width: 64, height: 256 });
+      expect(result[0].x).toBe(16);
+      expect(result[0].y).toBe(64);
+    });
+
+    it('scales coordinates proportionally when orientation is unchanged (horizontal -> horizontal)', () => {
+      const blocks: LayoutBlock[] = [
+        { id: 'b1', name: 'Wide Block', x: 32, y: 8, width: 24, height: 10, enabled: true },
+      ];
+      // 128x32 -> 128x64 (doubling height, keeping width)
+      // x: 32 / 128 = 25% -> 0.25 * 128 = 32
+      // y: 8 / 32 = 25% -> 0.25 * 64 = 16
+      const result = remapBlockCoordinates(blocks, { width: 128, height: 32 }, { width: 128, height: 64 });
+      expect(result[0].x).toBe(32);
+      expect(result[0].y).toBe(16);
+    });
+
+    it('aligns height percentage to new width and width percentage to new height when orientation changes (vertical -> horizontal)', () => {
+      const blocks: LayoutBlock[] = [
+        // Widget at 50% down vertical screen, 25% across width
+        { id: 'mid', name: 'Middle', x: 8, y: 64, width: 20, height: 12, enabled: true },
+      ];
+      // 32x128 -> 128x32
+      // oldY = 64, oldH = 128 -> 50% height
+      // newX = 50% * 128 = 64
+      // oldX = 8, oldW = 32 -> 25% width
+      // newY = 25% * 32 = 8
+      const result = remapBlockCoordinates(blocks, { width: 32, height: 128 }, { width: 128, height: 32 });
+      expect(result[0].x).toBe(64);
+      expect(result[0].y).toBe(8);
+    });
+
+    it('aligns height percentage to new width and width percentage to new height when orientation changes (horizontal -> vertical)', () => {
+      const blocks: LayoutBlock[] = [
+        // Widget at 50% across horizontal screen (x=64), 25% down height (y=8)
+        { id: 'mid', name: 'Middle', x: 64, y: 8, width: 20, height: 12, enabled: true },
+      ];
+      // 128x32 -> 32x128
+      // oldY = 8, oldH = 32 -> 25% height -> newX = 25% * 32 = 8
+      // oldX = 64, oldW = 128 -> 50% width -> newY = 50% * 128 = 64
+      const result = remapBlockCoordinates(blocks, { width: 128, height: 32 }, { width: 32, height: 128 });
+      expect(result[0].x).toBe(8);
+      expect(result[0].y).toBe(64);
+    });
+
+    it('nudges widgets inside screen boundaries when projected coordinates exceed bounds', () => {
+      // Near bottom-right of a vertical screen
+      const blocks: LayoutBlock[] = [
+        { id: 'overflow', name: 'Overflowing', x: 20, y: 120, width: 20, height: 16, enabled: true },
+      ];
+      // 32x128 -> 128x32
+      // oldY = 120 / 128 = 93.75% -> newX = Math.round(0.9375 * 128) = 120
+      // 120 + 20 = 140 > 128!
+      // Must nudge left to 128 - 20 = 108
+      // oldX = 20 / 32 = 62.5% -> newY = Math.round(0.625 * 32) = 20
+      // 20 + 16 = 36 > 32!
+      // Must nudge up to 32 - 16 = 16
+      const result = remapBlockCoordinates(blocks, { width: 32, height: 128 }, { width: 128, height: 32 });
+      expect(result[0].x).toBe(108);
+      expect(result[0].x! + result[0].width!).toBe(128);
+      expect(result[0].y).toBe(16);
+      expect(result[0].y + result[0].height).toBe(32);
+    });
+
+    it('keeps oversized widgets as is when they cannot physically fit inside the new dimension', () => {
+      // Widget width 40 on a screen with new width 32
+      const blocks: LayoutBlock[] = [
+        { id: 'oversize', name: 'Oversized', x: 50, y: 10, width: 40, height: 10, enabled: true },
+      ];
+      // 128x32 -> 32x128
+      // newW = 32, but block width is 40! Cannot fit in 32, leaves x as is (bounded >= 0)
+      const result = remapBlockCoordinates(blocks, { width: 128, height: 32 }, { width: 32, height: 128 });
+      expect(result[0].width).toBe(40);
+      expect(result[0].x).toBeGreaterThanOrEqual(0);
+    });
+
+    it('successfully remaps DEFAULT_CENTRAL_LAYOUT_BLOCKS from vertical Corne 32x128 to horizontal Lily58 128x32 within bounds', () => {
+      const result = remapBlockCoordinates(
+        DEFAULT_LEFT_LAYOUT_BLOCKS,
+        { width: 32, height: 128 },
+        { width: 128, height: 32 }
+      );
+
+      expect(result.length).toBe(DEFAULT_LEFT_LAYOUT_BLOCKS.length);
+      for (const block of result) {
+        expect(block.x).toBeGreaterThanOrEqual(0);
+        expect(block.y).toBeGreaterThanOrEqual(0);
+        expect(block.x! + block.width!).toBeLessThanOrEqual(128);
+        expect(block.y + block.height).toBeLessThanOrEqual(32);
+      }
     });
   });
 });

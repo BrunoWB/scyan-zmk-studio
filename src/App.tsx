@@ -31,6 +31,7 @@ import {
   inferShieldFromRepo,
   getShieldDefaultResolution,
 } from './services/keymapService';
+import { remapBlockCoordinates } from './services/blocksLayout';
 import type {
   GitHubRepoConfig,
   GitHubConnectionState,
@@ -276,6 +277,36 @@ export function App() {
     const def = getDefaultAssets();
     return def.metadata?.peripheralScreenOffTimeoutSec ?? def.metadata?.rightScreenOffTimeoutSec ?? def.metadata?.screenOffTimeoutSec ?? 60;
   });
+
+  const handleCentralDimensionsChange = useCallback(
+    (newDims: { width: number; height: number }) => {
+      setScreenDimensions((prevDims) => {
+        if (prevDims.width === newDims.width && prevDims.height === newDims.height) {
+          return prevDims;
+        }
+        setCentralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims));
+        setIdleCentralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims));
+        return newDims;
+      });
+      markDimensionsCustomized();
+    },
+    [markDimensionsCustomized]
+  );
+
+  const handlePeripheralDimensionsChange = useCallback(
+    (newDims: { width: number; height: number }) => {
+      setPeripheralScreenDimensions((prevDims) => {
+        if (prevDims.width === newDims.width && prevDims.height === newDims.height) {
+          return prevDims;
+        }
+        setPeripheralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims));
+        setIdlePeripheralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims));
+        return newDims;
+      });
+      markDimensionsCustomized();
+    },
+    [markDimensionsCustomized]
+  );
 
   const [shieldId, setShieldId] = useState<string>(() => {
     try {
@@ -778,18 +809,14 @@ export function App() {
 
       if (!hasUserCustomizedDimensionsRef.current) {
         const defaultRes = getShieldDefaultResolution(detectedShield);
-        setScreenDimensions(defaultRes);
-        setPeripheralScreenDimensions(defaultRes);
-        try {
-          localStorage.setItem('zmk-screen-dimensions', JSON.stringify(defaultRes));
-          localStorage.setItem('zmk-peripheral-screen-dimensions', JSON.stringify(defaultRes));
-        } catch {}
+        handleCentralDimensionsChange(defaultRes);
+        handlePeripheralDimensionsChange(defaultRes);
         if (sourceDesc) {
           showToast('success', `Detected ${detectedShield} from ${sourceDesc}: aligned canvas to ${defaultRes.width}x${defaultRes.height} px`);
         }
       }
     },
-    [showToast]
+    [handleCentralDimensionsChange, handlePeripheralDimensionsChange, showToast]
   );
 
   // GitHub integration & Connection State
@@ -1461,35 +1488,42 @@ export function App() {
       }
     ) => {
       if (id === 'left' || id === 'central') {
-        setCentralBlocks(data.blocks);
-        setIdleCentralBlocks(data.idleBlocks);
+        const remappedBlocks = remapBlockCoordinates(data.blocks, screenDimensions, data.dimensions);
+        const remappedIdle = remapBlockCoordinates(data.idleBlocks, screenDimensions, data.dimensions);
+        setCentralBlocks(remappedBlocks);
+        setIdleCentralBlocks(remappedIdle);
         setScreenDimensions(data.dimensions);
         markDimensionsCustomized();
         setIdleScreensEnabled(data.idleScreensEnabled);
         setIdleTimeoutSec(data.idleTimeoutSec);
         setScreenOffTimeoutSec(data.screenOffTimeoutSec);
       } else if (id === 'right' || id === 'peripheral') {
-        setPeripheralBlocks(data.blocks);
-        setIdlePeripheralBlocks(data.idleBlocks);
+        const remappedBlocks = remapBlockCoordinates(data.blocks, peripheralScreenDimensions, data.dimensions);
+        const remappedIdle = remapBlockCoordinates(data.idleBlocks, peripheralScreenDimensions, data.dimensions);
+        setPeripheralBlocks(remappedBlocks);
+        setIdlePeripheralBlocks(remappedIdle);
         setPeripheralScreenDimensions(data.dimensions);
         markDimensionsCustomized();
         setPeripheralIdleScreensEnabled(data.idleScreensEnabled);
         setPeripheralIdleTimeoutSec(data.idleTimeoutSec);
         setPeripheralScreenOffTimeoutSec(data.screenOffTimeoutSec);
       } else {
-        setPeripheralScreens((prev) => ({
-          ...prev,
-          [id]: {
-            ...prev[id],
-            blocks: data.blocks,
-            idleBlocks: data.idleBlocks,
-            screenDimensions: data.dimensions,
-            idleScreensEnabled: data.idleScreensEnabled,
-            idleTimeoutSec: data.idleTimeoutSec,
-            screenOffTimeoutSec: data.screenOffTimeoutSec,
-            name: data.customTitle ?? prev[id]?.name,
-          },
-        }));
+        setPeripheralScreens((prev) => {
+          const oldDims = prev[id]?.screenDimensions || { width: 32, height: 128 };
+          return {
+            ...prev,
+            [id]: {
+              ...prev[id],
+              blocks: remapBlockCoordinates(data.blocks, oldDims, data.dimensions),
+              idleBlocks: remapBlockCoordinates(data.idleBlocks, oldDims, data.dimensions),
+              screenDimensions: data.dimensions,
+              idleScreensEnabled: data.idleScreensEnabled,
+              idleTimeoutSec: data.idleTimeoutSec,
+              screenOffTimeoutSec: data.screenOffTimeoutSec,
+              name: data.customTitle ?? prev[id]?.name,
+            },
+          };
+        });
       }
     },
     []
@@ -1790,10 +1824,7 @@ export function App() {
                 onIdleCentralBlocksChange={setIdleCentralBlocks}
                 onIdlePeripheralBlocksChange={setIdlePeripheralBlocks}
                 screenDimensions={screenDimensions}
-                onScreenDimensionsChange={(dims) => {
-                  setScreenDimensions(dims);
-                  markDimensionsCustomized();
-                }}
+                onScreenDimensionsChange={handleCentralDimensionsChange}
                 idleScreensEnabled={idleScreensEnabled}
                 onIdleScreensEnabledChange={setIdleScreensEnabled}
                 idleTimeoutSec={idleTimeoutSec}
@@ -1803,10 +1834,7 @@ export function App() {
                 symmetricSettings={symmetricSettings}
                 onSymmetricSettingsChange={setSymmetricSettings}
                 peripheralScreenDimensions={peripheralScreenDimensions}
-                onPeripheralScreenDimensionsChange={(dims) => {
-                  setPeripheralScreenDimensions(dims);
-                  markDimensionsCustomized();
-                }}
+                onPeripheralScreenDimensionsChange={handlePeripheralDimensionsChange}
                 peripheralIdleScreensEnabled={peripheralIdleScreensEnabled}
                 onPeripheralIdleScreensEnabledChange={setPeripheralIdleScreensEnabled}
                 peripheralIdleTimeoutSec={peripheralIdleTimeoutSec}
@@ -1850,9 +1878,8 @@ export function App() {
                 instances={widgetInstances}
                 customText={customText}
                 onApplyDimensions={(dims, rightDims) => {
-                  setScreenDimensions(dims);
-                  if (rightDims) setPeripheralScreenDimensions(rightDims);
-                  markDimensionsCustomized();
+                  handleCentralDimensionsChange(dims);
+                  if (rightDims) handlePeripheralDimensionsChange(rightDims);
                   setToast({
                     type: 'success',
                     message: `Applied shield resolution: ${dims.width}x${dims.height} px`,
