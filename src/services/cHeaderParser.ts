@@ -5,12 +5,25 @@ import { DEFAULT_SYMBOL_SLICES, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS } fro
 import defaultInstallHeader from '../assets/scyan_assets.install.h?raw';
 import { measureTextWidth, getWidgetNaturalSize, getWidgetDefinition, normalizeWidgetType, resolveWidgetInstance } from './widgetRegistry';
 
+export interface PeripheralScreenData {
+  name?: string;
+  blocks?: LayoutBlock[];
+  idleBlocks?: LayoutBlock[];
+  screenDimensions?: { width: number; height: number };
+  idleScreensEnabled?: boolean;
+  idleTimeoutSec?: number;
+  screenOffTimeoutSec?: number;
+}
+
 export interface HeaderMetadata {
   version: 1;
-  leftBlocks?: LayoutBlock[];
-  rightBlocks?: LayoutBlock[];
-  idleLeftBlocks?: LayoutBlock[];
-  idleRightBlocks?: LayoutBlock[];
+  /** Canonical Central & Peripheral display block tables */
+  centralBlocks?: LayoutBlock[];
+  peripheralBlocks?: LayoutBlock[];
+  idleCentralBlocks?: LayoutBlock[];
+  idlePeripheralBlocks?: LayoutBlock[];
+  /** Dynamic peripheral screens dictionary for arbitrary N peripherals (keyed by screen ID e.g. 'peripheral-2') */
+  peripheralScreens?: Record<string, PeripheralScreenData>;
   screenDimensions?: { width: number; height: number };
   widgetInstances?: WidgetInstanceMap;
   /** Seconds of inactivity before switching to the idle layout (default 30) */
@@ -19,22 +32,37 @@ export interface HeaderMetadata {
   screenOffTimeoutSec?: number;
   /** Whether idle screens are enabled (default true) */
   idleScreensEnabled?: boolean;
-  /** Whether left and right halves share the same display & power settings (default true) */
+  /** Whether central and peripheral share the same display & power settings (default true) */
   symmetricSettings?: boolean;
-  /** Right screen dimensions when asymmetric */
-  rightScreenDimensions?: { width: number; height: number };
-  /** Right idle screens toggle when asymmetric */
-  rightIdleScreensEnabled?: boolean;
-  /** Right idle timeout in seconds when asymmetric */
-  rightIdleTimeoutSec?: number;
-  /** Right screen off timeout in seconds when asymmetric */
-  rightScreenOffTimeoutSec?: number;
+  /** Peripheral screen dimensions when asymmetric */
+  peripheralScreenDimensions?: { width: number; height: number };
+  /** Peripheral idle screens toggle when asymmetric */
+  peripheralIdleScreensEnabled?: boolean;
+  /** Peripheral idle timeout in seconds when asymmetric */
+  peripheralIdleTimeoutSec?: number;
+  /** Peripheral screen off timeout in seconds when asymmetric */
+  peripheralScreenOffTimeoutSec?: number;
+  /** List of currently enabled screens (e.g. ['central', 'peripheral']) */
+  enabledScreens?: string[];
+  /** Active keyboard shield ID (e.g. 'corne', 'lily58', 'sofle', etc.) */
+  shieldId?: string;
   /** Bongo Cat tap animation duration in milliseconds (default 60, matches CONFIG_SCYAN_BONGO_TAP_MS) */
   bongoTapMs?: number;
   /** Bongo Cat debounce interval in milliseconds (default 100) */
   bongoDebounceMs?: number;
   /** Active keyboard layer names loaded from ZMK keymap */
   layerNames?: string[];
+  /** Legacy fields for backward compatibility when parsing older generated headers */
+  leftBlocks?: LayoutBlock[];
+  rightBlocks?: LayoutBlock[];
+  idleLeftBlocks?: LayoutBlock[];
+  idleRightBlocks?: LayoutBlock[];
+  dongleBlocks?: LayoutBlock[];
+  idleDongleBlocks?: LayoutBlock[];
+  rightScreenDimensions?: { width: number; height: number };
+  rightIdleScreensEnabled?: boolean;
+  rightIdleTimeoutSec?: number;
+  rightScreenOffTimeoutSec?: number;
 }
 
 export interface ParsedAssets {
@@ -324,14 +352,48 @@ export function parseCHeader(cCode: string): ParsedAssets {
         const parsedMeta = JSON.parse(metaMatch[1].trim());
         if (parsedMeta && typeof parsedMeta === 'object') {
           metadata = parsedMeta;
-          if (metadata && metadata.widgetInstances) {
-            const instMap = { ...metadata.widgetInstances };
-            if (instMap['loop'] && !instMap['animation']) {
-              instMap['animation'] = instMap['loop'].map((i: any) => ({ ...i, widgetTypeId: 'animation' }));
-            } else if (instMap['animation'] && !instMap['loop']) {
-              instMap['loop'] = instMap['animation'].map((i: any) => ({ ...i, widgetTypeId: 'loop' }));
+          if (metadata) {
+            if (metadata.leftBlocks && !metadata.centralBlocks) {
+              metadata.centralBlocks = metadata.leftBlocks;
+            } else if (metadata.centralBlocks && !metadata.leftBlocks) {
+              (metadata as any).leftBlocks = metadata.centralBlocks;
             }
-            metadata.widgetInstances = instMap;
+            if (metadata.rightBlocks && !metadata.peripheralBlocks) {
+              metadata.peripheralBlocks = metadata.rightBlocks;
+            } else if (metadata.peripheralBlocks && !metadata.rightBlocks) {
+              (metadata as any).rightBlocks = metadata.peripheralBlocks;
+            }
+            if (metadata.idleLeftBlocks && !metadata.idleCentralBlocks) {
+              metadata.idleCentralBlocks = metadata.idleLeftBlocks;
+            } else if (metadata.idleCentralBlocks && !metadata.idleLeftBlocks) {
+              (metadata as any).idleLeftBlocks = metadata.idleCentralBlocks;
+            }
+            if (metadata.idleRightBlocks && !metadata.idlePeripheralBlocks) {
+              metadata.idlePeripheralBlocks = metadata.idleRightBlocks;
+            } else if (metadata.idlePeripheralBlocks && !metadata.idleRightBlocks) {
+              (metadata as any).idleRightBlocks = metadata.idlePeripheralBlocks;
+            }
+            if (metadata.peripheralScreenDimensions && !metadata.rightScreenDimensions) {
+              (metadata as any).rightScreenDimensions = metadata.peripheralScreenDimensions;
+            } else if (metadata.rightScreenDimensions && !metadata.peripheralScreenDimensions) {
+              metadata.peripheralScreenDimensions = metadata.rightScreenDimensions;
+            }
+            if (metadata.enabledScreens) {
+              metadata.enabledScreens = metadata.enabledScreens
+                .map((s: string) => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
+                .filter((s: string) => s !== 'dongle');
+            } else {
+              metadata.enabledScreens = ['central', 'peripheral'];
+            }
+            if (metadata.widgetInstances) {
+              const instMap = { ...metadata.widgetInstances };
+              if (instMap['loop'] && !instMap['animation']) {
+                instMap['animation'] = instMap['loop'].map((i: any) => ({ ...i, widgetTypeId: 'animation' }));
+              } else if (instMap['animation'] && !instMap['loop']) {
+                instMap['loop'] = instMap['animation'].map((i: any) => ({ ...i, widgetTypeId: 'loop' }));
+              }
+              metadata.widgetInstances = instMap;
+            }
           }
         }
       } catch (e) {
@@ -347,23 +409,23 @@ export function parseCHeader(cCode: string): ParsedAssets {
       : undefined;
 
     // 6b. Parse display power-management timer defines & idle screens configuration
-    const idleTimeoutMsMatch = cCode.match(/#define\s+(?:SCYAN_IDLE_TIMEOUT_MS_LEFT|ZMK_DISPLAY_IDLE_TIMEOUT_MS|CONFIG_SCYAN_IDLE_TIMEOUT_MS|SCYAN_IDLE_TIMEOUT_MS)\s+(\d+)/);
-    const sleepTimeoutMsMatch = cCode.match(/#define\s+(?:SCYAN_SLEEP_TIMEOUT_MS_LEFT|ZMK_DISPLAY_SLEEP_TIMEOUT_MS|CONFIG_ZMK_IDLE_TIMEOUT|SCYAN_SLEEP_TIMEOUT_MS)\s+(\d+)/);
-    const idleScreensMatch = cCode.match(/#define\s+(?:SCYAN_IDLE_SCREENS_ENABLED_LEFT|ZMK_DISPLAY_IDLE_SCREENS_ENABLED|SCYAN_IDLE_SCREENS_ENABLED)\s+(\d+)/);
+    const idleTimeoutMsMatch = cCode.match(/#define\s+(?:SCYAN_IDLE_TIMEOUT_MS_CENTRAL|SCYAN_IDLE_TIMEOUT_MS_LEFT|ZMK_DISPLAY_IDLE_TIMEOUT_MS|CONFIG_SCYAN_IDLE_TIMEOUT_MS|SCYAN_IDLE_TIMEOUT_MS)\s+(\d+)/);
+    const sleepTimeoutMsMatch = cCode.match(/#define\s+(?:SCYAN_SLEEP_TIMEOUT_MS_CENTRAL|SCYAN_SLEEP_TIMEOUT_MS_LEFT|ZMK_DISPLAY_SLEEP_TIMEOUT_MS|CONFIG_ZMK_IDLE_TIMEOUT|SCYAN_SLEEP_TIMEOUT_MS)\s+(\d+)/);
+    const idleScreensMatch = cCode.match(/#define\s+(?:SCYAN_IDLE_SCREENS_ENABLED_CENTRAL|SCYAN_IDLE_SCREENS_ENABLED_LEFT|ZMK_DISPLAY_IDLE_SCREENS_ENABLED|SCYAN_IDLE_SCREENS_ENABLED)\s+(\d+)/);
     const parsedIdleTimeoutSec = idleTimeoutMsMatch ? Math.round(parseInt(idleTimeoutMsMatch[1], 10) / 1000) : undefined;
     const parsedScreenOffTimeoutSec = sleepTimeoutMsMatch ? Math.round(parseInt(sleepTimeoutMsMatch[1], 10) / 1000) : undefined;
     const parsedIdleScreensEnabled = idleScreensMatch ? (parseInt(idleScreensMatch[1], 10) !== 0) : undefined;
 
-    // 6c. Parse right-specific dimensions & power timers (if defined for asymmetric hardware)
-    const rightVirtWidthMatch = cCode.match(/#define\s+DISPLAY_VIRTUAL_WIDTH_RIGHT\s+(\d+)/);
-    const rightVirtHeightMatch = cCode.match(/#define\s+DISPLAY_VIRTUAL_HEIGHT_RIGHT\s+(\d+)/);
+    // 6c. Parse peripheral-specific dimensions & power timers (if defined for asymmetric hardware)
+    const rightVirtWidthMatch = cCode.match(/#define\s+(?:DISPLAY_VIRTUAL_WIDTH_PERIPHERAL|DISPLAY_VIRTUAL_WIDTH_RIGHT)\s+(\d+)/);
+    const rightVirtHeightMatch = cCode.match(/#define\s+(?:DISPLAY_VIRTUAL_HEIGHT_PERIPHERAL|DISPLAY_VIRTUAL_HEIGHT_RIGHT)\s+(\d+)/);
     const rightScreenDims = (rightVirtWidthMatch && rightVirtHeightMatch)
       ? { width: parseInt(rightVirtWidthMatch[1], 10), height: parseInt(rightVirtHeightMatch[1], 10) }
       : undefined;
 
-    const rightIdleTimeoutMsMatch = cCode.match(/#define\s+(?:SCYAN_IDLE_TIMEOUT_MS_RIGHT|CONFIG_SCYAN_IDLE_TIMEOUT_MS_RIGHT)\s+(\d+)/);
-    const rightSleepTimeoutMsMatch = cCode.match(/#define\s+(?:SCYAN_SLEEP_TIMEOUT_MS_RIGHT|CONFIG_SCYAN_SLEEP_TIMEOUT_MS_RIGHT)\s+(\d+)/);
-    const rightIdleScreensMatch = cCode.match(/#define\s+SCYAN_IDLE_SCREENS_ENABLED_RIGHT\s+(\d+)/);
+    const rightIdleTimeoutMsMatch = cCode.match(/#define\s+(?:SCYAN_IDLE_TIMEOUT_MS_PERIPHERAL|SCYAN_IDLE_TIMEOUT_MS_RIGHT|CONFIG_SCYAN_IDLE_TIMEOUT_MS_RIGHT)\s+(\d+)/);
+    const rightSleepTimeoutMsMatch = cCode.match(/#define\s+(?:SCYAN_SLEEP_TIMEOUT_MS_PERIPHERAL|SCYAN_SLEEP_TIMEOUT_MS_RIGHT|CONFIG_SCYAN_SLEEP_TIMEOUT_MS_RIGHT)\s+(\d+)/);
+    const rightIdleScreensMatch = cCode.match(/#define\s+(?:SCYAN_IDLE_SCREENS_ENABLED_PERIPHERAL|SCYAN_IDLE_SCREENS_ENABLED_RIGHT)\s+(\d+)/);
     const parsedRightIdleTimeoutSec = rightIdleTimeoutMsMatch ? Math.round(parseInt(rightIdleTimeoutMsMatch[1], 10) / 1000) : undefined;
     const parsedRightScreenOffTimeoutSec = rightSleepTimeoutMsMatch ? Math.round(parseInt(rightSleepTimeoutMsMatch[1], 10) / 1000) : undefined;
     const parsedRightIdleScreensEnabled = rightIdleScreensMatch ? (parseInt(rightIdleScreensMatch[1], 10) !== 0) : undefined;
@@ -371,8 +433,8 @@ export function parseCHeader(cCode: string): ParsedAssets {
     const isAsymmetricC = !!(rightScreenDims || parsedRightIdleTimeoutSec !== undefined || parsedRightScreenOffTimeoutSec !== undefined || parsedRightIdleScreensEnabled !== undefined);
 
     // 7. If metadata JSON was missing or incomplete, reconstruct from C layout block arrays
-    if (!metadata || (!metadata.leftBlocks && !metadata.rightBlocks)) {
-      const parseCBlocks = (arrayName: string, side: 'left' | 'right') => {
+    if (!metadata || (!metadata.centralBlocks && !metadata.peripheralBlocks && !(metadata as any).leftBlocks && !metadata.peripheralScreens)) {
+      const parseCBlocks = (arrayName: string, side: 'central' | 'peripheral' | string) => {
         const arrMatch = cCode.match(new RegExp(`${arrayName}\\[[^\\]]*\\]\\s*=\\s*\\{([\\s\\S]*?)\\};`));
         if (!arrMatch || !arrMatch[1]) return undefined;
         const blocks: LayoutBlock[] = [];
@@ -576,28 +638,48 @@ export function parseCHeader(cCode: string): ParsedAssets {
         return blocks.length > 0 ? blocks : undefined;
       };
 
-      const leftBlocks = parseCBlocks('LAYOUT_LEFT_ACTIVE_BLOCKS', 'left');
-      const rightBlocks = parseCBlocks('LAYOUT_RIGHT_ACTIVE_BLOCKS', 'right');
-      const idleLeftBlocks = parseCBlocks('LAYOUT_LEFT_IDLE_BLOCKS', 'left');
-      const idleRightBlocks = parseCBlocks('LAYOUT_RIGHT_IDLE_BLOCKS', 'right');
+      const centralBlocks = parseCBlocks('LAYOUT_CENTRAL_ACTIVE_BLOCKS', 'central') || parseCBlocks('LAYOUT_LEFT_ACTIVE_BLOCKS', 'central');
+      const peripheralBlocks = parseCBlocks('LAYOUT_PERIPHERAL_ACTIVE_BLOCKS', 'peripheral') || parseCBlocks('LAYOUT_RIGHT_ACTIVE_BLOCKS', 'peripheral');
+      const idleCentralBlocks = parseCBlocks('LAYOUT_CENTRAL_IDLE_BLOCKS', 'central') || parseCBlocks('LAYOUT_LEFT_IDLE_BLOCKS', 'central');
+      const idlePeripheralBlocks = parseCBlocks('LAYOUT_PERIPHERAL_IDLE_BLOCKS', 'peripheral') || parseCBlocks('LAYOUT_RIGHT_IDLE_BLOCKS', 'peripheral');
 
-      if (leftBlocks || rightBlocks || idleLeftBlocks || idleRightBlocks || screenDims) {
+      if (centralBlocks || peripheralBlocks || idleCentralBlocks || idlePeripheralBlocks || screenDims) {
+        const resolvedCentral = centralBlocks || metadata?.centralBlocks;
+        const resolvedPeripheral = peripheralBlocks || metadata?.peripheralBlocks;
+        const resolvedIdleCentral = idleCentralBlocks || metadata?.idleCentralBlocks;
+        const resolvedIdlePeripheral = idlePeripheralBlocks || metadata?.idlePeripheralBlocks;
+        const resolvedPeripheralDims = rightScreenDims || metadata?.peripheralScreenDimensions;
         metadata = {
           version: 1,
-          leftBlocks: leftBlocks || metadata?.leftBlocks,
-          rightBlocks: rightBlocks || metadata?.rightBlocks,
-          idleLeftBlocks: idleLeftBlocks || metadata?.idleLeftBlocks,
-          idleRightBlocks: idleRightBlocks || metadata?.idleRightBlocks,
+          centralBlocks: resolvedCentral,
+          peripheralBlocks: resolvedPeripheral,
+          idleCentralBlocks: resolvedIdleCentral,
+          idlePeripheralBlocks: resolvedIdlePeripheral,
+          leftBlocks: resolvedCentral,
+          rightBlocks: resolvedPeripheral,
+          idleLeftBlocks: resolvedIdleCentral,
+          idleRightBlocks: resolvedIdlePeripheral,
           screenDimensions: screenDims || metadata?.screenDimensions,
+          peripheralScreens: metadata?.peripheralScreens,
           widgetInstances: metadata?.widgetInstances,
           idleTimeoutSec: metadata?.idleTimeoutSec ?? parsedIdleTimeoutSec,
           screenOffTimeoutSec: metadata?.screenOffTimeoutSec ?? parsedScreenOffTimeoutSec,
           idleScreensEnabled: metadata?.idleScreensEnabled ?? parsedIdleScreensEnabled,
           symmetricSettings: metadata?.symmetricSettings ?? (!isAsymmetricC),
-          rightScreenDimensions: rightScreenDims || metadata?.rightScreenDimensions,
-          rightIdleTimeoutSec: metadata?.rightIdleTimeoutSec ?? parsedRightIdleTimeoutSec,
-          rightScreenOffTimeoutSec: metadata?.rightScreenOffTimeoutSec ?? parsedRightScreenOffTimeoutSec,
-          rightIdleScreensEnabled: metadata?.rightIdleScreensEnabled ?? parsedRightIdleScreensEnabled,
+          peripheralScreenDimensions: resolvedPeripheralDims,
+          rightScreenDimensions: resolvedPeripheralDims,
+          peripheralIdleTimeoutSec: metadata?.peripheralIdleTimeoutSec ?? parsedRightIdleTimeoutSec,
+          rightIdleTimeoutSec: metadata?.peripheralIdleTimeoutSec ?? parsedRightIdleTimeoutSec,
+          peripheralScreenOffTimeoutSec: metadata?.peripheralScreenOffTimeoutSec ?? parsedRightScreenOffTimeoutSec,
+          rightScreenOffTimeoutSec: metadata?.peripheralScreenOffTimeoutSec ?? parsedRightScreenOffTimeoutSec,
+          peripheralIdleScreensEnabled: metadata?.peripheralIdleScreensEnabled ?? parsedRightIdleScreensEnabled,
+          rightIdleScreensEnabled: metadata?.peripheralIdleScreensEnabled ?? parsedRightIdleScreensEnabled,
+          enabledScreens: metadata?.enabledScreens
+            ? metadata.enabledScreens
+                .map(s => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
+                .filter(s => s !== 'dongle')
+            : ['central', 'peripheral'],
+          shieldId: metadata?.shieldId,
         };
       }
     } else if (screenDims && !metadata.screenDimensions) {
@@ -615,23 +697,23 @@ export function parseCHeader(cCode: string): ParsedAssets {
         metadata.idleScreensEnabled = parsedIdleScreensEnabled;
       }
       if (metadata.symmetricSettings === undefined) {
-        if (metadata.rightScreenDimensions || isAsymmetricC) {
+        if (metadata.peripheralScreenDimensions || isAsymmetricC) {
           metadata.symmetricSettings = false;
         } else {
           metadata.symmetricSettings = true;
         }
       }
-      if (rightScreenDims && !metadata.rightScreenDimensions) {
-        metadata.rightScreenDimensions = rightScreenDims;
+      if (rightScreenDims && !metadata.peripheralScreenDimensions) {
+        metadata.peripheralScreenDimensions = rightScreenDims;
       }
-      if (parsedRightIdleTimeoutSec !== undefined && metadata.rightIdleTimeoutSec === undefined) {
-        metadata.rightIdleTimeoutSec = parsedRightIdleTimeoutSec;
+      if (parsedRightIdleTimeoutSec !== undefined && metadata.peripheralIdleTimeoutSec === undefined) {
+        metadata.peripheralIdleTimeoutSec = parsedRightIdleTimeoutSec;
       }
-      if (parsedRightScreenOffTimeoutSec !== undefined && metadata.rightScreenOffTimeoutSec === undefined) {
-        metadata.rightScreenOffTimeoutSec = parsedRightScreenOffTimeoutSec;
+      if (parsedRightScreenOffTimeoutSec !== undefined && metadata.peripheralScreenOffTimeoutSec === undefined) {
+        metadata.peripheralScreenOffTimeoutSec = parsedRightScreenOffTimeoutSec;
       }
-      if (parsedRightIdleScreensEnabled !== undefined && metadata.rightIdleScreensEnabled === undefined) {
-        metadata.rightIdleScreensEnabled = parsedRightIdleScreensEnabled;
+      if (parsedRightIdleScreensEnabled !== undefined && metadata.peripheralIdleScreensEnabled === undefined) {
+        metadata.peripheralIdleScreensEnabled = parsedRightIdleScreensEnabled;
       }
 
       // Reconcile blocks with widget instances for wpm-chart to prevent stale dimensions
@@ -651,10 +733,16 @@ export function parseCHeader(cCode: string): ParsedAssets {
           }
         });
       };
-      reconcileChartBlocks(metadata.leftBlocks);
-      reconcileChartBlocks(metadata.rightBlocks);
-      reconcileChartBlocks(metadata.idleLeftBlocks);
-      reconcileChartBlocks(metadata.idleRightBlocks);
+      reconcileChartBlocks(metadata.centralBlocks);
+      reconcileChartBlocks(metadata.peripheralBlocks);
+      reconcileChartBlocks(metadata.idleCentralBlocks);
+      reconcileChartBlocks(metadata.idlePeripheralBlocks);
+      if (metadata.peripheralScreens) {
+        Object.values(metadata.peripheralScreens).forEach(ps => {
+          reconcileChartBlocks(ps.blocks);
+          reconcileChartBlocks(ps.idleBlocks);
+        });
+      }
 
       // Reconcile blocks with widget instances for wpm to prevent stale dimensions
       const reconcileWpmBlocks = (blockList?: LayoutBlock[]) => {
@@ -676,10 +764,16 @@ export function parseCHeader(cCode: string): ParsedAssets {
           }
         });
       };
-      reconcileWpmBlocks(metadata.leftBlocks);
-      reconcileWpmBlocks(metadata.rightBlocks);
-      reconcileWpmBlocks(metadata.idleLeftBlocks);
-      reconcileWpmBlocks(metadata.idleRightBlocks);
+      reconcileWpmBlocks(metadata.centralBlocks);
+      reconcileWpmBlocks(metadata.peripheralBlocks);
+      reconcileWpmBlocks(metadata.idleCentralBlocks);
+      reconcileWpmBlocks(metadata.idlePeripheralBlocks);
+      if (metadata.peripheralScreens) {
+        Object.values(metadata.peripheralScreens).forEach(ps => {
+          reconcileWpmBlocks(ps.blocks);
+          reconcileWpmBlocks(ps.idleBlocks);
+        });
+      }
 
       // Reconcile blocks with widget instances for animation/loop to ensure natural dimensions
       const reconcileAnimationBlocks = (blockList?: LayoutBlock[]) => {
@@ -699,10 +793,16 @@ export function parseCHeader(cCode: string): ParsedAssets {
           }
         });
       };
-      reconcileAnimationBlocks(metadata.leftBlocks);
-      reconcileAnimationBlocks(metadata.rightBlocks);
-      reconcileAnimationBlocks(metadata.idleLeftBlocks);
-      reconcileAnimationBlocks(metadata.idleRightBlocks);
+      reconcileAnimationBlocks(metadata.centralBlocks);
+      reconcileAnimationBlocks(metadata.peripheralBlocks);
+      reconcileAnimationBlocks(metadata.idleCentralBlocks);
+      reconcileAnimationBlocks(metadata.idlePeripheralBlocks);
+      if (metadata.peripheralScreens) {
+        Object.values(metadata.peripheralScreens).forEach(ps => {
+          reconcileAnimationBlocks(ps.blocks);
+          reconcileAnimationBlocks(ps.idleBlocks);
+        });
+      }
     }
 
   } catch (err) {
@@ -846,27 +946,30 @@ export function generateCHeader(
 
   const virtWidth = metadata?.screenDimensions?.width ?? 32;
   const virtHeight = metadata?.screenDimensions?.height ?? 128;
-  const hwWidth = virtHeight;
-  const hwHeight = virtWidth;
+  const isPortrait = virtWidth < virtHeight;
+  const hwWidth = isPortrait ? virtHeight : virtWidth;
+  const hwHeight = isPortrait ? virtWidth : virtHeight;
 
   const isSymmetric = metadata?.symmetricSettings !== false;
-  const rightVirtWidth = (!isSymmetric && metadata?.rightScreenDimensions?.width) ? metadata.rightScreenDimensions.width : virtWidth;
-  const rightVirtHeight = (!isSymmetric && metadata?.rightScreenDimensions?.height) ? metadata.rightScreenDimensions.height : virtHeight;
-  const rightHwWidth = rightVirtHeight;
-  const rightHwHeight = rightVirtWidth;
+  const peripheralDims = metadata?.peripheralScreenDimensions || (metadata as any)?.rightScreenDimensions;
+  const peripheralVirtWidth = (!isSymmetric && peripheralDims?.width) ? peripheralDims.width : virtWidth;
+  const peripheralVirtHeight = (!isSymmetric && peripheralDims?.height) ? peripheralDims.height : virtHeight;
+  const isPeripheralPortrait = peripheralVirtWidth < peripheralVirtHeight;
+  const peripheralHwWidth = isPeripheralPortrait ? peripheralVirtHeight : peripheralVirtWidth;
+  const peripheralHwHeight = isPeripheralPortrait ? peripheralVirtWidth : peripheralVirtHeight;
 
   const idleTimeoutMs = (metadata?.idleTimeoutSec ?? 30) * 1000;
   const screenOffTimeoutMs = (metadata?.screenOffTimeoutSec ?? 60) * 1000;
   const idleScreensEnabled = metadata?.idleScreensEnabled ?? true;
 
-  const rightIdleTimeoutMs = (!isSymmetric && metadata?.rightIdleTimeoutSec !== undefined)
-    ? metadata.rightIdleTimeoutSec * 1000
+  const peripheralIdleTimeoutMs = (!isSymmetric && (metadata?.peripheralIdleTimeoutSec !== undefined || (metadata as any)?.rightIdleTimeoutSec !== undefined))
+    ? (metadata?.peripheralIdleTimeoutSec ?? (metadata as any)?.rightIdleTimeoutSec) * 1000
     : idleTimeoutMs;
-  const rightScreenOffTimeoutMs = (!isSymmetric && metadata?.rightScreenOffTimeoutSec !== undefined)
-    ? metadata.rightScreenOffTimeoutSec * 1000
+  const peripheralScreenOffTimeoutMs = (!isSymmetric && (metadata?.peripheralScreenOffTimeoutSec !== undefined || (metadata as any)?.rightScreenOffTimeoutSec !== undefined))
+    ? (metadata?.peripheralScreenOffTimeoutSec ?? (metadata as any)?.rightScreenOffTimeoutSec) * 1000
     : screenOffTimeoutMs;
-  const rightIdleScreensEnabled = (!isSymmetric && metadata?.rightIdleScreensEnabled !== undefined)
-    ? metadata.rightIdleScreensEnabled
+  const peripheralIdleScreensEnabled = (!isSymmetric && (metadata?.peripheralIdleScreensEnabled !== undefined || (metadata as any)?.rightIdleScreensEnabled !== undefined))
+    ? (metadata?.peripheralIdleScreensEnabled ?? (metadata as any)?.rightIdleScreensEnabled)
     : idleScreensEnabled;
 
   let c = `/* Auto-generated 2-Atlas spritesheet architecture for Corne vertical OLED display */
@@ -881,12 +984,16 @@ export function generateCHeader(
 #define DISPLAY_VIRTUAL_HEIGHT ${virtHeight}
 #define DISPLAY_HW_WIDTH       ${hwWidth}
 #define DISPLAY_HW_HEIGHT      ${hwHeight}
-${!isSymmetric ? `#define DISPLAY_VIRTUAL_WIDTH_RIGHT  ${rightVirtWidth}
-#define DISPLAY_VIRTUAL_HEIGHT_RIGHT ${rightVirtHeight}
-#define DISPLAY_HW_WIDTH_RIGHT       ${rightHwWidth}
-#define DISPLAY_HW_HEIGHT_RIGHT      ${rightHwHeight}
-` : ''}
-/* Display power-management timers & idle configuration */
+${!isSymmetric ? `#define DISPLAY_VIRTUAL_WIDTH_PERIPHERAL  ${peripheralVirtWidth}
+#define DISPLAY_VIRTUAL_HEIGHT_PERIPHERAL ${peripheralVirtHeight}
+#define DISPLAY_HW_WIDTH_PERIPHERAL       ${peripheralHwWidth}
+#define DISPLAY_HW_HEIGHT_PERIPHERAL      ${peripheralHwHeight}
+/* Legacy right aliases */
+#define DISPLAY_VIRTUAL_WIDTH_RIGHT  DISPLAY_VIRTUAL_WIDTH_PERIPHERAL
+#define DISPLAY_VIRTUAL_HEIGHT_RIGHT DISPLAY_VIRTUAL_HEIGHT_PERIPHERAL
+#define DISPLAY_HW_WIDTH_RIGHT       DISPLAY_HW_WIDTH_PERIPHERAL
+#define DISPLAY_HW_HEIGHT_RIGHT      DISPLAY_HW_HEIGHT_PERIPHERAL
+` : ''}/* Display power-management timers & idle configuration */
 #define ZMK_DISPLAY_IDLE_SCREENS_ENABLED ${idleScreensEnabled ? 1 : 0}
 #define SCYAN_IDLE_SCREENS_ENABLED       ${idleScreensEnabled ? 1 : 0}
 #define ZMK_DISPLAY_IDLE_TIMEOUT_MS  ${idleTimeoutMs}
@@ -896,12 +1003,19 @@ ${!isSymmetric ? `#define DISPLAY_VIRTUAL_WIDTH_RIGHT  ${rightVirtWidth}
 #endif
 #define ZMK_DISPLAY_SLEEP_TIMEOUT_MS ${screenOffTimeoutMs}
 #define SCYAN_SLEEP_TIMEOUT_MS       ${screenOffTimeoutMs}
-${!isSymmetric ? `#define SCYAN_IDLE_SCREENS_ENABLED_LEFT  ${idleScreensEnabled ? 1 : 0}
-#define SCYAN_IDLE_TIMEOUT_MS_LEFT       ${idleTimeoutMs}
-#define SCYAN_SLEEP_TIMEOUT_MS_LEFT      ${screenOffTimeoutMs}
-#define SCYAN_IDLE_SCREENS_ENABLED_RIGHT ${rightIdleScreensEnabled ? 1 : 0}
-#define SCYAN_IDLE_TIMEOUT_MS_RIGHT        ${rightIdleTimeoutMs}
-#define SCYAN_SLEEP_TIMEOUT_MS_RIGHT       ${rightScreenOffTimeoutMs}
+${!isSymmetric ? `#define SCYAN_IDLE_SCREENS_ENABLED_CENTRAL  ${idleScreensEnabled ? 1 : 0}
+#define SCYAN_IDLE_TIMEOUT_MS_CENTRAL       ${idleTimeoutMs}
+#define SCYAN_SLEEP_TIMEOUT_MS_CENTRAL      ${screenOffTimeoutMs}
+#define SCYAN_IDLE_SCREENS_ENABLED_PERIPHERAL ${peripheralIdleScreensEnabled ? 1 : 0}
+#define SCYAN_IDLE_TIMEOUT_MS_PERIPHERAL        ${peripheralIdleTimeoutMs}
+#define SCYAN_SLEEP_TIMEOUT_MS_PERIPHERAL       ${peripheralScreenOffTimeoutMs}
+/* Backward-compatible aliases for legacy firmware builds */
+#define SCYAN_IDLE_SCREENS_ENABLED_LEFT     SCYAN_IDLE_SCREENS_ENABLED_CENTRAL
+#define SCYAN_IDLE_TIMEOUT_MS_LEFT          SCYAN_IDLE_TIMEOUT_MS_CENTRAL
+#define SCYAN_SLEEP_TIMEOUT_MS_LEFT         SCYAN_SLEEP_TIMEOUT_MS_CENTRAL
+#define SCYAN_IDLE_SCREENS_ENABLED_RIGHT    SCYAN_IDLE_SCREENS_ENABLED_PERIPHERAL
+#define SCYAN_IDLE_TIMEOUT_MS_RIGHT         SCYAN_IDLE_TIMEOUT_MS_PERIPHERAL
+#define SCYAN_SLEEP_TIMEOUT_MS_RIGHT        SCYAN_SLEEP_TIMEOUT_MS_PERIPHERAL
 ` : ''}
 
 /* Sprite slice descriptor */
@@ -1103,7 +1217,12 @@ static const struct display_font font_default = {
 };
 `;
 
-  if (metadata && (metadata.leftBlocks || metadata.rightBlocks || metadata.idleLeftBlocks || metadata.idleRightBlocks)) {
+  if (metadata && (
+    metadata.centralBlocks?.length || metadata.peripheralBlocks?.length ||
+    metadata.idleCentralBlocks?.length || metadata.idlePeripheralBlocks?.length ||
+    (metadata as any).leftBlocks?.length || (metadata as any).rightBlocks?.length ||
+    metadata.enabledScreens?.length
+  )) {
     c += `\n/* Interactive Screen Layout & Widget Architecture */\n`;
     c += `#define HAS_CUSTOM_LAYOUT_BLOCKS 1\n\n`;
     c += `enum display_widget_type {\n`;
@@ -1398,14 +1517,68 @@ static const struct display_font font_default = {
       c += `#define ${countName} ${all.length}\n\n`;
     };
 
-    emitBlockArray('LAYOUT_LEFT_ACTIVE_BLOCKS', 'LAYOUT_LEFT_ACTIVE_COUNT', metadata.leftBlocks);
-    emitBlockArray('LAYOUT_LEFT_IDLE_BLOCKS', 'LAYOUT_LEFT_IDLE_COUNT', metadata.idleLeftBlocks);
-    emitBlockArray('LAYOUT_RIGHT_ACTIVE_BLOCKS', 'LAYOUT_RIGHT_ACTIVE_COUNT', metadata.rightBlocks);
-    emitBlockArray('LAYOUT_RIGHT_IDLE_BLOCKS', 'LAYOUT_RIGHT_IDLE_COUNT', metadata.idleRightBlocks);
+    const centralActive = metadata.centralBlocks || (metadata as any).leftBlocks;
+    const centralIdle = metadata.idleCentralBlocks || (metadata as any).idleLeftBlocks;
+    const peripheralActive = metadata.peripheralBlocks || (metadata as any).rightBlocks;
+    const peripheralIdle = metadata.idlePeripheralBlocks || (metadata as any).idleRightBlocks;
+
+    emitBlockArray('LAYOUT_CENTRAL_ACTIVE_BLOCKS', 'LAYOUT_CENTRAL_ACTIVE_COUNT', centralActive);
+    emitBlockArray('LAYOUT_CENTRAL_IDLE_BLOCKS', 'LAYOUT_CENTRAL_IDLE_COUNT', centralIdle);
+    emitBlockArray('LAYOUT_PERIPHERAL_ACTIVE_BLOCKS', 'LAYOUT_PERIPHERAL_ACTIVE_COUNT', peripheralActive);
+    emitBlockArray('LAYOUT_PERIPHERAL_IDLE_BLOCKS', 'LAYOUT_PERIPHERAL_IDLE_COUNT', peripheralIdle);
+
+    c += `/* Backward-compatible aliases for legacy firmware builds */\n`;
+    c += `#define LAYOUT_LEFT_ACTIVE_BLOCKS   LAYOUT_CENTRAL_ACTIVE_BLOCKS\n`;
+    c += `#define LAYOUT_LEFT_ACTIVE_COUNT    LAYOUT_CENTRAL_ACTIVE_COUNT\n`;
+    c += `#define LAYOUT_LEFT_IDLE_BLOCKS     LAYOUT_CENTRAL_IDLE_BLOCKS\n`;
+    c += `#define LAYOUT_LEFT_IDLE_COUNT      LAYOUT_CENTRAL_IDLE_COUNT\n`;
+    c += `#define LAYOUT_RIGHT_ACTIVE_BLOCKS  LAYOUT_PERIPHERAL_ACTIVE_BLOCKS\n`;
+    c += `#define LAYOUT_RIGHT_ACTIVE_COUNT   LAYOUT_PERIPHERAL_ACTIVE_COUNT\n`;
+    c += `#define LAYOUT_RIGHT_IDLE_BLOCKS    LAYOUT_PERIPHERAL_IDLE_BLOCKS\n`;
+    c += `#define LAYOUT_RIGHT_IDLE_COUNT     LAYOUT_PERIPHERAL_IDLE_COUNT\n\n`;
+
+    if (metadata.peripheralScreens) {
+      Object.entries(metadata.peripheralScreens).forEach(([id, screen]) => {
+        const sanitized = id.toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+        emitBlockArray(`LAYOUT_${sanitized}_ACTIVE_BLOCKS`, `LAYOUT_${sanitized}_ACTIVE_COUNT`, screen.blocks);
+        emitBlockArray(`LAYOUT_${sanitized}_IDLE_BLOCKS`, `LAYOUT_${sanitized}_IDLE_COUNT`, screen.idleBlocks);
+      });
+    }
   }
 
   if (metadata) {
-    c += `\n/* ZMK_DISPLAY_STUDIO_METADATA\n${JSON.stringify(metadata, null, 2)}\n*/\n`;
+    const cleanMeta: HeaderMetadata = {
+      version: 1,
+      centralBlocks: metadata.centralBlocks || (metadata as any).leftBlocks,
+      peripheralBlocks: metadata.peripheralBlocks || (metadata as any).rightBlocks,
+      idleCentralBlocks: metadata.idleCentralBlocks || (metadata as any).idleLeftBlocks,
+      idlePeripheralBlocks: metadata.idlePeripheralBlocks || (metadata as any).idleRightBlocks,
+      peripheralScreens: metadata.peripheralScreens,
+      screenDimensions: metadata.screenDimensions,
+      widgetInstances: metadata.widgetInstances,
+      idleTimeoutSec: metadata.idleTimeoutSec,
+      screenOffTimeoutSec: metadata.screenOffTimeoutSec,
+      idleScreensEnabled: metadata.idleScreensEnabled,
+      symmetricSettings: metadata.symmetricSettings,
+      peripheralScreenDimensions: metadata.peripheralScreenDimensions || (metadata as any).rightScreenDimensions,
+      peripheralIdleScreensEnabled: metadata.peripheralIdleScreensEnabled || (metadata as any).rightIdleScreensEnabled,
+      peripheralIdleTimeoutSec: metadata.peripheralIdleTimeoutSec || (metadata as any).rightIdleTimeoutSec,
+      peripheralScreenOffTimeoutSec: metadata.peripheralScreenOffTimeoutSec || (metadata as any).rightScreenOffTimeoutSec,
+      enabledScreens: (metadata.enabledScreens || ['central', 'peripheral'])
+        .map(s => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
+        .filter(s => s !== 'dongle'),
+      shieldId: metadata.shieldId,
+      bongoTapMs: metadata.bongoTapMs,
+      bongoDebounceMs: metadata.bongoDebounceMs,
+      layerNames: metadata.layerNames,
+    };
+    // Strip undefined values for clean JSON output
+    Object.keys(cleanMeta).forEach(key => {
+      if ((cleanMeta as any)[key] === undefined) {
+        delete (cleanMeta as any)[key];
+      }
+    });
+    c += `\n/* ZMK_DISPLAY_STUDIO_METADATA\n${JSON.stringify(cleanMeta, null, 2)}\n*/\n`;
   }
 
   return c;

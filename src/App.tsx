@@ -10,8 +10,10 @@ import type {
 import type { WidgetInstanceMap, WidgetInstance } from './types/widget';
 import { WIDGET_REGISTRY } from './services/widgetRegistry';
 import {
-  DEFAULT_LEFT_LAYOUT_BLOCKS,
-  DEFAULT_RIGHT_LAYOUT_BLOCKS,
+  DEFAULT_CENTRAL_LAYOUT_BLOCKS,
+  DEFAULT_PERIPHERAL_LAYOUT_BLOCKS,
+  DEFAULT_IDLE_CENTRAL_BLOCKS,
+  DEFAULT_IDLE_PERIPHERAL_BLOCKS,
 } from './types/zmk';
 import {
   parseCHeader,
@@ -19,13 +21,17 @@ import {
   getDefaultAssets,
   type HeaderMetadata,
   type ParsedAssets,
+  type PeripheralScreenData,
 } from './services/cHeaderParser';
 import {
   type ParsedKeymapLayout,
   DEFAULT_EMPTY_5X3_LAYOUT,
   fetchRepoKeymap,
   parseZmkKeymap,
+  inferShieldFromRepo,
+  getShieldDefaultResolution,
 } from './services/keymapService';
+import { remapBlockCoordinates } from './services/blocksLayout';
 import type {
   GitHubRepoConfig,
   GitHubConnectionState,
@@ -51,6 +57,8 @@ import { WidgetsTab } from './tabs/WidgetsTab';
 import { BlocksTab } from './tabs/BlocksTab';
 import ElementReferencePage from './reference/ElementReferencePage';
 import CommandPalette from './reference/components/layout/CommandPalette';
+import { ShieldsTab } from './tabs/ShieldsTab';
+import { TopologySandboxTab } from './tabs/TopologySandboxTab';
 import {
   MonitorPlay,
   Shapes,
@@ -62,10 +70,12 @@ import {
   RefreshCw,
   Unplug,
   Palette,
+  Cpu,
+  Network,
 } from 'lucide-react';
 import './App.css';
 
-const VALID_TABS = ['preview', 'symbols', 'font', 'widgets', 'layout', 'blocks', 'reference', 'ui-elements', 'ui-elements-hero'] as const;
+const VALID_TABS = ['preview', 'symbols', 'font', 'widgets', 'layout', 'blocks', 'reference', 'ui-elements', 'ui-elements-hero', 'shields', 'topology'] as const;
 type TabType = typeof VALID_TABS[number];
 
 const getTabFromHash = (): TabType => {
@@ -73,12 +83,24 @@ const getTabFromHash = (): TabType => {
   if (import.meta.env.DEV && (path === 'ui-elements' || path === 'elements' || path === 'reference' || path === 'hero' || path === 'heroui')) {
     return 'reference';
   }
+  if (import.meta.env.DEV && (path === 'shields' || path === 'shield')) {
+    return 'shields';
+  }
+  if (import.meta.env.DEV && (path === 'topology' || path === 'topology-sandbox')) {
+    return 'topology';
+  }
   const hash = window.location.hash.replace(/^#/, '').toLowerCase().trim();
-  if (hash === 'reference' && !import.meta.env.DEV) {
+  if ((hash === 'reference' || hash === 'shields' || hash === 'shield' || hash === 'topology' || hash === 'topology-sandbox' || hash === 'ui-elements' || hash === 'ui-elements-hero') && !import.meta.env.DEV) {
     return 'preview';
   }
   if (hash === 'blocks') {
     return 'layout';
+  }
+  if (import.meta.env.DEV && (hash === 'shields' || hash === 'shield')) {
+    return 'shields';
+  }
+  if (import.meta.env.DEV && (hash === 'topology' || hash === 'topology-sandbox')) {
+    return 'topology';
   }
   if (VALID_TABS.includes(hash as TabType)) {
     return hash as TabType;
@@ -115,41 +137,45 @@ export function App() {
   const [fontGrid, setFontGrid] = useState<BwpxGrid>(() => getDefaultAssets().fontGrid);
   const [fontGlyphs, setFontGlyphs] = useState<FontGlyph[]>(() => getDefaultAssets().fontGlyphs);
   const [fontMappings, setFontMappings] = useState<FontCharMapping[]>(() => getDefaultAssets().fontMappings);
-  const [leftBlocks, setLeftBlocks] = useState<LayoutBlock[]>(() => {
+  const [centralBlocks, setCentralBlocks] = useState<LayoutBlock[]>(() => {
     try {
-      const saved = localStorage.getItem('zmk-left-blocks');
+      const saved = localStorage.getItem('zmk-central-blocks') || localStorage.getItem('zmk-left-blocks');
       if (saved) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.leftBlocks?.length ? def.metadata.leftBlocks : [...DEFAULT_LEFT_LAYOUT_BLOCKS];
+    return def.metadata?.centralBlocks?.length
+      ? def.metadata.centralBlocks
+      : (def.metadata?.leftBlocks?.length ? def.metadata.leftBlocks : [...DEFAULT_CENTRAL_LAYOUT_BLOCKS]);
   });
-  const [rightBlocks, setRightBlocks] = useState<LayoutBlock[]>(() => {
+  const [peripheralBlocks, setPeripheralBlocks] = useState<LayoutBlock[]>(() => {
     try {
-      const saved = localStorage.getItem('zmk-right-blocks');
+      const saved = localStorage.getItem('zmk-peripheral-blocks') || localStorage.getItem('zmk-right-blocks');
       if (saved) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.rightBlocks?.length ? def.metadata.rightBlocks : [...DEFAULT_RIGHT_LAYOUT_BLOCKS];
+    return def.metadata?.peripheralBlocks?.length
+      ? def.metadata.peripheralBlocks
+      : (def.metadata?.rightBlocks?.length ? def.metadata.rightBlocks : [...DEFAULT_PERIPHERAL_LAYOUT_BLOCKS]);
   });
-  const [idleLeftBlocks, setIdleLeftBlocks] = useState<LayoutBlock[]>(() => {
+  const [idleCentralBlocks, setIdleCentralBlocks] = useState<LayoutBlock[]>(() => {
     try {
-      const saved = localStorage.getItem('zmk-idle-left-blocks');
+      const saved = localStorage.getItem('zmk-idle-central-blocks') || localStorage.getItem('zmk-idle-left-blocks');
       if (saved) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.idleLeftBlocks?.length ? def.metadata.idleLeftBlocks : [
-      { id: 'idle-left-art', widgetType: 'screensaver', name: 'Mascot Image', x: 3, y: 35, width: 26, height: 26, enabled: true, side: 'left' }
-    ];
+    return def.metadata?.idleCentralBlocks?.length
+      ? def.metadata.idleCentralBlocks
+      : (def.metadata?.idleLeftBlocks?.length ? def.metadata.idleLeftBlocks : [...DEFAULT_IDLE_CENTRAL_BLOCKS]);
   });
-  const [idleRightBlocks, setIdleRightBlocks] = useState<LayoutBlock[]>(() => {
+  const [idlePeripheralBlocks, setIdlePeripheralBlocks] = useState<LayoutBlock[]>(() => {
     try {
-      const saved = localStorage.getItem('zmk-idle-right-blocks');
+      const saved = localStorage.getItem('zmk-idle-peripheral-blocks') || localStorage.getItem('zmk-idle-right-blocks');
       if (saved) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.idleRightBlocks?.length ? def.metadata.idleRightBlocks : [
-      { id: 'idle-right-art', widgetType: 'screensaver', name: 'Mascot Image', x: 3, y: 35, width: 26, height: 26, enabled: true, side: 'right' }
-    ];
+    return def.metadata?.idlePeripheralBlocks?.length
+      ? def.metadata.idlePeripheralBlocks
+      : (def.metadata?.idleRightBlocks?.length ? def.metadata.idleRightBlocks : [...DEFAULT_IDLE_PERIPHERAL_BLOCKS]);
   });
   const [screenDimensions, setScreenDimensions] = useState<{ width: number; height: number }>(() => {
     try {
@@ -159,6 +185,26 @@ export function App() {
     const def = getDefaultAssets();
     return def.metadata?.screenDimensions || { width: 32, height: 128 };
   });
+
+  const [hasUserCustomizedDimensions, setHasUserCustomizedDimensions] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('zmk-customized-dimensions') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const hasUserCustomizedDimensionsRef = useRef(hasUserCustomizedDimensions);
+  useEffect(() => {
+    hasUserCustomizedDimensionsRef.current = hasUserCustomizedDimensions;
+  }, [hasUserCustomizedDimensions]);
+
+  const markDimensionsCustomized = useCallback(() => {
+    setHasUserCustomizedDimensions(true);
+    hasUserCustomizedDimensionsRef.current = true;
+    try {
+      localStorage.setItem('zmk-customized-dimensions', 'true');
+    } catch {}
+  }, []);
 
   const [idleScreensEnabled, setIdleScreensEnabled] = useState<boolean>(() => {
     try {
@@ -196,40 +242,105 @@ export function App() {
     return def.metadata?.symmetricSettings ?? true;
   });
 
-  const [rightScreenDimensions, setRightScreenDimensions] = useState<{ width: number; height: number }>(() => {
+  const [peripheralScreenDimensions, setPeripheralScreenDimensions] = useState<{ width: number; height: number }>(() => {
     try {
-      const saved = localStorage.getItem('zmk-right-screen-dimensions');
+      const saved = localStorage.getItem('zmk-peripheral-screen-dimensions') || localStorage.getItem('zmk-right-screen-dimensions');
       if (saved) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.rightScreenDimensions || def.metadata?.screenDimensions || { width: 32, height: 128 };
+    return def.metadata?.peripheralScreenDimensions || def.metadata?.rightScreenDimensions || def.metadata?.screenDimensions || { width: 32, height: 128 };
   });
 
-  const [rightIdleScreensEnabled, setRightIdleScreensEnabled] = useState<boolean>(() => {
+  const [peripheralIdleScreensEnabled, setPeripheralIdleScreensEnabled] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem('zmk-right-idle-screens-enabled');
+      const saved = localStorage.getItem('zmk-peripheral-idle-screens-enabled') || localStorage.getItem('zmk-right-idle-screens-enabled');
       if (saved !== null) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.rightIdleScreensEnabled ?? def.metadata?.idleScreensEnabled ?? true;
+    return def.metadata?.peripheralIdleScreensEnabled ?? def.metadata?.rightIdleScreensEnabled ?? def.metadata?.idleScreensEnabled ?? true;
   });
 
-  const [rightIdleTimeoutSec, setRightIdleTimeoutSec] = useState<number>(() => {
+  const [peripheralIdleTimeoutSec, setPeripheralIdleTimeoutSec] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem('zmk-right-idle-timeout-sec');
+      const saved = localStorage.getItem('zmk-peripheral-idle-timeout-sec') || localStorage.getItem('zmk-right-idle-timeout-sec');
       if (saved) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.rightIdleTimeoutSec ?? def.metadata?.idleTimeoutSec ?? 30;
+    return def.metadata?.peripheralIdleTimeoutSec ?? def.metadata?.rightIdleTimeoutSec ?? def.metadata?.idleTimeoutSec ?? 30;
   });
 
-  const [rightScreenOffTimeoutSec, setRightScreenOffTimeoutSec] = useState<number>(() => {
+  const [peripheralScreenOffTimeoutSec, setPeripheralScreenOffTimeoutSec] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem('zmk-right-screen-off-timeout-sec');
+      const saved = localStorage.getItem('zmk-peripheral-screen-off-timeout-sec') || localStorage.getItem('zmk-right-screen-off-timeout-sec');
       if (saved) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.rightScreenOffTimeoutSec ?? def.metadata?.screenOffTimeoutSec ?? 60;
+    return def.metadata?.peripheralScreenOffTimeoutSec ?? def.metadata?.rightScreenOffTimeoutSec ?? def.metadata?.screenOffTimeoutSec ?? 60;
+  });
+
+  const handleCentralDimensionsChange = useCallback(
+    (newDims: { width: number; height: number }) => {
+      setScreenDimensions((prevDims) => {
+        if (prevDims.width === newDims.width && prevDims.height === newDims.height) {
+          return prevDims;
+        }
+        setCentralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims));
+        setIdleCentralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims));
+        return newDims;
+      });
+      markDimensionsCustomized();
+    },
+    [markDimensionsCustomized]
+  );
+
+  const handlePeripheralDimensionsChange = useCallback(
+    (newDims: { width: number; height: number }) => {
+      setPeripheralScreenDimensions((prevDims) => {
+        if (prevDims.width === newDims.width && prevDims.height === newDims.height) {
+          return prevDims;
+        }
+        setPeripheralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims));
+        setIdlePeripheralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims));
+        return newDims;
+      });
+      markDimensionsCustomized();
+    },
+    [markDimensionsCustomized]
+  );
+
+  const [shieldId, setShieldId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-shield-id');
+      if (saved) return saved;
+    } catch {}
+    return 'corne';
+  });
+
+  const [enabledScreens, setEnabledScreens] = useState<('central' | 'peripheral' | string)[]>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-enabled-screens');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed
+            .map((s: string) => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
+            .filter((s: string) => s !== 'dongle');
+        }
+      }
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.enabledScreens
+      ?.map((s: string) => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
+      ?.filter((s: string) => s !== 'dongle') ?? ['central', 'peripheral'];
+  });
+
+  const [peripheralScreens, setPeripheralScreens] = useState<Record<string, PeripheralScreenData>>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-peripheral-screens');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const def = getDefaultAssets();
+    return def.metadata?.peripheralScreens || {};
   });
 
   // Track last editor grid looking position in the session (viewport: zoom & pan)
@@ -271,27 +382,27 @@ export function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-left-blocks', JSON.stringify(leftBlocks));
+      localStorage.setItem('zmk-central-blocks', JSON.stringify(centralBlocks));
     } catch {}
-  }, [leftBlocks]);
+  }, [centralBlocks]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-right-blocks', JSON.stringify(rightBlocks));
+      localStorage.setItem('zmk-peripheral-blocks', JSON.stringify(peripheralBlocks));
     } catch {}
-  }, [rightBlocks]);
+  }, [peripheralBlocks]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-idle-left-blocks', JSON.stringify(idleLeftBlocks));
+      localStorage.setItem('zmk-idle-central-blocks', JSON.stringify(idleCentralBlocks));
     } catch {}
-  }, [idleLeftBlocks]);
+  }, [idleCentralBlocks]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-idle-right-blocks', JSON.stringify(idleRightBlocks));
+      localStorage.setItem('zmk-idle-peripheral-blocks', JSON.stringify(idlePeripheralBlocks));
     } catch {}
-  }, [idleRightBlocks]);
+  }, [idlePeripheralBlocks]);
 
   useEffect(() => {
     try {
@@ -319,27 +430,45 @@ export function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-right-screen-dimensions', JSON.stringify(rightScreenDimensions));
+      localStorage.setItem('zmk-peripheral-screen-dimensions', JSON.stringify(peripheralScreenDimensions));
     } catch {}
-  }, [rightScreenDimensions]);
+  }, [peripheralScreenDimensions]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-right-idle-screens-enabled', JSON.stringify(rightIdleScreensEnabled));
+      localStorage.setItem('zmk-peripheral-idle-screens-enabled', JSON.stringify(peripheralIdleScreensEnabled));
     } catch {}
-  }, [rightIdleScreensEnabled]);
+  }, [peripheralIdleScreensEnabled]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-right-idle-timeout-sec', JSON.stringify(rightIdleTimeoutSec));
+      localStorage.setItem('zmk-peripheral-idle-timeout-sec', JSON.stringify(peripheralIdleTimeoutSec));
     } catch {}
-  }, [rightIdleTimeoutSec]);
+  }, [peripheralIdleTimeoutSec]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-right-screen-off-timeout-sec', JSON.stringify(rightScreenOffTimeoutSec));
+      localStorage.setItem('zmk-peripheral-screen-off-timeout-sec', JSON.stringify(peripheralScreenOffTimeoutSec));
     } catch {}
-  }, [rightScreenOffTimeoutSec]);
+  }, [peripheralScreenOffTimeoutSec]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-shield-id', shieldId);
+    } catch {}
+  }, [shieldId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-enabled-screens', JSON.stringify(enabledScreens));
+    } catch {}
+  }, [enabledScreens]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-peripheral-screens', JSON.stringify(peripheralScreens));
+    } catch {}
+  }, [peripheralScreens]);
 
   const [customText, setCustomText] = useState<string>('BRUNOWB');
   const [_clearedTemplates, setClearedTemplates] = useState<string[]>(() => {
@@ -520,20 +649,25 @@ export function App() {
       setFontMappings(parsed.fontMappings);
     }
     if (parsed.metadata) {
-      if (parsed.metadata.leftBlocks && parsed.metadata.leftBlocks.length > 0) {
-        setLeftBlocks(parsed.metadata.leftBlocks);
+      const cBlocks = parsed.metadata.centralBlocks ?? parsed.metadata.leftBlocks;
+      if (cBlocks && cBlocks.length > 0) {
+        setCentralBlocks(cBlocks);
       }
-      if (parsed.metadata.rightBlocks && parsed.metadata.rightBlocks.length > 0) {
-        setRightBlocks(parsed.metadata.rightBlocks);
+      const pBlocks = parsed.metadata.peripheralBlocks ?? parsed.metadata.rightBlocks;
+      if (pBlocks && pBlocks.length > 0) {
+        setPeripheralBlocks(pBlocks);
       }
-      if (parsed.metadata.idleLeftBlocks && parsed.metadata.idleLeftBlocks.length > 0) {
-        setIdleLeftBlocks(parsed.metadata.idleLeftBlocks);
+      const idleCBlocks = parsed.metadata.idleCentralBlocks ?? parsed.metadata.idleLeftBlocks;
+      if (idleCBlocks && idleCBlocks.length > 0) {
+        setIdleCentralBlocks(idleCBlocks);
       }
-      if (parsed.metadata.idleRightBlocks && parsed.metadata.idleRightBlocks.length > 0) {
-        setIdleRightBlocks(parsed.metadata.idleRightBlocks);
+      const idlePBlocks = parsed.metadata.idlePeripheralBlocks ?? parsed.metadata.idleRightBlocks;
+      if (idlePBlocks && idlePBlocks.length > 0) {
+        setIdlePeripheralBlocks(idlePBlocks);
       }
       if (parsed.metadata.screenDimensions) {
         setScreenDimensions(parsed.metadata.screenDimensions);
+        markDimensionsCustomized();
       }
       if (parsed.metadata.widgetInstances) {
         const instMap = { ...parsed.metadata.widgetInstances };
@@ -556,46 +690,84 @@ export function App() {
       if (parsed.metadata.symmetricSettings !== undefined) {
         setSymmetricSettings(parsed.metadata.symmetricSettings);
       }
-      if (parsed.metadata.rightScreenDimensions) {
-        setRightScreenDimensions(parsed.metadata.rightScreenDimensions);
+      const pDims = parsed.metadata.peripheralScreenDimensions ?? parsed.metadata.rightScreenDimensions;
+      if (pDims) {
+        setPeripheralScreenDimensions(pDims);
       }
-      if (parsed.metadata.rightIdleScreensEnabled !== undefined) {
-        setRightIdleScreensEnabled(parsed.metadata.rightIdleScreensEnabled);
+      const pIdleEnabled = parsed.metadata.peripheralIdleScreensEnabled ?? parsed.metadata.rightIdleScreensEnabled;
+      if (pIdleEnabled !== undefined) {
+        setPeripheralIdleScreensEnabled(pIdleEnabled);
       }
-      if (parsed.metadata.rightIdleTimeoutSec !== undefined) {
-        setRightIdleTimeoutSec(parsed.metadata.rightIdleTimeoutSec);
+      const pIdleTimeout = parsed.metadata.peripheralIdleTimeoutSec ?? parsed.metadata.rightIdleTimeoutSec;
+      if (pIdleTimeout !== undefined) {
+        setPeripheralIdleTimeoutSec(pIdleTimeout);
       }
-      if (parsed.metadata.rightScreenOffTimeoutSec !== undefined) {
-        setRightScreenOffTimeoutSec(parsed.metadata.rightScreenOffTimeoutSec);
+      const pScreenOffTimeout = parsed.metadata.peripheralScreenOffTimeoutSec ?? parsed.metadata.rightScreenOffTimeoutSec;
+      if (pScreenOffTimeout !== undefined) {
+        setPeripheralScreenOffTimeoutSec(pScreenOffTimeout);
       }
+      if (parsed.metadata.peripheralScreens) {
+        setPeripheralScreens(parsed.metadata.peripheralScreens);
+      }
+      if (parsed.metadata.shieldId) {
+        setShieldId(parsed.metadata.shieldId);
+      }
+      const rawEnabled = parsed.metadata.enabledScreens;
+      const resolvedEnabledScreens = rawEnabled && rawEnabled.length > 0
+        ? rawEnabled
+            .map(s => s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s)
+            .filter(s => s !== 'dongle')
+        : ['central', 'peripheral'];
+      setEnabledScreens(resolvedEnabledScreens);
     }
   }, []);
 
 
   const applyDefaults = useCallback(() => {
     const keysToRemove = [
-      'zmk-left-blocks',
-      'zmk-right-blocks',
-      'zmk-idle-left-blocks',
-      'zmk-idle-right-blocks',
+      'zmk-central-blocks',
+      'zmk-peripheral-blocks',
+      'zmk-idle-central-blocks',
+      'zmk-idle-peripheral-blocks',
       'zmk-screen-dimensions',
       'zmk-idle-screens-enabled',
       'zmk-idle-timeout-sec',
       'zmk-screen-off-timeout-sec',
       'zmk-symmetric-settings',
+      'zmk-peripheral-screen-dimensions',
+      'zmk-peripheral-idle-screens-enabled',
+      'zmk-peripheral-idle-timeout-sec',
+      'zmk-peripheral-screen-off-timeout-sec',
+      'zmk-left-blocks',
+      'zmk-right-blocks',
+      'zmk-dongle-blocks',
+      'zmk-idle-left-blocks',
+      'zmk-idle-right-blocks',
+      'zmk-idle-dongle-blocks',
+      'zmk-dongle-screen-dimensions',
+      'zmk-dongle-idle-screens-enabled',
+      'zmk-dongle-idle-timeout-sec',
+      'zmk-dongle-screen-off-timeout-sec',
       'zmk-right-screen-dimensions',
       'zmk-right-idle-screens-enabled',
       'zmk-right-idle-timeout-sec',
       'zmk-right-screen-off-timeout-sec',
+      'zmk-shield-id',
+      'zmk-enabled-screens',
+      'zmk-peripheral-screens',
       'zmk-widget-instances',
       'zmk-cleared-templates',
       'zmk_builder_cached_header',
+      'zmk-customized-dimensions',
     ];
     keysToRemove.forEach(k => {
       try {
         localStorage.removeItem(k);
       } catch {}
     });
+    setHasUserCustomizedDimensions(false);
+    hasUserCustomizedDimensionsRef.current = false;
+    setPeripheralScreens({});
     applyParsedAssets(getDefaultAssets());
     setCustomText('BRUNOWB');
   }, [applyParsedAssets]);
@@ -624,6 +796,28 @@ export function App() {
     applyDefaults();
     showToast('success', 'Workspace restored to base factory defaults.');
   }, [applyDefaults, showToast]);
+
+  // Helper to apply detected shield and update default screen dimensions if not already customized
+  const applyShieldDetectionIfUnset = useCallback(
+    (detectedShield: string, sourceDesc?: string) => {
+      if (!detectedShield || detectedShield === 'unknown') return;
+
+      setShieldId(detectedShield);
+      try {
+        localStorage.setItem('zmk-shield-id', detectedShield);
+      } catch {}
+
+      if (!hasUserCustomizedDimensionsRef.current) {
+        const defaultRes = getShieldDefaultResolution(detectedShield);
+        handleCentralDimensionsChange(defaultRes);
+        handlePeripheralDimensionsChange(defaultRes);
+        if (sourceDesc) {
+          showToast('success', `Detected ${detectedShield} from ${sourceDesc}: aligned canvas to ${defaultRes.width}x${defaultRes.height} px`);
+        }
+      }
+    },
+    [handleCentralDimensionsChange, handlePeripheralDimensionsChange, showToast]
+  );
 
   // GitHub integration & Connection State
   const [config, setConfig] = useState<GitHubRepoConfig>(getStoredGitHubConfig());
@@ -673,6 +867,11 @@ export function App() {
           if (result && result.content) {
             const parsed = parseZmkKeymap(result.content, result.filename);
             setKeymapLayout(parsed);
+            if (parsed.shieldId && parsed.shieldId !== 'unknown') {
+              if (!repoPrereqs?.hasAssetsHeader) {
+                applyShieldDetectionIfUnset(parsed.shieldId, result.filename);
+              }
+            }
           }
         })
         .catch(err => {
@@ -683,7 +882,7 @@ export function App() {
         isMounted = false;
       };
     }
-  }, [config?.token, config?.owner, config?.repo, config?.branch, connection?.status, syncTrigger]);
+  }, [config?.token, config?.owner, config?.repo, config?.branch, connection?.status, syncTrigger, repoPrereqs?.hasAssetsHeader, applyShieldDetectionIfUnset]);
 
   // Check and verify GitHub connection on mount and config updates
   const testConnection = useCallback(async (cfg: GitHubRepoConfig) => {
@@ -795,6 +994,15 @@ export function App() {
             } else {
               applyDefaults();
               initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
+              try {
+                const confCandidates = prereqs.candidateConfFiles || (prereqs.confPath ? [prereqs.confPath] : undefined);
+                const inferred = inferShieldFromRepo(activeRepo, undefined, confCandidates);
+                if (inferred) {
+                  applyShieldDetectionIfUnset(inferred.shieldId, 'repository config');
+                }
+              } catch (detectErr) {
+                console.warn('Pre-install shield inference warning:', detectErr);
+              }
             }
           } catch {
             console.info('No scyan_assets.h in repo (first time setup). Loading defaults.');
@@ -922,6 +1130,11 @@ export function App() {
     clearStoredGitHubToken();
     autoSyncedRepoRef.current = null;
     localStorage.removeItem('zmk_builder_cached_header');
+    setHasUserCustomizedDimensions(false);
+    hasUserCustomizedDimensionsRef.current = false;
+    try {
+      localStorage.removeItem('zmk-customized-dimensions');
+    } catch {}
     const newConfig = { ...config, token: '' };
     setConfig(newConfig);
     setConnection({
@@ -978,6 +1191,15 @@ export function App() {
           showToast('success', `Synced display assets from ${config.owner}/${config.repo}!`);
         } else {
           showToast('success', `Synced repository from ${config.owner}/${config.repo}! (Display assets not installed yet)`);
+          try {
+            const confCandidates = prereqs.candidateConfFiles || (prereqs.confPath ? [prereqs.confPath] : undefined);
+            const inferred = inferShieldFromRepo(config.repo, undefined, confCandidates);
+            if (inferred) {
+              applyShieldDetectionIfUnset(inferred.shieldId, 'repository config');
+            }
+          } catch (inferErr) {
+            console.warn('Sync shield inference error:', inferErr);
+          }
         }
 
         // Also fetch and update keymap layout from repository
@@ -986,6 +1208,9 @@ export function App() {
           if (keymapResult && keymapResult.content) {
             const parsedKm = parseZmkKeymap(keymapResult.content, keymapResult.filename);
             setKeymapLayout(parsedKm);
+            if (!prereqs.hasAssetsHeader && parsedKm.shieldId && parsedKm.shieldId !== 'unknown') {
+              applyShieldDetectionIfUnset(parsedKm.shieldId, keymapResult.filename);
+            }
           }
         } catch (kmErr) {
           console.warn('Failed to fetch keymap during repo sync:', kmErr);
@@ -1014,20 +1239,23 @@ export function App() {
       setIsInstallingStudio(true);
       const metadata: HeaderMetadata = {
         version: 1,
-        leftBlocks,
-        rightBlocks,
-        idleLeftBlocks,
-        idleRightBlocks,
+        centralBlocks,
+        peripheralBlocks,
+        idleCentralBlocks,
+        idlePeripheralBlocks,
         screenDimensions,
         widgetInstances,
         idleTimeoutSec,
         screenOffTimeoutSec,
         idleScreensEnabled,
         symmetricSettings,
-        rightScreenDimensions: symmetricSettings ? undefined : rightScreenDimensions,
-        rightIdleScreensEnabled: symmetricSettings ? undefined : rightIdleScreensEnabled,
-        rightIdleTimeoutSec: symmetricSettings ? undefined : rightIdleTimeoutSec,
-        rightScreenOffTimeoutSec: symmetricSettings ? undefined : rightScreenOffTimeoutSec,
+        peripheralScreenDimensions: symmetricSettings ? undefined : peripheralScreenDimensions,
+        peripheralIdleScreensEnabled: symmetricSettings ? undefined : peripheralIdleScreensEnabled,
+        peripheralIdleTimeoutSec: symmetricSettings ? undefined : peripheralIdleTimeoutSec,
+        peripheralScreenOffTimeoutSec: symmetricSettings ? undefined : peripheralScreenOffTimeoutSec,
+        shieldId,
+        enabledScreens,
+        peripheralScreens: Object.keys(peripheralScreens).length > 0 ? peripheralScreens : undefined,
         layerNames: keymapLayout.layerNames,
       };
 
@@ -1040,6 +1268,7 @@ export function App() {
       setCurrentSha(res.commitSha);
       setCurrentHeaderPath('config/scyan_assets.h');
       localStorage.setItem('zmk_builder_cached_header', defaultC);
+      markDimensionsCustomized();
 
       showToast('success', `Scyan Studio successfully installed in ${config.owner}/${config.repo}! Firmware build started in GitHub Actions.`);
       trackEvent('studio_installed', {
@@ -1127,20 +1356,23 @@ export function App() {
       setIsSaving(true);
       const metadata: HeaderMetadata = {
         version: 1,
-        leftBlocks,
-        rightBlocks,
-        idleLeftBlocks,
-        idleRightBlocks,
+        centralBlocks,
+        peripheralBlocks,
+        idleCentralBlocks,
+        idlePeripheralBlocks,
         screenDimensions,
         widgetInstances,
         idleTimeoutSec,
         screenOffTimeoutSec,
         idleScreensEnabled,
         symmetricSettings,
-        rightScreenDimensions: symmetricSettings ? undefined : rightScreenDimensions,
-        rightIdleScreensEnabled: symmetricSettings ? undefined : rightIdleScreensEnabled,
-        rightIdleTimeoutSec: symmetricSettings ? undefined : rightIdleTimeoutSec,
-        rightScreenOffTimeoutSec: symmetricSettings ? undefined : rightScreenOffTimeoutSec,
+        peripheralScreenDimensions: symmetricSettings ? undefined : peripheralScreenDimensions,
+        peripheralIdleScreensEnabled: symmetricSettings ? undefined : peripheralIdleScreensEnabled,
+        peripheralIdleTimeoutSec: symmetricSettings ? undefined : peripheralIdleTimeoutSec,
+        peripheralScreenOffTimeoutSec: symmetricSettings ? undefined : peripheralScreenOffTimeoutSec,
+        shieldId,
+        enabledScreens,
+        peripheralScreens: Object.keys(peripheralScreens).length > 0 ? peripheralScreens : undefined,
         layerNames: keymapLayout.layerNames,
       };
       const generatedC = generateCHeader(symbolsGrid, symbolSlices, fontGrid, fontMappings, metadata);
@@ -1151,7 +1383,8 @@ export function App() {
         generatedC,
         {
           screenOffTimeoutSec,
-          rightScreenOffTimeoutSec,
+          peripheralScreenOffTimeoutSec,
+          rightScreenOffTimeoutSec: peripheralScreenOffTimeoutSec,
           symmetricSettings,
         },
         '[Scyan Studio] feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio'
@@ -1189,6 +1422,133 @@ export function App() {
       setIsSaving(false);
     }
   };
+
+  // Lossless display swapping & master shield binding helpers
+  const getScreenData = useCallback(
+    (id: string) => {
+      if (id === 'left' || id === 'central') {
+        return {
+          blocks: centralBlocks,
+          idleBlocks: idleCentralBlocks,
+          dimensions: screenDimensions,
+          idleScreensEnabled,
+          idleTimeoutSec,
+          screenOffTimeoutSec,
+        };
+      }
+      if (id === 'right' || id === 'peripheral') {
+        return {
+          blocks: peripheralBlocks,
+          idleBlocks: idlePeripheralBlocks,
+          dimensions: peripheralScreenDimensions,
+          idleScreensEnabled: peripheralIdleScreensEnabled,
+          idleTimeoutSec: peripheralIdleTimeoutSec,
+          screenOffTimeoutSec: peripheralScreenOffTimeoutSec,
+        };
+      }
+      const p = peripheralScreens[id] || {};
+      return {
+        blocks: p.blocks || [],
+        idleBlocks: p.idleBlocks || [],
+        dimensions: p.screenDimensions || { width: 32, height: 128 },
+        idleScreensEnabled: p.idleScreensEnabled ?? false,
+        idleTimeoutSec: p.idleTimeoutSec ?? 30,
+        screenOffTimeoutSec: p.screenOffTimeoutSec ?? 60,
+        customTitle: p.name,
+      };
+    },
+    [
+      centralBlocks,
+      idleCentralBlocks,
+      screenDimensions,
+      idleScreensEnabled,
+      idleTimeoutSec,
+      screenOffTimeoutSec,
+      peripheralBlocks,
+      idlePeripheralBlocks,
+      peripheralScreenDimensions,
+      peripheralIdleScreensEnabled,
+      peripheralIdleTimeoutSec,
+      peripheralScreenOffTimeoutSec,
+      peripheralScreens,
+    ]
+  );
+
+  const setScreenData = useCallback(
+    (
+      id: string,
+      data: {
+        blocks: LayoutBlock[];
+        idleBlocks: LayoutBlock[];
+        dimensions: { width: number; height: number };
+        idleScreensEnabled: boolean;
+        idleTimeoutSec: number;
+        screenOffTimeoutSec: number;
+        customTitle?: string;
+      }
+    ) => {
+      if (id === 'left' || id === 'central') {
+        const remappedBlocks = remapBlockCoordinates(data.blocks, screenDimensions, data.dimensions);
+        const remappedIdle = remapBlockCoordinates(data.idleBlocks, screenDimensions, data.dimensions);
+        setCentralBlocks(remappedBlocks);
+        setIdleCentralBlocks(remappedIdle);
+        setScreenDimensions(data.dimensions);
+        markDimensionsCustomized();
+        setIdleScreensEnabled(data.idleScreensEnabled);
+        setIdleTimeoutSec(data.idleTimeoutSec);
+        setScreenOffTimeoutSec(data.screenOffTimeoutSec);
+      } else if (id === 'right' || id === 'peripheral') {
+        const remappedBlocks = remapBlockCoordinates(data.blocks, peripheralScreenDimensions, data.dimensions);
+        const remappedIdle = remapBlockCoordinates(data.idleBlocks, peripheralScreenDimensions, data.dimensions);
+        setPeripheralBlocks(remappedBlocks);
+        setIdlePeripheralBlocks(remappedIdle);
+        setPeripheralScreenDimensions(data.dimensions);
+        markDimensionsCustomized();
+        setPeripheralIdleScreensEnabled(data.idleScreensEnabled);
+        setPeripheralIdleTimeoutSec(data.idleTimeoutSec);
+        setPeripheralScreenOffTimeoutSec(data.screenOffTimeoutSec);
+      } else {
+        setPeripheralScreens((prev) => {
+          const oldDims = prev[id]?.screenDimensions || { width: 32, height: 128 };
+          return {
+            ...prev,
+            [id]: {
+              ...prev[id],
+              blocks: remapBlockCoordinates(data.blocks, oldDims, data.dimensions),
+              idleBlocks: remapBlockCoordinates(data.idleBlocks, oldDims, data.dimensions),
+              screenDimensions: data.dimensions,
+              idleScreensEnabled: data.idleScreensEnabled,
+              idleTimeoutSec: data.idleTimeoutSec,
+              screenOffTimeoutSec: data.screenOffTimeoutSec,
+              name: data.customTitle ?? prev[id]?.name,
+            },
+          };
+        });
+      }
+    },
+    []
+  );
+
+  const handleSwapDisplays = useCallback(
+    (idA: string, idB: string) => {
+      if (idA === idB) return;
+      const dataA = getScreenData(idA);
+      const dataB = getScreenData(idB);
+      setScreenData(idA, dataB);
+      setScreenData(idB, dataA);
+      showToast('success', `Swapped displays: ${idA} ↔ ${idB}`);
+      trackEvent('swap_displays', { idA, idB });
+    },
+    [getScreenData, setScreenData, showToast]
+  );
+
+  const handleMakeMaster = useCallback(
+    (displayId: string) => {
+      if (displayId === 'left' || displayId === 'central') return;
+      handleSwapDisplays('central', displayId);
+    },
+    [handleSwapDisplays]
+  );
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#0b0d13] text-[#f1f5f9] overflow-hidden">
@@ -1294,9 +1654,16 @@ export function App() {
             <span>Layout</span>
             {isPlaygroundMode && <Unplug className="size-3 text-[#f2741d]" />}
           </button>
+        </div>
 
-          {/* Tab 6: Design System (Dev-only) */}
-          {import.meta.env.DEV && (
+        {/* Right-Aligned Dev Wrapper (Dev-only) */}
+        {import.meta.env.DEV && (
+          <div className="flex items-center gap-1.5 ml-auto pl-3.5 border-l border-[#1e2538]/80">
+            <span className="text-[9px] font-mono font-bold tracking-wider uppercase text-[#00f0ff]/60 px-1.5 py-0.5 rounded bg-[#00f0ff]/5 border border-[#00f0ff]/20">
+              DEV
+            </span>
+
+            {/* Dev Tab 1: Design System */}
             <button
               onClick={() => handleTabClick('reference')}
               className={`text-xs font-mono px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
@@ -1309,8 +1676,36 @@ export function App() {
               <Palette className="size-3.5 text-[#00f0ff]" />
               <span>Design System</span>
             </button>
-          )}
-        </div>
+
+            {/* Dev Tab 2: Shields */}
+            <button
+              onClick={() => handleTabClick('shields')}
+              className={`text-xs font-mono px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
+                activeTab === 'shields'
+                  ? 'bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/40 font-semibold shadow-[0_0_8px_rgba(0,240,255,0.2)]'
+                  : 'text-[#94a3b8] hover:text-white hover:bg-[#131722] border border-transparent'
+              }`}
+              title="Known Keyboard Shields & Hardware Mounts (Dev-only)"
+            >
+              <Cpu className="size-3.5 text-[#00f0ff]" />
+              <span>Shields</span>
+            </button>
+
+            {/* Dev Tab 3: Topology Sandbox */}
+            <button
+              onClick={() => handleTabClick('topology')}
+              className={`text-xs font-mono px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
+                activeTab === 'topology'
+                  ? 'bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/40 font-semibold shadow-[0_0_8px_rgba(0,240,255,0.2)]'
+                  : 'text-[#94a3b8] hover:text-white hover:bg-[#131722] border border-transparent'
+              }`}
+              title="Modular Shield Topology & Multi-Screen Sandbox (Dev-only)"
+            >
+              <Network className="size-3.5 text-[#00f0ff]" />
+              <span>Topology</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Main Tab Content */}
@@ -1342,18 +1737,22 @@ export function App() {
                 fontGrid={fontGrid}
                 fontGlyphs={fontGlyphs}
                 fontMappings={fontMappings}
-                leftBlocks={leftBlocks}
-                rightBlocks={rightBlocks}
-                layoutBlocks={leftBlocks}
-                idleLeftBlocks={idleLeftBlocks}
-                idleRightBlocks={idleRightBlocks}
-                onLeftBlocksChange={setLeftBlocks}
-                onRightBlocksChange={setRightBlocks}
-                onIdleLeftBlocksChange={setIdleLeftBlocks}
-                onIdleRightBlocksChange={setIdleRightBlocks}
+                centralBlocks={centralBlocks}
+                peripheralBlocks={peripheralBlocks}
+                layoutBlocks={centralBlocks}
+                idleCentralBlocks={idleCentralBlocks}
+                idlePeripheralBlocks={idlePeripheralBlocks}
+                onCentralBlocksChange={setCentralBlocks}
+                onPeripheralBlocksChange={setPeripheralBlocks}
+                onIdleCentralBlocksChange={setIdleCentralBlocks}
+                onIdlePeripheralBlocksChange={setIdlePeripheralBlocks}
                 screenDimensions={screenDimensions}
-                rightScreenDimensions={rightScreenDimensions}
+                peripheralScreenDimensions={peripheralScreenDimensions}
                 symmetricSettings={symmetricSettings}
+                shieldId={shieldId}
+                onShieldIdChange={setShieldId}
+                enabledScreens={enabledScreens}
+                onEnabledScreensChange={setEnabledScreens}
                 customText={customText}
                 onCustomTextChange={setCustomText}
                 instances={widgetInstances}
@@ -1364,6 +1763,7 @@ export function App() {
                 syncTrigger={syncTrigger}
                 keymapLayout={keymapLayout}
                 onKeymapLayoutChange={setKeymapLayout}
+                onSwapDisplays={handleSwapDisplays}
               />
             )}
 
@@ -1400,31 +1800,31 @@ export function App() {
                 onCustomTextChange={setCustomText}
                 instances={widgetInstances}
                 onInstancesChange={handleInstancesChange}
-                leftBlocks={leftBlocks}
-                rightBlocks={rightBlocks}
-                onLeftBlocksChange={setLeftBlocks}
-                onRightBlocksChange={setRightBlocks}
-                idleLeftBlocks={idleLeftBlocks}
-                idleRightBlocks={idleRightBlocks}
-                onIdleLeftBlocksChange={setIdleLeftBlocks}
-                onIdleRightBlocksChange={setIdleRightBlocks}
+                centralBlocks={centralBlocks}
+                peripheralBlocks={peripheralBlocks}
+                onCentralBlocksChange={setCentralBlocks}
+                onPeripheralBlocksChange={setPeripheralBlocks}
+                idleCentralBlocks={idleCentralBlocks}
+                idlePeripheralBlocks={idlePeripheralBlocks}
+                onIdleCentralBlocksChange={setIdleCentralBlocks}
+                onIdlePeripheralBlocksChange={setIdlePeripheralBlocks}
                 layerNames={keymapLayout.layerNames}
               />
             )}
 
             {(activeTab === 'layout' || activeTab === 'blocks') && (
               <BlocksTab
-                leftBlocks={leftBlocks}
-                rightBlocks={rightBlocks}
-                onLeftBlocksChange={setLeftBlocks}
-                onRightBlocksChange={setRightBlocks}
-                idleLeftBlocks={idleLeftBlocks}
-                idleRightBlocks={idleRightBlocks}
+                centralBlocks={centralBlocks}
+                peripheralBlocks={peripheralBlocks}
+                onCentralBlocksChange={setCentralBlocks}
+                onPeripheralBlocksChange={setPeripheralBlocks}
+                idleCentralBlocks={idleCentralBlocks}
+                idlePeripheralBlocks={idlePeripheralBlocks}
                 layerNames={keymapLayout.layerNames}
-                onIdleLeftBlocksChange={setIdleLeftBlocks}
-                onIdleRightBlocksChange={setIdleRightBlocks}
+                onIdleCentralBlocksChange={setIdleCentralBlocks}
+                onIdlePeripheralBlocksChange={setIdlePeripheralBlocks}
                 screenDimensions={screenDimensions}
-                onScreenDimensionsChange={setScreenDimensions}
+                onScreenDimensionsChange={handleCentralDimensionsChange}
                 idleScreensEnabled={idleScreensEnabled}
                 onIdleScreensEnabledChange={setIdleScreensEnabled}
                 idleTimeoutSec={idleTimeoutSec}
@@ -1433,14 +1833,18 @@ export function App() {
                 onScreenOffTimeoutSecChange={setScreenOffTimeoutSec}
                 symmetricSettings={symmetricSettings}
                 onSymmetricSettingsChange={setSymmetricSettings}
-                rightScreenDimensions={rightScreenDimensions}
-                onRightScreenDimensionsChange={setRightScreenDimensions}
-                rightIdleScreensEnabled={rightIdleScreensEnabled}
-                onRightIdleScreensEnabledChange={setRightIdleScreensEnabled}
-                rightIdleTimeoutSec={rightIdleTimeoutSec}
-                onRightIdleTimeoutSecChange={setRightIdleTimeoutSec}
-                rightScreenOffTimeoutSec={rightScreenOffTimeoutSec}
-                onRightScreenOffTimeoutSecChange={setRightScreenOffTimeoutSec}
+                peripheralScreenDimensions={peripheralScreenDimensions}
+                onPeripheralScreenDimensionsChange={handlePeripheralDimensionsChange}
+                peripheralIdleScreensEnabled={peripheralIdleScreensEnabled}
+                onPeripheralIdleScreensEnabledChange={setPeripheralIdleScreensEnabled}
+                peripheralIdleTimeoutSec={peripheralIdleTimeoutSec}
+                onPeripheralIdleTimeoutSecChange={setPeripheralIdleTimeoutSec}
+                peripheralScreenOffTimeoutSec={peripheralScreenOffTimeoutSec}
+                onPeripheralScreenOffTimeoutSecChange={setPeripheralScreenOffTimeoutSec}
+                enabledScreens={enabledScreens}
+                onEnabledScreensChange={setEnabledScreens}
+                peripheralScreens={peripheralScreens}
+                onPeripheralScreensChange={setPeripheralScreens}
                 symbolsGrid={symbolsGrid}
                 symbolSlices={symbolSlices}
                 fontGrid={fontGrid}
@@ -1449,8 +1853,8 @@ export function App() {
                 customText={customText}
                 instances={widgetInstances}
                 onInstancesChange={handleInstancesChange}
-                layoutBlocks={leftBlocks}
-                onLayoutBlocksChange={setLeftBlocks}
+                layoutBlocks={centralBlocks}
+                onLayoutBlocksChange={setCentralBlocks}
               />
             )}
 
@@ -1458,6 +1862,60 @@ export function App() {
               <div className="flex-1 overflow-y-auto">
                 <ElementReferencePage onOpenCommandPalette={() => setIsCommandPaletteOpen(true)} />
               </div>
+            )}
+
+            {import.meta.env.DEV && activeTab === 'shields' && (
+              <ShieldsTab
+                symbolsGrid={symbolsGrid}
+                symbolSlices={symbolSlices}
+                fontGrid={fontGrid}
+                fontGlyphs={fontGlyphs}
+                fontMappings={fontMappings}
+                centralBlocks={centralBlocks}
+                peripheralBlocks={peripheralBlocks}
+                idleCentralBlocks={idleCentralBlocks}
+                idlePeripheralBlocks={idlePeripheralBlocks}
+                instances={widgetInstances}
+                customText={customText}
+                onApplyDimensions={(dims, rightDims) => {
+                  handleCentralDimensionsChange(dims);
+                  if (rightDims) handlePeripheralDimensionsChange(rightDims);
+                  setToast({
+                    type: 'success',
+                    message: `Applied shield resolution: ${dims.width}x${dims.height} px`,
+                  });
+                }}
+                onSelectShield={(id) => {
+                  setShieldId(id);
+                  setToast({
+                    type: 'success',
+                    message: `Switched keyboard shield to: ${id}`,
+                  });
+                }}
+                onNavigateToPreview={() => handleTabClick('preview')}
+              />
+            )}
+            {import.meta.env.DEV && activeTab === 'topology' && (
+              <TopologySandboxTab
+                symbolsGrid={symbolsGrid}
+                symbolSlices={symbolSlices}
+                fontGrid={fontGrid}
+                fontGlyphs={fontGlyphs}
+                fontMappings={fontMappings}
+                centralBlocks={centralBlocks}
+                peripheralBlocks={peripheralBlocks}
+                idleCentralBlocks={idleCentralBlocks}
+                idlePeripheralBlocks={idlePeripheralBlocks}
+                enabledScreens={enabledScreens}
+                peripheralScreens={peripheralScreens}
+                screenDimensions={screenDimensions}
+                peripheralScreenDimensions={peripheralScreenDimensions}
+                instances={widgetInstances}
+                customText={customText}
+                onSwapDisplays={handleSwapDisplays}
+                onMakeMaster={handleMakeMaster}
+                onNavigateToPreview={() => handleTabClick('preview')}
+              />
             )}
           </>
         )}
@@ -1498,7 +1956,7 @@ export function App() {
           isOpen={isCommandPaletteOpen}
           onClose={setIsCommandPaletteOpen}
           onSelectSection={(sectionId) => {
-            if (['preview', 'symbols', 'font', 'widgets', 'layout', 'blocks'].includes(sectionId)) {
+            if (['preview', 'symbols', 'font', 'widgets', 'layout', 'blocks', 'shields', 'topology'].includes(sectionId)) {
               handleTabClick((sectionId === 'blocks' ? 'layout' : sectionId) as TabType);
             } else {
               handleTabClick('reference');

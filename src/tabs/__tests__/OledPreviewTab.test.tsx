@@ -151,4 +151,104 @@ describe('OledPreviewTab dynamic screen dimensions & widget moving', () => {
     expect(html).toContain('Typing Speed (WPM)');
     expect(html).toContain('68 WPM');
   });
+
+  it('renders multi-screen configuration with dynamic peripheral screen', () => {
+    const html = renderToString(
+      <OledPreviewTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText="TEST"
+        onCustomTextChange={() => {}}
+        centralBlocks={sampleLeftBlocks}
+        peripheralBlocks={sampleRightBlocks}
+        enabledScreens={['central', 'peripheral', 'peripheral-2']}
+      />
+    );
+
+    // Left and right keyboard halves rendered
+    expect(html).toContain('corne-half-case left-half');
+    expect(html).toContain('corne-half-case right-half');
+  });
+
+  it('renders purple wrapper without USB connector for unknown shields in preview tab', () => {
+    const html = renderToString(
+      <OledPreviewTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText="TEST"
+        onCustomTextChange={() => {}}
+        leftBlocks={sampleLeftBlocks}
+        rightBlocks={sampleRightBlocks}
+        shieldId="unknown"
+        enabledScreens={['central', 'peripheral']}
+      />
+    );
+
+    // Purple wrapper cases and bodies for both displays
+    expect(html).toContain('unknown-shield-unit-case');
+    expect(html).toContain('unknown-shield-body');
+    expect(html).toContain('unknown-shield-header-badge');
+    expect(html).toContain('Custom / Unknown Shield (Central)');
+    expect(html).toContain('Custom / Unknown Shield (Peripheral)');
+
+    // Corne half cases are NOT rendered
+    expect(html).not.toContain('corne-half-case');
+    // Strictly NO USB connector
+    expect(html).not.toContain('dongle-usb-connector');
+    expect(html).not.toContain('dongle-usb-metal');
+    expect(html).not.toContain('dongle-usb-pin');
+  });
+
+  it('keeps drag zones completely invisible during resting state (zero clutter)', () => {
+    const html = renderToString(
+      <OledPreviewTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText="TEST"
+        onCustomTextChange={() => {}}
+        leftBlocks={sampleLeftBlocks}
+        rightBlocks={sampleRightBlocks}
+        enabledScreens={['central', 'peripheral']}
+      />
+    );
+
+    // Units are realignable wrappers
+    expect(html).toContain('preview-realignable-unit');
+    expect(html).toContain('draggable="true"');
+
+    // Drop slots and swap overlays are completely absent when idle (not dragging)
+    expect(html).not.toContain('preview-realign-drop-slot');
+    expect(html).not.toContain('preview-unit-swap-overlay');
+    expect(html).not.toContain('Drop to realign position');
+    expect(html).not.toContain('Swap Position');
+  });
+
+  it('renders reordered configuration according to enabledScreens order', () => {
+    const html = renderToString(
+      <OledPreviewTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText="TEST"
+        onCustomTextChange={() => {}}
+        centralBlocks={sampleLeftBlocks}
+        peripheralBlocks={sampleRightBlocks}
+        // Inverted: peripheral first, then central
+        enabledScreens={['peripheral', 'central']}
+      />
+    );
+
+    // Both units rendered
+    expect(html).toContain('corne-half-case right-half');
+    expect(html).toContain('corne-half-case left-half');
+
+    // Check DOM order: right-half appears before left-half
+    const rightIdx = html.indexOf('corne-half-case right-half');
+    const leftIdx = html.indexOf('corne-half-case left-half');
+
+    expect(rightIdx).toBeLessThan(leftIdx);
+  });
 });

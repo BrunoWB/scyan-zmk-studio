@@ -40,6 +40,24 @@ describe('Favicon Assets', () => {
     expect(content).toContain('shape-rendering="crispEdges"')
   })
 
+  it('verifies public/favicon-nightly.svg has transparent background, dark cyan-navy gradient, white eyes, and white contour border', () => {
+    const nightlySvgPath = path.join(publicDir, 'favicon-nightly.svg')
+    expect(fs.existsSync(nightlySvgPath)).toBe(true)
+
+    const content = fs.readFileSync(nightlySvgPath, 'utf-8')
+    expect(content).toContain('viewBox="0 0 32 32"')
+    expect(content).toContain(WOLF_BODY_PATH)
+    // Dark cyan to midnight blue gradient
+    expect(content).toContain('#0e7490')
+    expect(content).toContain('#1e3a8a')
+    // Crisp edges for pixel art rendering
+    expect(content).toContain('shape-rendering="crispEdges"')
+    // White eye fill and white contour border
+    expect(content).toContain('fill="#ffffff"')
+    // No solid background rect (transparent)
+    expect(content).not.toContain('<rect')
+  })
+
   it('verifies all pre-rendered PNG and ICO ladder files exist in public/', () => {
     const expectedFiles = [
       'favicon.ico',
@@ -50,6 +68,10 @@ describe('Favicon Assets', () => {
       'favicon-dev-32x32.png',
       'favicon-dev-16x16.png',
       'apple-touch-icon-dev.png',
+      'favicon-nightly.ico',
+      'favicon-nightly-32x32.png',
+      'favicon-nightly-16x16.png',
+      'apple-touch-icon-nightly.png',
     ]
 
     for (const file of expectedFiles) {

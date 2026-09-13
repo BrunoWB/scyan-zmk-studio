@@ -556,6 +556,7 @@ export interface RepoPrerequisites {
   hasKconfig: boolean;
   hasAssetsHeader: boolean;
   confPath?: string;
+  candidateConfFiles?: string[];
   westPath?: string;
   headerPath?: string;
   existingConfContent?: string;
@@ -710,6 +711,7 @@ export async function checkRepoPrerequisites(
     hasKconfig,
     hasAssetsHeader,
     confPath,
+    candidateConfFiles,
     westPath,
     headerPath,
     existingConfContent,
@@ -1111,6 +1113,7 @@ export function updateKconfigSetting(
 
 export interface TimeoutConfig {
   screenOffTimeoutSec: number;
+  peripheralScreenOffTimeoutSec?: number;
   rightScreenOffTimeoutSec?: number;
   symmetricSettings: boolean;
 }
@@ -1123,27 +1126,42 @@ export function resolveConfUpdates(
   timeouts: TimeoutConfig
 ): { path: string; content: string }[] {
   const leftTimeoutMs = timeouts.screenOffTimeoutSec * 1000;
+  const peripheralTimeoutSec = timeouts.peripheralScreenOffTimeoutSec ?? timeouts.rightScreenOffTimeoutSec;
   const rightTimeoutMs = (
     timeouts.symmetricSettings
       ? timeouts.screenOffTimeoutSec
-      : (timeouts.rightScreenOffTimeoutSec ?? timeouts.screenOffTimeoutSec)
+      : (peripheralTimeoutSec ?? timeouts.screenOffTimeoutSec)
   ) * 1000;
 
   const leftConfs = confFiles.filter(f => {
     const lower = f.path.toLowerCase();
-    return lower.includes('_left') || lower.includes('-left');
+    return (
+      lower.includes('_central') ||
+      lower.includes('-central') ||
+      lower.includes('_left') ||
+      lower.includes('-left')
+    );
   });
 
   const rightConfs = confFiles.filter(f => {
     const lower = f.path.toLowerCase();
-    return lower.includes('_right') || lower.includes('-right');
+    return (
+      lower.includes('_peripheral') ||
+      lower.includes('-peripheral') ||
+      lower.includes('_right') ||
+      lower.includes('-right')
+    );
   });
 
   const baseConfs = confFiles.filter(f => {
     const lower = f.path.toLowerCase();
     return (
+      !lower.includes('_central') &&
+      !lower.includes('-central') &&
       !lower.includes('_left') &&
       !lower.includes('-left') &&
+      !lower.includes('_peripheral') &&
+      !lower.includes('-peripheral') &&
       !lower.includes('_right') &&
       !lower.includes('-right')
     );

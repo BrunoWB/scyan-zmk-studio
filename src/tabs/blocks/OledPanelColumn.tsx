@@ -19,10 +19,12 @@ import {
   Paintbrush,
   Undo2,
   Settings,
+  Cpu,
+  Layers,
 } from 'lucide-react';
 
 export interface OledPanelColumnProps {
-  side: 'left' | 'right';
+  side: 'left' | 'right' | 'dongle' | string;
   screenKind?: 'active' | 'idle';
   title?: string;
   subtitle?: string;
@@ -51,6 +53,7 @@ export interface OledPanelColumnProps {
   layerNames?: string[];
   isCompact?: boolean;
   onExpand?: () => void;
+  onSwitchMode?: () => void;
 }
 
 const BLOCK_COLORS: Record<string, string> = {
@@ -67,7 +70,7 @@ const BLOCK_COLORS: Record<string, string> = {
 export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
   side,
   screenKind = 'active',
-  title: _title,
+  title,
   subtitle: _subtitle,
   blocks,
   onBlocksChange,
@@ -94,6 +97,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
   layerNames,
   isCompact = false,
   onExpand,
+  onSwitchMode,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const screenContainerRef = useRef<HTMLDivElement | null>(null);
@@ -463,52 +467,62 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
     height: `${casingHeight}px`,
   };
 
+  const isCentral = side === 'central' || side === 'left';
+  const peripheralIndex = side.startsWith('peripheral-') ? side.replace('peripheral-', '') : null;
+  const roleLabel = isCentral ? 'Central' : (peripheralIndex ? `Peripheral ${peripheralIndex}` : 'Peripheral');
+  const displayRoleText = screenKind === 'idle' ? `${roleLabel} · Idle` : roleLabel;
+
   return (
     <div
-      className={`oled-panel-column ${isCompact ? 'oled-panel-compact' : 'oled-panel-expanded'}`}
+      className={`oled-panel-column relative ${isCompact ? 'oled-panel-compact' : 'oled-panel-expanded'} ${screenKind === 'idle' ? 'oled-panel-idle' : 'oled-panel-active'}`}
       onClick={isCompact ? onExpand : undefined}
+      title={isCompact ? `Click to edit ${title || screenKind}` : undefined}
     >
-      {/* Column Header */}
-      <div className="oled-panel-header">
-        <div className="oled-panel-header-info">
-          <div className="oled-panel-title flex items-center">
-            <span>{side === 'left' ? 'Master' : 'Peripheral'}</span>
-            {screenKind === 'idle' && (
-              <span className="text-[9px] text-[#94a3b8] font-mono ml-1.5 border border-[#94a3b8]/25 px-1.5 py-0.5 rounded bg-[#94a3b8]/5">
-                idle
-              </span>
-            )}
-            <span
-              className="text-[9px] text-accent/80 font-mono ml-2 border border-accent/30 px-1.5 py-0.5 rounded bg-accent/5 transition-all duration-300"
-              style={{
-                opacity: isCompact ? 1 : 0,
-                transform: isCompact ? 'translateX(0)' : 'translateX(-6px)',
-                pointerEvents: isCompact ? 'auto' : 'none',
-              }}
-            >
-              Click to edit
-            </span>
-          </div>
-        </div>
-
+      {/* Floating Center/Peripheral Badge with Iconography (Expanded mode) */}
+      {!isCompact && (
         <div
-          className="oled-panel-actions transition-all duration-300"
-          style={{
-            opacity: isCompact ? 0 : 1,
-            transform: isCompact ? 'scale(0.85)' : 'scale(1)',
-            pointerEvents: isCompact ? 'none' : 'auto',
-          }}
+          className={`oled-floating-badge absolute top-3 left-3 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-medium backdrop-blur-md transition-all shadow-md select-none pointer-events-auto ${
+            isCentral
+              ? 'bg-[#00f0ff]/10 border border-[#00f0ff]/30 text-[#00f0ff] shadow-[0_0_12px_rgba(0,240,255,0.15)]'
+              : 'bg-[#a953f6]/10 border border-[#a953f6]/30 text-[#a953f6] shadow-[0_0_12px_rgba(169,83,246,0.15)]'
+          }`}
+          title={title || (isCentral ? 'Central Active' : 'Peripheral Active')}
+          aria-label={title || (isCentral ? 'Central Active' : 'Peripheral Active')}
         >
+          {isCentral ? <Cpu size={13} className="shrink-0 text-[#00f0ff]" /> : <Layers size={13} className="shrink-0 text-[#a953f6]" />}
+          <span>{displayRoleText}</span>
+        </div>
+      )}
+
+      {/* Floating Action Menu Buttons on the Right (Expanded mode) */}
+      {!isCompact && (
+        <div
+          className="oled-floating-actions absolute top-3 right-3 z-20 flex items-center gap-1 p-1 rounded-lg bg-[#0b0d13]/85 backdrop-blur-md border border-[#1e2538] shadow-lg transition-all pointer-events-auto"
+        >
+          {onSwitchMode && (
+            <button
+              type="button"
+              className="btn-block-action text-[10px] font-mono px-2 py-0.5 rounded text-[#94a3b8] hover:text-[#00f0ff] hover:bg-[#00f0ff]/10 border border-transparent hover:border-[#00f0ff]/30 transition-all cursor-pointer flex items-center gap-1"
+              onClick={e => {
+                e.stopPropagation();
+                onSwitchMode();
+              }}
+              title={screenKind === 'active' ? 'Switch this display to Idle screen' : 'Switch this display to Active screen'}
+              tabIndex={0}
+            >
+              <span>{screenKind === 'active' ? 'View Idle' : 'View Active'}</span>
+            </button>
+          )}
           {onToggleSettings && (
             <button
-              className={`btn-block-action ${isSettingsOpen ? (side === 'right' ? 'active-purple' : 'active') : ''}`}
+              className={`btn-block-action ${isSettingsOpen ? (isCentral ? 'active' : 'active-purple') : ''}`}
               onClick={e => {
                 e.stopPropagation();
                 onToggleSettings();
               }}
-              title={isSettingsOpen ? 'Close Settings' : `${side === 'left' ? 'Master' : 'Peripheral'} Display & Power Settings`}
-              aria-label={`${side === 'left' ? 'Master' : 'Peripheral'} Settings`}
-              tabIndex={isCompact ? -1 : 0}
+              title={isSettingsOpen ? 'Close Settings' : `${title || (isCentral ? 'Central' : 'Peripheral')} Display & Power Settings`}
+              aria-label={`${title || (isCentral ? 'Central' : 'Peripheral')} Settings`}
+              tabIndex={0}
             >
               <Settings size={13} className={isSettingsOpen ? 'text-inherit' : ''} />
             </button>
@@ -518,7 +532,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
               className="btn-block-action"
               onClick={e => { e.stopPropagation(); onUndo(); }}
               title="Undo last action (Ctrl+Z)"
-              tabIndex={isCompact ? -1 : 0}
+              tabIndex={0}
             >
               <Undo2 size={13} />
             </button>
@@ -527,12 +541,21 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
             className="btn-block-action danger"
             onClick={onClearScreen}
             title="Clear all widgets"
-            tabIndex={isCompact ? -1 : 0}
+            tabIndex={0}
           >
             <Paintbrush size={13} />
           </button>
         </div>
-      </div>
+      )}
+
+      {/* Bottom Squished Container: Only a small label "idle" (or "active") */}
+      {isCompact && (
+        <div className="absolute top-2.5 left-3 z-10 pointer-events-none">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-[#94a3b8] px-2 py-0.5 rounded bg-white/5 border border-white/10 font-semibold select-none">
+            {screenKind === 'idle' ? 'idle' : 'active'}
+          </span>
+        </div>
+      )}
 
 
       {/* Screen & Interactive Direct Drag Area */}
@@ -700,7 +723,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
           onContextMenu={e => e.preventDefault()}
         >
           <div className="px-2.5 py-1 text-[10px] font-mono font-semibold uppercase tracking-wider text-[#64748b] truncate flex items-center justify-between">
-            <span className="truncate">{contextMenu.block ? contextMenu.block.name : (side === 'left' ? 'Master' : 'Peripheral')}</span>
+            <span className="truncate">{contextMenu.block ? contextMenu.block.name : (title || (side === 'left' ? 'Central' : side === 'dongle' ? 'Central' : 'Peripheral'))}</span>
             {contextMenu.block && (
               <span
                 className="size-2 rounded-full shrink-0 ml-1.5"

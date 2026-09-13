@@ -33,6 +33,14 @@ export interface WidgetsTabProps {
   onCustomTextChange: (text: string) => void;
   instances?: WidgetInstanceMap;
   onInstancesChange?: (instances: WidgetInstanceMap) => void;
+  centralBlocks?: LayoutBlock[];
+  peripheralBlocks?: LayoutBlock[];
+  onCentralBlocksChange?: (blocks: LayoutBlock[]) => void;
+  onPeripheralBlocksChange?: (blocks: LayoutBlock[]) => void;
+  idleCentralBlocks?: LayoutBlock[];
+  idlePeripheralBlocks?: LayoutBlock[];
+  onIdleCentralBlocksChange?: (blocks: LayoutBlock[]) => void;
+  onIdlePeripheralBlocksChange?: (blocks: LayoutBlock[]) => void;
   leftBlocks?: LayoutBlock[];
   rightBlocks?: LayoutBlock[];
   onLeftBlocksChange?: (blocks: LayoutBlock[]) => void;
@@ -90,6 +98,14 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   onCustomTextChange: _onCustomTextChange,
   instances = {},
   onInstancesChange,
+  centralBlocks,
+  peripheralBlocks,
+  onCentralBlocksChange,
+  onPeripheralBlocksChange,
+  idleCentralBlocks,
+  idlePeripheralBlocks,
+  onIdleCentralBlocksChange,
+  onIdlePeripheralBlocksChange,
   leftBlocks,
   rightBlocks,
   onLeftBlocksChange,
@@ -100,6 +116,14 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   onIdleRightBlocksChange,
   layerNames,
 }) => {
+  const effectiveCentralBlocks = centralBlocks ?? leftBlocks;
+  const effectivePeripheralBlocks = peripheralBlocks ?? rightBlocks;
+  const handleCentralBlocksChange = onCentralBlocksChange || onLeftBlocksChange;
+  const handlePeripheralBlocksChange = onPeripheralBlocksChange || onRightBlocksChange;
+  const effectiveIdleCentralBlocks = idleCentralBlocks ?? idleLeftBlocks;
+  const effectiveIdlePeripheralBlocks = idlePeripheralBlocks ?? idleRightBlocks;
+  const handleIdleCentralBlocksChange = onIdleCentralBlocksChange || onIdleLeftBlocksChange;
+  const handleIdlePeripheralBlocksChange = onIdlePeripheralBlocksChange || onIdleRightBlocksChange;
   const [activeWidgetId, setActiveWidgetId] = useState<string>(initialActiveWidgetId || WIDGET_REGISTRY[0]?.id || 'status-bar');
   const [selectedTier, setSelectedTier] = useState<'all' | 1 | 2 | 3>('all');
   
@@ -217,17 +241,17 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
     }
     onInstancesChange(updatedMap);
     
-    if (onLeftBlocksChange && leftBlocks) {
-      onLeftBlocksChange(leftBlocks.filter(b => b.instanceId !== instId));
+    if (handleCentralBlocksChange && effectiveCentralBlocks) {
+      handleCentralBlocksChange(effectiveCentralBlocks.filter(b => b.instanceId !== instId));
     }
-    if (onRightBlocksChange && rightBlocks) {
-      onRightBlocksChange(rightBlocks.filter(b => b.instanceId !== instId));
+    if (handlePeripheralBlocksChange && effectivePeripheralBlocks) {
+      handlePeripheralBlocksChange(effectivePeripheralBlocks.filter(b => b.instanceId !== instId));
     }
-    if (onIdleLeftBlocksChange && idleLeftBlocks) {
-      onIdleLeftBlocksChange(idleLeftBlocks.filter(b => b.instanceId !== instId));
+    if (handleIdleCentralBlocksChange && effectiveIdleCentralBlocks) {
+      handleIdleCentralBlocksChange(effectiveIdleCentralBlocks.filter(b => b.instanceId !== instId));
     }
-    if (onIdleRightBlocksChange && idleRightBlocks) {
-      onIdleRightBlocksChange(idleRightBlocks.filter(b => b.instanceId !== instId));
+    if (handleIdlePeripheralBlocksChange && effectiveIdlePeripheralBlocks) {
+      handleIdlePeripheralBlocksChange(effectiveIdlePeripheralBlocks.filter(b => b.instanceId !== instId));
     }
   };
 
@@ -271,10 +295,10 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
           return b;
         });
       };
-      if (onLeftBlocksChange && leftBlocks) onLeftBlocksChange(updateBlocks(leftBlocks)!);
-      if (onRightBlocksChange && rightBlocks) onRightBlocksChange(updateBlocks(rightBlocks)!);
-      if (onIdleLeftBlocksChange && idleLeftBlocks) onIdleLeftBlocksChange(updateBlocks(idleLeftBlocks)!);
-      if (onIdleRightBlocksChange && idleRightBlocks) onIdleRightBlocksChange(updateBlocks(idleRightBlocks)!);
+      if (handleCentralBlocksChange && effectiveCentralBlocks) handleCentralBlocksChange(updateBlocks(effectiveCentralBlocks)!);
+      if (handlePeripheralBlocksChange && effectivePeripheralBlocks) handlePeripheralBlocksChange(updateBlocks(effectivePeripheralBlocks)!);
+      if (handleIdleCentralBlocksChange && effectiveIdleCentralBlocks) handleIdleCentralBlocksChange(updateBlocks(effectiveIdleCentralBlocks)!);
+      if (handleIdlePeripheralBlocksChange && effectiveIdlePeripheralBlocks) handleIdlePeripheralBlocksChange(updateBlocks(effectiveIdlePeripheralBlocks)!);
     }
   };
 
@@ -338,7 +362,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                       <button key={widget.id} className={`widget-nav-item ${isActive ? 'active' : ''}`} onClick={() => setActiveWidgetId(widget.id)}>
                         <div className="widget-nav-badges">
                           {widget.requiresMaster && (
-                            <span className="badge-master badge-master--nav" title="Requires Central (Master) half in ZMK split">M</span>
+                            <span className="badge-master badge-master--nav" title="Requires Central half in ZMK split">C</span>
                           )}
                           {instanceCount > 0 && (
                             <span className="instance-count-badge">{instanceCount}</span>
@@ -381,7 +405,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
               Tier {activeWidget.tier} · {activeWidget.category}
             </span>
             {activeWidget.requiresMaster && (
-              <span className="badge-master" title="Requires Central (Master) half in ZMK split">MASTER</span>
+              <span className="badge-master" title="Requires Central half in ZMK split">CENTRAL</span>
             )}
           </div>
           <p className="text-sm text-muted">{activeWidget.description}</p>

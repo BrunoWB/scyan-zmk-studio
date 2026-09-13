@@ -115,6 +115,51 @@
   flex-shrink: 0;
 }
 
+/* Realign Drag & Drop Zones in Preview Tab (Hidden until drag starts) */
+.preview-realignable-unit {
+  position: relative;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+}
+
+.preview-realign-drop-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  min-height: 180px;
+  border: 2px dashed rgba(0, 240, 255, 0.35);
+  border-radius: 14px;
+  background: rgba(0, 240, 255, 0.04);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.preview-realign-drop-slot:hover,
+.preview-realign-drop-slot.hovered {
+  border-color: #00f0ff;
+  background: rgba(0, 240, 255, 0.18);
+  box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+  transform: scaleY(1.03);
+}
+
+.preview-unit-swap-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 240, 255, 0.14);
+  border: 2px dashed #00f0ff;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+  box-shadow: 0 0 24px rgba(0, 240, 255, 0.35);
+}
+
 /* Case Body (Minimalist Neon Border aesthetic) */
 .corne-half-case {
   background: rgba(13, 16, 23, 0.85);
@@ -150,6 +195,138 @@
 .screw-tr { top: 8px; right: 8px; }
 .screw-bl { bottom: 8px; left: 8px; }
 .screw-br { bottom: 8px; right: 8px; }
+
+/* Dongle Unit Enclosure (Between Split Halves in Preview) */
+.dongle-unit-case {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  z-index: 10;
+  transition: transform 0.2s ease;
+  margin: 0 4px;
+}
+
+.dongle-usb-connector {
+  width: 28px;
+  height: 14px;
+  background: linear-gradient(180deg, #94a3b8, #475569);
+  border-radius: 4px 4px 0 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.dongle-usb-metal {
+  display: flex;
+  gap: 5px;
+}
+
+.dongle-usb-pin {
+  width: 4px;
+  height: 6px;
+  background: #eab308;
+  border-radius: 1px;
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.6);
+}
+
+.dongle-body {
+  background: rgba(13, 16, 23, 0.92);
+  border: 1.5px solid #a953f6;
+  border-radius: 14px;
+  padding: 10px 12px 14px 12px;
+  position: relative;
+  box-shadow:
+    0 0 16px rgba(169, 83, 246, 0.22),
+    0 0 2px rgba(169, 83, 246, 0.5),
+    inset 0 0 12px rgba(169, 83, 246, 0.04);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.dongle-body:hover {
+  border-color: #bf84fd;
+  box-shadow:
+    0 0 24px rgba(169, 83, 246, 0.38),
+    0 0 4px rgba(169, 83, 246, 0.7),
+    inset 0 0 16px rgba(169, 83, 246, 0.06);
+}
+
+.dongle-header-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  color: #a953f6;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.dongle-header-badge .live-dot {
+  background: #a953f6;
+  box-shadow: 0 0 6px #a953f6;
+}
+
+/* Unknown / Custom Shield Enclosure (Purple wrapper like Seeed Xiao without USB connector) */
+.unknown-shield-unit-case {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  z-index: 10;
+  transition: transform 0.2s ease;
+  margin: 0 4px;
+}
+
+.unknown-shield-body {
+  background: rgba(13, 16, 23, 0.92);
+  border: 1.5px solid #a953f6;
+  border-radius: 14px;
+  padding: 10px 12px 14px 12px;
+  position: relative;
+  box-shadow:
+    0 0 16px rgba(169, 83, 246, 0.22),
+    0 0 2px rgba(169, 83, 246, 0.5),
+    inset 0 0 12px rgba(169, 83, 246, 0.04);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.unknown-shield-body:hover {
+  border-color: #bf84fd;
+  box-shadow:
+    0 0 24px rgba(169, 83, 246, 0.38),
+    0 0 4px rgba(169, 83, 246, 0.7),
+    inset 0 0 16px rgba(169, 83, 246, 0.06);
+}
+
+.unknown-shield-header-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  color: #a953f6;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.unknown-shield-header-badge .live-dot {
+  background: #a953f6;
+  box-shadow: 0 0 6px #a953f6;
+}
 
 /* Half Layout Structure */
 .half-inner-layout {
@@ -1364,14 +1541,16 @@
   right: auto;
 }
 
-.widget-nav-badges .badge-master--nav {
+.widget-nav-badges .badge-master--nav,
+.widget-nav-badges .badge-central--nav {
   position: static;
   top: auto;
   left: auto;
   right: auto;
 }
 
-.badge-master--nav {
+.badge-master--nav,
+.badge-central--nav {
   position: static;
   font-size: 7px;
   font-family: 'JetBrains Mono', monospace;
@@ -1706,7 +1885,8 @@
   border: 1px solid rgba(249, 115, 22, 0.35);
 }
 
-.badge-master {
+.badge-master,
+.badge-central {
   font-size: 8px;
   font-family: monospace;
   font-weight: 700;
@@ -1855,6 +2035,45 @@
   margin-left: -16px;
 }
 
+.side-settings-panel-container.is-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  z-index: 30;
+  border-radius: 12px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.side-settings-panel-container.is-overlay:not(.open) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: scale(0.96);
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+}
+
+.side-settings-panel-container.is-overlay.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: scale(1);
+  transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.25s ease;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.7);
+}
+
+.side-settings-panel-container.is-overlay .side-settings-panel-inner {
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
+  border-radius: 12px;
+  background: #10131a;
+  padding: 12px 14px;
+}
+
 .side-settings-panel-inner {
   width: 300px;
   height: 100%;
@@ -1983,7 +2202,12 @@
   flex-shrink: 0;
   height: 100%;
   display: grid;
-  gap: 12px;
+  gap: 0;
+  position: relative;
+  background-color: #12141a;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  box-sizing: border-box;
   overflow: hidden;
   transition: grid-template-rows 0.4s cubic-bezier(0.25, 1, 0.5, 1);
 }
@@ -1998,6 +2222,28 @@
 
 .blocks-column-oled.idle-disabled {
   grid-template-rows: 1fr;
+}
+
+.blocks-column-oled > .oled-panel-column {
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+  height: 100%;
+  min-height: 0;
+}
+
+.blocks-column-oled > .oled-panel-column.oled-panel-idle {
+  border-top: 1px solid var(--panel-border);
+  background-color: rgba(10, 13, 20, 0.45);
+}
+
+.blocks-column-oled.idle-expanded > .oled-panel-column.oled-panel-active {
+  border-bottom: 1px solid var(--panel-border);
+  background-color: rgba(10, 13, 20, 0.25);
+}
+
+.blocks-column-oled > .oled-panel-column.oled-panel-compact:hover {
+  background-color: rgba(0, 240, 255, 0.03);
 }
 
 .blocks-column-catalog {
@@ -2025,6 +2271,7 @@
   box-sizing: border-box;
   min-height: 0;
   height: 100%;
+  position: relative;
   transition: border-color 0.25s ease, background-color 0.25s ease, opacity 0.25s ease;
 }
 
@@ -2035,11 +2282,22 @@
 .oled-panel-column.oled-panel-compact {
   opacity: 0.75;
   cursor: pointer;
+  padding: 8px 12px;
 }
 
 .oled-panel-column.oled-panel-compact:hover {
   opacity: 1;
   border-color: rgba(0, 210, 255, 0.4);
+}
+
+.oled-floating-badge {
+  user-select: none;
+  pointer-events: auto;
+}
+
+.oled-floating-actions {
+  user-select: none;
+  pointer-events: auto;
 }
 
 /* Animated collapsible bottom toolbar using 0fr -> 1fr CSS Grid */
@@ -2163,6 +2421,20 @@
 }
 
 .btn-block-action.active-purple:hover:not(:disabled) {
+  background: rgba(169, 83, 246, 0.25);
+  border-color: rgba(169, 83, 246, 0.6);
+  color: #a953f6;
+  box-shadow: 0 0 10px rgba(169, 83, 246, 0.4);
+}
+
+.btn-block-action.active-amber {
+  background: rgba(169, 83, 246, 0.15);
+  border-color: rgba(169, 83, 246, 0.4);
+  color: #a953f6;
+  box-shadow: 0 0 8px rgba(169, 83, 246, 0.25);
+}
+
+.btn-block-action.active-amber:hover:not(:disabled) {
   background: rgba(169, 83, 246, 0.25);
   border-color: rgba(169, 83, 246, 0.6);
   color: #a953f6;
@@ -2581,7 +2853,8 @@
 }
 
 .widget-tile-badges .tier-badge-pill,
-.widget-tile-badges .badge-master--nav {
+.widget-tile-badges .badge-master--nav,
+.widget-tile-badges .badge-central--nav {
   position: static;
   top: auto;
   left: auto;
@@ -2709,4 +2982,309 @@
   border-radius: 4px;
   border: 1px solid rgba(0, 240, 255, 0.4);
 }
+
+/* =========================================================================
+   SHIELD KEYBOARD BLANK KEYS SANDBOX STYLING
+   ========================================================================= */
+.shield-sandbox-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  position: relative;
+  user-select: none;
+}
+
+.shield-split-wrapper {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 28px;
+  position: relative;
+  max-width: 100%;
+}
+
+/* Case Body (Minimalist Neon Border aesthetic) */
+.shield-half-case {
+  background: rgba(13, 16, 23, 0.9);
+  border: 1.5px solid #00d2ff;
+  border-radius: 16px;
+  padding: 12px 14px 14px 14px;
+  position: relative;
+  box-shadow:
+    0 0 16px rgba(0, 210, 255, 0.2),
+    0 0 2px rgba(0, 210, 255, 0.5),
+    inset 0 0 12px rgba(0, 210, 255, 0.04);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.shield-half-case:hover {
+  border-color: #00f0ff;
+  box-shadow:
+    0 0 24px rgba(0, 240, 255, 0.35),
+    0 0 4px rgba(0, 240, 255, 0.7),
+    inset 0 0 16px rgba(0, 240, 255, 0.06);
+}
+
+.shield-unibody-case {
+  background: rgba(13, 16, 23, 0.92);
+  border: 1.5px solid #00d2ff;
+  border-radius: 20px;
+  padding: 16px 20px 18px 20px;
+  position: relative;
+  box-shadow:
+    0 0 20px rgba(0, 210, 255, 0.22),
+    0 0 2px rgba(0, 210, 255, 0.5),
+    inset 0 0 14px rgba(0, 210, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.shield-unibody-case:hover {
+  border-color: #00f0ff;
+  box-shadow:
+    0 0 28px rgba(0, 240, 255, 0.38),
+    0 0 4px rgba(0, 240, 255, 0.7),
+    inset 0 0 18px rgba(0, 240, 255, 0.07);
+}
+
+.shield-numpad-case {
+  background: rgba(13, 16, 23, 0.92);
+  border: 1.5px solid #00d2ff;
+  border-radius: 16px;
+  padding: 14px 16px 16px 16px;
+  position: relative;
+  box-shadow:
+    0 0 18px rgba(0, 210, 255, 0.22),
+    0 0 2px rgba(0, 210, 255, 0.5),
+    inset 0 0 12px rgba(0, 210, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.shield-numpad-case:hover {
+  border-color: #00f0ff;
+  box-shadow:
+    0 0 26px rgba(0, 240, 255, 0.35),
+    0 0 4px rgba(0, 240, 255, 0.7),
+    inset 0 0 16px rgba(0, 240, 255, 0.06);
+}
+
+/* Compact Mode Modifiers (for Gallery Cards) */
+.shield-split-wrapper.compact {
+  gap: 8px;
+}
+
+.shield-half-case.compact {
+  padding: 6px 8px 8px 8px;
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(0, 210, 255, 0.15);
+}
+
+.shield-unibody-case.compact {
+  padding: 8px 10px 10px 10px;
+  border-radius: 12px;
+  box-shadow: 0 0 12px rgba(0, 210, 255, 0.15);
+  gap: 6px;
+}
+
+.shield-numpad-case.compact {
+  padding: 8px 10px 10px 10px;
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(0, 210, 255, 0.15);
+  gap: 6px;
+}
+
+.shield-sandbox-container.compact .case-screw {
+  display: none;
+}
+
+.shield-blank-keycap.compact,
+.shield-blank-thumb.compact {
+  border-radius: 4px;
+  box-shadow:
+    0 1.5px 0 #10131a,
+    0 2px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* Blank Keycaps Aesthetic */
+.shield-blank-keycap {
+  background: #202533;
+  border: 1px solid #323c4f;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow:
+    0 3px 0 #10131a,
+    0 4px 6px rgba(0, 0, 0, 0.45),
+    inset 0 1px 1px rgba(255, 255, 255, 0.08);
+  user-select: none;
+  transition: all 0.08s ease;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.shield-blank-keycap:hover {
+  background: #293042;
+  border-color: #45526c;
+  transform: translateY(-1px);
+  box-shadow:
+    0 4px 0 #10131a,
+    0 6px 8px rgba(0, 0, 0, 0.5),
+    inset 0 1px 1px rgba(255, 255, 255, 0.12);
+}
+
+.shield-blank-keycap:active,
+.shield-blank-keycap.pressed {
+  transform: translateY(2px) !important;
+  box-shadow:
+    0 1px 0 #10131a,
+    0 2px 3px rgba(0, 0, 0, 0.5) !important;
+  background: rgba(0, 240, 255, 0.25) !important;
+  border-color: #00f0ff !important;
+}
+
+/* Homing bump for index fingers */
+.shield-homing-bump {
+  position: absolute;
+  bottom: 5px;
+  width: 9px;
+  height: 2px;
+  background: #64748b;
+  border-radius: 2px;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* Blank Thumb Keys */
+.shield-blank-thumb {
+  background: #1c212c;
+  border: 1px solid #2d3546;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow:
+    0 3px 0 #0f1218,
+    0 4px 5px rgba(0, 0, 0, 0.45),
+    inset 0 1px 1px rgba(255, 255, 255, 0.06);
+  user-select: none;
+  transition: all 0.08s ease;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.shield-blank-thumb:hover {
+  background: #252b3a;
+  border-color: #3f4a62;
+  transform: translateY(-1px);
+}
+
+.shield-blank-thumb:active,
+.shield-blank-thumb.pressed {
+  transform: translateY(2px) !important;
+  box-shadow:
+    0 1px 0 #0f1218,
+    0 2px 3px rgba(0, 0, 0, 0.5) !important;
+  background: rgba(0, 240, 255, 0.25) !important;
+  border-color: #00f0ff !important;
+}
+
+/* Rotary Encoder Dial Knob */
+.shield-encoder-knob {
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #475569, #1e293b 70%);
+  border: 1.5px solid #64748b;
+  box-shadow:
+    0 3px 0 #0f172a,
+    0 4px 8px rgba(0, 0, 0, 0.6),
+    inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.shield-encoder-knob:hover {
+  border-color: #00f0ff;
+  box-shadow:
+    0 3px 0 #0f172a,
+    0 4px 10px rgba(0, 240, 255, 0.3),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
+}
+
+.shield-encoder-knob:active,
+.shield-encoder-knob.pressed {
+  transform: scale(0.95);
+  border-color: #00f0ff;
+}
+
+.encoder-indicator-notch {
+  position: absolute;
+  top: 3px;
+  width: 2px;
+  height: 6px;
+  background: #00f0ff;
+  border-radius: 1px;
+  box-shadow: 0 0 4px #00f0ff;
+}
+
+/* Snap-off column indicator */
+.shield-snapoff-column {
+  border: 1px dashed rgba(0, 240, 255, 0.4);
+  border-radius: 8px;
+  padding: 2px;
+  background: rgba(0, 240, 255, 0.03);
+  position: relative;
+}
+
+.shield-snapoff-label {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  font-family: monospace;
+  color: #00f0ff;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+/* Interconnect cable between split halves */
+.shield-interconnect-cable {
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.4) 20%, rgba(0, 240, 255, 0.4) 80%, transparent);
+  width: 36px;
+  margin-top: 40px;
+  position: relative;
+}
+
+.shield-interconnect-cable::after {
+  content: 'TRRS / BLE';
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  font-family: monospace;
+  color: #64748b;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
 

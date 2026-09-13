@@ -648,7 +648,7 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     maxHeight: 18,
     icon: 'wifi',
     associatedSliceIds: ['SYMBOL_USB', 'SYMBOL_BLUETOOTH'],
-    defaultPlacement: { side: 'left', defaultX: 10, defaultY: 0 },
+    defaultPlacement: { side: 'central', defaultX: 10, defaultY: 0 },
     slots: [],
     render: (grid, destX, destY, ctx) => {
       const inst = ctx.instances?.['connection']?.find(i => i.id === ctx.activeInstanceId);
@@ -743,7 +743,7 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     maxHeight: 14,
     icon: 'activity',
     associatedSliceIds: [],
-    defaultPlacement: { side: 'left', defaultX: 9, defaultY: 14 },
+    defaultPlacement: { side: 'central', defaultX: 9, defaultY: 14 },
     slots: [],
     render: (grid, destX, destY, ctx) => {
       const inst = ctx.instances?.['caps-lock']?.find(i => i.id === ctx.activeInstanceId);
@@ -824,7 +824,7 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     maxHeight: 28,
     icon: 'gauge',
     associatedSliceIds: ['SYMBOL_ARROW_HEAD'],
-    defaultPlacement: { side: 'left', defaultX: 2, defaultY: 85 },
+    defaultPlacement: { side: 'central', defaultX: 2, defaultY: 85 },
     slots: [],
     render: (grid, destX, destY, ctx) => {
       const inst = ctx.instances?.['wpm']?.find(i => i.id === ctx.activeInstanceId);
@@ -895,7 +895,7 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     maxHeight: 64,
     icon: 'activity',
     associatedSliceIds: [],
-    defaultPlacement: { side: 'left', defaultX: 0, defaultY: 85 },
+    defaultPlacement: { side: 'central', defaultX: 0, defaultY: 85 },
     slots: [],
     render: (grid, destX, destY, ctx) => {
       const inst = ctx.instances?.['wpm-chart']?.find(i => i.id === ctx.activeInstanceId);

@@ -1,4 +1,4 @@
-import { parseCHeader, generateCHeader } from '../cHeaderParser';
+import { parseCHeader, generateCHeader, getDefaultAssets, type HeaderMetadata } from '../cHeaderParser';
 import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
 import type { SpriteSlice } from '../../types/zmk';
 import { describe, it, expect } from 'vitest';
@@ -319,12 +319,14 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     expect(cCode).toContain('#define ZMK_DISPLAY_IDLE_TIMEOUT_MS  30000');
     expect(cCode).toContain('#define ZMK_DISPLAY_SLEEP_TIMEOUT_MS 60000');
 
-    // Right-side asymmetric macros
-    expect(cCode).toContain('#define DISPLAY_VIRTUAL_WIDTH_RIGHT  68');
-    expect(cCode).toContain('#define DISPLAY_VIRTUAL_HEIGHT_RIGHT 160');
-    expect(cCode).toContain('#define SCYAN_IDLE_SCREENS_ENABLED_RIGHT 0');
-    expect(cCode).toContain('#define SCYAN_IDLE_TIMEOUT_MS_RIGHT        15000');
-    expect(cCode).toContain('#define SCYAN_SLEEP_TIMEOUT_MS_RIGHT       120000');
+    // Peripheral asymmetric macros and legacy right aliases
+    expect(cCode).toContain('#define DISPLAY_VIRTUAL_WIDTH_PERIPHERAL  68');
+    expect(cCode).toContain('#define DISPLAY_VIRTUAL_HEIGHT_PERIPHERAL 160');
+    expect(cCode).toContain('#define DISPLAY_VIRTUAL_WIDTH_RIGHT  DISPLAY_VIRTUAL_WIDTH_PERIPHERAL');
+    expect(cCode).toContain('#define SCYAN_IDLE_SCREENS_ENABLED_PERIPHERAL 0');
+    expect(cCode).toContain('#define SCYAN_IDLE_TIMEOUT_MS_PERIPHERAL        15000');
+    expect(cCode).toContain('#define SCYAN_SLEEP_TIMEOUT_MS_PERIPHERAL       120000');
+    expect(cCode).toContain('#define SCYAN_IDLE_TIMEOUT_MS_RIGHT         SCYAN_IDLE_TIMEOUT_MS_PERIPHERAL');
 
     // Parse and verify round-trip
     const parsed = parseCHeader(cCode);
@@ -587,6 +589,184 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     expect(block).toBeDefined();
     expect(block?.width).toBe(32);
     expect(block?.height).toBe(55);
+  });
+
+  it('should support multi-screen setup with dynamic peripheral screens in C header export and parsing', () => {
+    const testGrid = new BwpxGrid(16, 16);
+    const symbolSlices: SpriteSlice[] = [];
+    const metadata = {
+      version: 1 as const,
+      enabledScreens: ['central', 'peripheral', 'peripheral-2'],
+      screenDimensions: { width: 32, height: 128 },
+      peripheralScreenDimensions: { width: 64, height: 128 },
+      centralBlocks: [
+        { id: 'b-central-wpm', widgetType: 'wpm', name: 'WPM', x: 2, y: 10, width: 28, height: 16, enabled: true, side: 'central' as const }
+      ],
+      peripheralBlocks: [
+        { id: 'b-peripheral-split', widgetType: 'split', name: 'Split', x: 0, y: 20, width: 32, height: 16, enabled: true, side: 'peripheral' as const }
+      ],
+      peripheralScreens: {
+        'peripheral-2': {
+          blocks: [
+            { id: 'b-p2-bongo', widgetType: 'bongo', name: 'Bongo Cat', x: 0, y: 20, width: 32, height: 32, enabled: true, side: 'peripheral-2' },
+            { id: 'b-p2-layer', widgetType: 'layer-banner', name: 'Layer Banner', x: 0, y: 60, width: 32, height: 14, enabled: true, side: 'peripheral-2' },
+          ],
+          idleBlocks: [
+            { id: 'b-p2-mascot', widgetType: 'screensaver', name: 'Mascot', x: 4, y: 30, width: 24, height: 24, enabled: true, side: 'peripheral-2' }
+          ],
+        }
+      },
+    };
+
+    const cCode = generateCHeader(testGrid, symbolSlices, testGrid, [], metadata);
+
+    // Verify generated C header includes canonical arrays and dynamic peripheral blocks
+    expect(cCode).toContain('LAYOUT_CENTRAL_ACTIVE_BLOCKS');
+    expect(cCode).toContain('LAYOUT_PERIPHERAL_ACTIVE_BLOCKS');
+    expect(cCode).toContain('LAYOUT_PERIPHERAL_2_ACTIVE_BLOCKS');
+    expect(cCode).toContain('LAYOUT_PERIPHERAL_2_IDLE_BLOCKS');
+    expect(cCode).toContain('WIDGET_TYPE_BONGO');
+    expect(cCode).toContain('WIDGET_TYPE_LAYER');
+    expect(cCode).toContain('WIDGET_TYPE_SCREENSAVER');
+
+    // Verify backward-compatible aliases for firmware compilation
+    expect(cCode).toContain('#define LAYOUT_LEFT_ACTIVE_BLOCKS   LAYOUT_CENTRAL_ACTIVE_BLOCKS');
+    expect(cCode).toContain('#define LAYOUT_RIGHT_ACTIVE_BLOCKS  LAYOUT_PERIPHERAL_ACTIVE_BLOCKS');
+
+    // Parse the generated header and verify 100% round-trip fidelity
+    const parsed = parseCHeader(cCode);
+    expect(parsed.metadata).toBeDefined();
+    expect(parsed.metadata?.enabledScreens).toEqual(['central', 'peripheral', 'peripheral-2']);
+    expect(parsed.metadata?.peripheralScreenDimensions).toEqual({ width: 64, height: 128 });
+    expect(parsed.metadata?.centralBlocks?.length).toBe(1);
+    expect(parsed.metadata?.peripheralBlocks?.length).toBe(1);
+    expect(parsed.metadata?.peripheralScreens?.['peripheral-2']?.blocks?.length).toBe(2);
+    expect(parsed.metadata?.peripheralScreens?.['peripheral-2']?.blocks?.[0].widgetType).toBe('bongo');
+    expect(parsed.metadata?.peripheralScreens?.['peripheral-2']?.blocks?.[1].widgetType).toBe('layer-banner');
+    expect(parsed.metadata?.peripheralScreens?.['peripheral-2']?.idleBlocks?.length).toBe(1);
+    expect(parsed.metadata?.peripheralScreens?.['peripheral-2']?.idleBlocks?.[0].widgetType).toBe('screensaver');
+  });
+
+  it('should emit canonical central and peripheral layout blocks and aliases for dual split', () => {
+    const testGrid = new BwpxGrid(16, 16);
+    const metadata = {
+      version: 1 as const,
+      enabledScreens: ['central', 'peripheral'],
+      centralBlocks: [
+        { id: 'b1', widgetType: 'battery', name: 'Battery', x: 0, y: 0, width: 17, height: 10, enabled: true, side: 'central' as const }
+      ],
+      peripheralBlocks: [
+        { id: 'b2', widgetType: 'split', name: 'Split', x: 0, y: 0, width: 13, height: 9, enabled: true, side: 'peripheral' as const }
+      ],
+    };
+
+    const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+    expect(cCode).toContain('LAYOUT_CENTRAL_ACTIVE_BLOCKS');
+    expect(cCode).toContain('LAYOUT_PERIPHERAL_ACTIVE_BLOCKS');
+    expect(cCode).toContain('#define LAYOUT_LEFT_ACTIVE_BLOCKS   LAYOUT_CENTRAL_ACTIVE_BLOCKS');
+    expect(cCode).toContain('#define LAYOUT_RIGHT_ACTIVE_BLOCKS  LAYOUT_PERIPHERAL_ACTIVE_BLOCKS');
+  });
+
+  it('should reconcile widget instances for peripheralScreens blocks', () => {
+    const testGrid = new BwpxGrid(16, 16);
+    const metadata = {
+      version: 1 as const,
+      enabledScreens: ['central', 'peripheral', 'peripheral-2'],
+      widgetInstances: {
+        'wpm-chart': [
+          {
+            id: 'inst_p2_chart',
+            widgetTypeId: 'wpm-chart',
+            label: 'WPM Chart',
+            config: {
+              mode: 'symbol' as const,
+              wpmChart: { width: 32, height: 28, gridSize: 4, targetSpeed: 100, timeWindow: 30 },
+            },
+            slots: {},
+          },
+        ],
+      },
+      peripheralScreens: {
+        'peripheral-2': {
+          blocks: [
+            { id: 'p2-chart', widgetType: 'wpm-chart', instanceId: 'inst_p2_chart', name: 'Chart', x: 0, y: 10, width: 16, height: 16, enabled: true, side: 'peripheral-2' }
+          ]
+        }
+      }
+    };
+
+    const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+    const parsed = parseCHeader(cCode);
+    expect(parsed.metadata?.peripheralScreens?.['peripheral-2']?.blocks?.[0].width).toBe(32);
+    expect(parsed.metadata?.peripheralScreens?.['peripheral-2']?.blocks?.[0].height).toBe(28);
+  });
+
+  it('should emit and parse raw C defines for peripheral screen dimensions and power timers', () => {
+    const rawPeripheralC = `
+#define DISPLAY_VIRTUAL_WIDTH 32
+#define DISPLAY_VIRTUAL_HEIGHT 128
+#define DISPLAY_VIRTUAL_WIDTH_PERIPHERAL 68
+#define DISPLAY_VIRTUAL_HEIGHT_PERIPHERAL 160
+#define SCYAN_IDLE_SCREENS_ENABLED_PERIPHERAL 1
+#define SCYAN_IDLE_TIMEOUT_MS_PERIPHERAL 20000
+#define SCYAN_SLEEP_TIMEOUT_MS_PERIPHERAL 50000
+static const struct display_layout_block LAYOUT_CENTRAL_ACTIVE_BLOCKS[1] = {
+    { .type = 1, .x = 0, .y = 0, .width = 12, .height = 10, .enabled = true }
+};
+static const struct display_layout_block LAYOUT_PERIPHERAL_ACTIVE_BLOCKS[1] = {
+    { .type = 2, .x = 5, .y = 10, .width = 17, .height = 10, .enabled = true }
+};
+`;
+    const parsed = parseCHeader(rawPeripheralC);
+    expect(parsed.metadata).toBeDefined();
+    expect(parsed.metadata?.enabledScreens).toEqual(['central', 'peripheral']);
+    expect(parsed.metadata?.peripheralScreenDimensions).toEqual({ width: 68, height: 160 });
+    expect(parsed.metadata?.peripheralIdleScreensEnabled).toBe(true);
+    expect(parsed.metadata?.peripheralIdleTimeoutSec).toBe(20);
+    expect(parsed.metadata?.peripheralScreenOffTimeoutSec).toBe(50);
+    expect(parsed.metadata?.peripheralBlocks?.length).toBe(1);
+  });
+
+  it('should gracefully normalize legacy 2-screen C header to central/peripheral enabledScreens', () => {
+    const legacyC = `
+#define DISPLAY_VIRTUAL_WIDTH 32
+#define DISPLAY_VIRTUAL_HEIGHT 128
+static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
+    { .type = 1, .x = 0, .y = 0, .width = 12, .height = 10, .enabled = true }
+};
+static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
+    { .type = 2, .x = 0, .y = 0, .width = 17, .height = 10, .enabled = true }
+};
+/* ZMK_DISPLAY_STUDIO_METADATA
+{
+  "version": 1,
+  "leftBlocks": [{ "id": "l1", "widgetType": "connection", "name": "Output", "x": 0, "y": 0, "width": 12, "height": 10, "enabled": true, "side": "left" }],
+  "rightBlocks": [{ "id": "r1", "widgetType": "battery", "name": "Battery", "x": 0, "y": 0, "width": 17, "height": 10, "enabled": true, "side": "right" }]
+}
+*/
+`;
+    const parsed = parseCHeader(legacyC);
+    expect(parsed.metadata?.enabledScreens).toEqual(['central', 'peripheral']);
+    expect(parsed.metadata?.centralBlocks?.length).toBe(1);
+    expect(parsed.metadata?.peripheralBlocks?.length).toBe(1);
+  });
+
+  it('generates correct physical hardware dimensions for horizontal/landscape displays (e.g. Lily58 128x32)', () => {
+    const assets = getDefaultAssets();
+    const metadata: HeaderMetadata = {
+      version: 1,
+      centralBlocks: [],
+      peripheralBlocks: [],
+      screenDimensions: { width: 128, height: 32 },
+      shieldId: 'lily58',
+    };
+    const cCode = generateCHeader(assets.symbolsGrid, assets.symbolSlices, assets.fontGrid, assets.fontMappings, metadata);
+
+    expect(cCode).toContain('#define DISPLAY_VIRTUAL_WIDTH  128');
+    expect(cCode).toContain('#define DISPLAY_VIRTUAL_HEIGHT 32');
+    expect(cCode).toContain('#define DISPLAY_HW_WIDTH       128');
+    expect(cCode).toContain('#define DISPLAY_HW_HEIGHT      32');
+    expect(cCode).toContain('"shieldId": "lily58"');
   });
 });
 

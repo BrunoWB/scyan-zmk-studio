@@ -11,6 +11,7 @@ import {
   Sun,
   Sliders,
   Shuffle,
+  ArrowLeftRight,
 } from 'lucide-react';
 import type { GitHubRepoConfig, GitHubConnectionState } from '../services/githubService';
 import {
@@ -34,11 +35,12 @@ import {
   resolveWidgetInstance,
 } from '../services/widgetRegistry';
 import {
-  DEFAULT_LEFT_LAYOUT_BLOCKS,
-  DEFAULT_RIGHT_LAYOUT_BLOCKS,
-  DEFAULT_IDLE_LEFT_BLOCKS,
-  DEFAULT_IDLE_RIGHT_BLOCKS,
+  DEFAULT_CENTRAL_LAYOUT_BLOCKS,
+  DEFAULT_PERIPHERAL_LAYOUT_BLOCKS,
+  DEFAULT_IDLE_CENTRAL_BLOCKS,
+  DEFAULT_IDLE_PERIPHERAL_BLOCKS,
 } from '../types/zmk';
+import { getShieldDefinition } from '../data/shieldsData';
 
 const BLOCK_COLORS: Record<string, string> = {
   'status-bar': '#38bdf8',
@@ -82,6 +84,14 @@ export interface OledPreviewTabProps {
   fontGrid: BwpxGrid;
   fontGlyphs?: FontGlyph[];
   fontMappings?: FontCharMapping[];
+  centralBlocks?: LayoutBlock[];
+  peripheralBlocks?: LayoutBlock[];
+  idleCentralBlocks?: LayoutBlock[];
+  idlePeripheralBlocks?: LayoutBlock[];
+  onCentralBlocksChange?: (blocks: LayoutBlock[]) => void;
+  onPeripheralBlocksChange?: (blocks: LayoutBlock[]) => void;
+  onIdleCentralBlocksChange?: (blocks: LayoutBlock[]) => void;
+  onIdlePeripheralBlocksChange?: (blocks: LayoutBlock[]) => void;
   leftBlocks?: LayoutBlock[];
   rightBlocks?: LayoutBlock[];
   layoutBlocks?: LayoutBlock[];
@@ -92,8 +102,14 @@ export interface OledPreviewTabProps {
   onIdleLeftBlocksChange?: (blocks: LayoutBlock[]) => void;
   onIdleRightBlocksChange?: (blocks: LayoutBlock[]) => void;
   screenDimensions?: { width: number; height: number };
+  peripheralScreenDimensions?: { width: number; height: number };
   rightScreenDimensions?: { width: number; height: number };
   symmetricSettings?: boolean;
+  shieldId?: string;
+  onShieldIdChange?: (id: string) => void;
+  enabledScreens?: ('central' | 'peripheral' | string)[];
+  onEnabledScreensChange?: (screens: ('central' | 'peripheral' | string)[]) => void;
+  onSwapDisplays?: (idA: string, idB: string) => void;
   customText: string;
   onCustomTextChange: (text: string) => void;
   instances?: import('../types/widget').WidgetInstanceMap;
@@ -107,12 +123,26 @@ export interface OledPreviewTabProps {
   onKeymapLayoutChange?: (layout: ParsedKeymapLayout) => void;
 }
 
+function normalizeScreenKey(key: string): 'central' | 'peripheral' | string {
+  if (key === 'left' || key === 'central') return 'central';
+  if (key === 'right' || key === 'peripheral') return 'peripheral';
+  return key;
+}
+
 export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   symbolsGrid,
   symbolSlices,
   fontGrid,
   fontGlyphs = [],
   fontMappings = [],
+  centralBlocks,
+  peripheralBlocks,
+  onCentralBlocksChange,
+  onPeripheralBlocksChange,
+  idleCentralBlocks,
+  idlePeripheralBlocks,
+  onIdleCentralBlocksChange,
+  onIdlePeripheralBlocksChange,
   leftBlocks,
   rightBlocks,
   layoutBlocks,
@@ -123,8 +153,14 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   onIdleLeftBlocksChange,
   onIdleRightBlocksChange,
   screenDimensions,
+  peripheralScreenDimensions,
   rightScreenDimensions,
   symmetricSettings,
+  shieldId = 'corne',
+  onShieldIdChange: _onShieldIdChange,
+  enabledScreens,
+  onEnabledScreensChange,
+  onSwapDisplays,
   customText,
   onCustomTextChange: _onCustomTextChange,
   instances,
@@ -137,15 +173,119 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   keymapLayout: propKeymapLayout,
   onKeymapLayoutChange,
 }) => {
-  const activeLeftBlocks = leftBlocks ?? layoutBlocks ?? DEFAULT_LEFT_LAYOUT_BLOCKS;
-  const activeRightBlocks = rightBlocks ?? DEFAULT_RIGHT_LAYOUT_BLOCKS;
+  const activeCentralBlocks = centralBlocks ?? leftBlocks ?? layoutBlocks ?? DEFAULT_CENTRAL_LAYOUT_BLOCKS;
+  const activePeripheralBlocks = peripheralBlocks ?? rightBlocks ?? DEFAULT_PERIPHERAL_LAYOUT_BLOCKS;
+
+  const handleCentralBlocksChange = onCentralBlocksChange || onLeftBlocksChange;
+  const handlePeripheralBlocksChange = onPeripheralBlocksChange || onRightBlocksChange;
+  const handleIdleCentralBlocksChange = onIdleCentralBlocksChange || onIdleLeftBlocksChange;
+  const handleIdlePeripheralBlocksChange = onIdlePeripheralBlocksChange || onIdleRightBlocksChange;
+
+  const activeShield = useMemo(() => {
+    return getShieldDefinition(shieldId);
+  }, [shieldId]);
+
+  const effectiveEnabledScreens = useMemo(() => {
+    if (enabledScreens && enabledScreens.length > 0) {
+      return enabledScreens;
+    }
+    return ['central', 'peripheral'];
+  }, [enabledScreens]);
+
+  const orderedScreens = useMemo<('central' | 'peripheral' | string)[]>(() => {
+    const list: ('central' | 'peripheral' | string)[] = [];
+    for (const raw of effectiveEnabledScreens) {
+      const canonical = normalizeScreenKey(raw);
+      if (!list.includes(canonical)) {
+        list.push(canonical);
+      }
+    }
+    return list.length > 0 ? list : ['central', 'peripheral'];
+  }, [effectiveEnabledScreens]);
+
+  const showRightKeyboard = orderedScreens.includes('peripheral');
+
+  // Realign drag state (ONLY active & visible while dragging)
+  const [isRealigning, setIsRealigning] = useState<boolean>(false);
+  const [draggedUnitKey, setDraggedUnitKey] = useState<'central' | 'peripheral' | string | null>(null);
+  const [hoveredDropSlot, setHoveredDropSlot] = useState<string | null>(null);
+  const [hoveredSwapUnitKey, setHoveredSwapUnitKey] = useState<'central' | 'peripheral' | string | null>(null);
+
+  const handleUnitDragStart = useCallback((e: React.DragEvent, screenKey: 'central' | 'peripheral' | string) => {
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('.corne-keycap, .corne-thumb-key, .oled-block-overlay')) {
+      e.preventDefault();
+      return;
+    }
+    e.stopPropagation();
+    e.dataTransfer.setData('application/json', JSON.stringify({ type: 'preview-realign-unit', screenKey }));
+    e.dataTransfer.effectAllowed = 'move';
+    setIsRealigning(true);
+    setDraggedUnitKey(screenKey);
+  }, []);
+
+  const handleUnitDragEnd = useCallback(() => {
+    setIsRealigning(false);
+    setDraggedUnitKey(null);
+    setHoveredDropSlot(null);
+    setHoveredSwapUnitKey(null);
+  }, []);
+
+  const handleDropOnSlot = useCallback((e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsRealigning(false);
+    setHoveredDropSlot(null);
+    setHoveredSwapUnitKey(null);
+
+    const sourceKey = draggedUnitKey;
+    setDraggedUnitKey(null);
+    if (!sourceKey) return;
+
+    const currentIndex = orderedScreens.indexOf(sourceKey);
+    if (currentIndex === -1) return;
+
+    const updated = [...orderedScreens];
+    updated.splice(currentIndex, 1);
+    const insertIdx = targetIndex > currentIndex ? targetIndex - 1 : targetIndex;
+    updated.splice(insertIdx, 0, sourceKey);
+
+    if (updated.join(',') !== orderedScreens.join(',')) {
+      onEnabledScreensChange?.(updated);
+      onShowToast?.('success', `Realigned layout order: ${updated.join(' → ')}`);
+    }
+  }, [draggedUnitKey, orderedScreens, onEnabledScreensChange, onShowToast]);
+
+  const handleDropOnUnit = useCallback((e: React.DragEvent, targetKey: 'central' | 'peripheral' | string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsRealigning(false);
+    setHoveredDropSlot(null);
+    setHoveredSwapUnitKey(null);
+
+    const sourceKey = draggedUnitKey;
+    setDraggedUnitKey(null);
+    if (!sourceKey || sourceKey === targetKey) return;
+
+    const idxA = orderedScreens.indexOf(sourceKey);
+    const idxB = orderedScreens.indexOf(targetKey);
+    if (idxA === -1 || idxB === -1) return;
+
+    const updated = [...orderedScreens];
+    updated[idxA] = targetKey;
+    updated[idxB] = sourceKey;
+
+    onEnabledScreensChange?.(updated);
+    onSwapDisplays?.(sourceKey, targetKey);
+    onShowToast?.('success', `Swapped positions: ${sourceKey} ↔ ${targetKey}`);
+  }, [draggedUnitKey, orderedScreens, onEnabledScreensChange, onSwapDisplays, onShowToast]);
 
   // Virtual screen dimensions per side
   const leftVWidth = screenDimensions?.width || 32;
   const leftVHeight = screenDimensions?.height || 128;
   const effectiveSymmetric = symmetricSettings !== undefined ? symmetricSettings : true;
-  const rightVWidth = (effectiveSymmetric ? leftVWidth : rightScreenDimensions?.width) || 32;
-  const rightVHeight = (effectiveSymmetric ? leftVHeight : rightScreenDimensions?.height) || 128;
+  const rightVWidth = (effectiveSymmetric ? leftVWidth : (peripheralScreenDimensions?.width ?? rightScreenDimensions?.width)) || 32;
+  const rightVHeight = (effectiveSymmetric ? leftVHeight : (peripheralScreenDimensions?.height ?? rightScreenDimensions?.height)) || 128;
 
   // Proportional display dimensions in px for housing and canvas
   const leftDisplayDim = useMemo(() => getOledDisplayDimensions(leftVWidth, leftVHeight), [leftVWidth, leftVHeight]);
@@ -156,26 +296,26 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
 
   // Active blocks according to idle/active mode
   const leftDisplayBlocks = isIdle
-    ? (idleLeftBlocks && idleLeftBlocks.length > 0 ? idleLeftBlocks : DEFAULT_IDLE_LEFT_BLOCKS)
-    : activeLeftBlocks;
+    ? (idleCentralBlocks && idleCentralBlocks.length > 0 ? idleCentralBlocks : (idleLeftBlocks && idleLeftBlocks.length > 0 ? idleLeftBlocks : DEFAULT_IDLE_CENTRAL_BLOCKS))
+    : activeCentralBlocks;
 
   const rightDisplayBlocks = isIdle
-    ? (idleRightBlocks && idleRightBlocks.length > 0 ? idleRightBlocks : DEFAULT_IDLE_RIGHT_BLOCKS)
-    : activeRightBlocks;
+    ? (idlePeripheralBlocks && idlePeripheralBlocks.length > 0 ? idlePeripheralBlocks : (idleRightBlocks && idleRightBlocks.length > 0 ? idleRightBlocks : DEFAULT_IDLE_PERIPHERAL_BLOCKS))
+    : activePeripheralBlocks;
 
   // Direct widget manipulation state
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [internalDraggingBlockId, setInternalDraggingBlockId] = useState<string | null>(null);
-  const [hoveredSide, setHoveredSide] = useState<'left' | 'right' | null>(null);
+  const [hoveredSide, setHoveredSide] = useState<'central' | 'peripheral' | 'left' | 'right' | string | null>(null);
   const dragStartXRef = useRef<number>(0);
   const dragStartYRef = useRef<number>(0);
   const blockInitialXRef = useRef<number>(0);
   const blockInitialYRef = useRef<number>(0);
-  const draggingSideRef = useRef<'left' | 'right'>('left');
+  const draggingSideRef = useRef<'central' | 'peripheral' | 'left' | 'right' | string>('central');
   const leftScreenContainerRef = useRef<HTMLDivElement | null>(null);
   const rightScreenContainerRef = useRef<HTMLDivElement | null>(null);
 
-  const handleStartMoveBlock = (e: React.PointerEvent, block: LayoutBlock, side: 'left' | 'right') => {
+  const handleStartMoveBlock = (e: React.PointerEvent, block: LayoutBlock, side: 'central' | 'peripheral' | 'left' | 'right' | string) => {
     e.stopPropagation();
     setSelectedBlockId(block.id);
     setInternalDraggingBlockId(block.id);
@@ -192,8 +332,10 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     if (!internalDraggingBlockId) return;
 
     const side = draggingSideRef.current;
-    const isLeft = side === 'left';
-    const container = isLeft ? leftScreenContainerRef.current : rightScreenContainerRef.current;
+    const isLeft = side === 'central' || side === 'left';
+    const container = isLeft
+      ? leftScreenContainerRef.current
+      : rightScreenContainerRef.current;
     if (!container) return;
 
     const rect = container.getBoundingClientRect();
@@ -228,15 +370,15 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
         const updated = blockList.map(b => b.id === internalDraggingBlockId ? { ...b, x: newX, y: newY } : b);
         if (isLeft) {
           if (isIdle) {
-            onIdleLeftBlocksChange?.(updated);
+            handleIdleCentralBlocksChange?.(updated);
           } else {
-            onLeftBlocksChange?.(updated);
+            handleCentralBlocksChange?.(updated);
           }
         } else {
           if (isIdle) {
-            onIdleRightBlocksChange?.(updated);
+            handleIdlePeripheralBlocksChange?.(updated);
           } else {
-            onRightBlocksChange?.(updated);
+            handlePeripheralBlocksChange?.(updated);
           }
         }
       }
@@ -263,13 +405,12 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     rightVHeight,
     leftDisplayBlocks,
     rightDisplayBlocks,
-    onLeftBlocksChange,
-    onRightBlocksChange,
-    onIdleLeftBlocksChange,
-    onIdleRightBlocksChange,
+    handleCentralBlocksChange,
+    handlePeripheralBlocksChange,
+    handleIdleCentralBlocksChange,
+    handleIdlePeripheralBlocksChange,
     instances,
     symbolSlices,
-    fontGlyphs,
     fontMappings,
   ]);
   const [outputMode, setOutputMode] = useState<'usb' | 'ble'>('usb');
@@ -817,6 +958,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
         }
       }
     }
+
   }, [
     leftDisplayBlocks,
     rightDisplayBlocks,
@@ -847,7 +989,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
 
   const renderBlockOverlay = (
     block: LayoutBlock,
-    side: 'left' | 'right',
+    side: 'central' | 'peripheral' | 'left' | 'right' | string,
     vWidth: number,
     vHeight: number
   ) => {
@@ -905,199 +1047,424 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   return (
     <div className="oled-preview-fullscreen">
       {/* =========================================================================
-          TOP: CUTE MINIMALIST CORNE 5X3 SPLIT VISUALIZATION WITH DUAL DISPLAYS
+          TOP: KEYBOARD / SHIELD VISUALIZATION WITH OLED DISPLAYS
+          Loaded configuration is realignable; drop zones are only shown during drag.
           ========================================================================= */}
-      <div className="corne-keyboard-split">
-          {/* LEFT HALF (MASTER) */}
-          <div className="corne-half-case left-half">
-            <div className="half-inner-layout">
-              {/* Keys Cluster (Matrix + Thumbs tight underneath) */}
-              <div className="corne-keys-cluster">
-                {/* Dynamic Columns Matrix */}
-                <div className="corne-matrix">
-                  {Array.from({ length: keymapLayout.columns }, (_, colIdx) => (
-                    <div
-                      key={colIdx}
-                      className="corne-col"
-                      style={{ transform: `translateY(${getColStagger(colIdx, keymapLayout.columns, false)}px)` }}
-                    >
-                      {Array.from({ length: keymapLayout.rows }, (_, rowIdx) => {
-                        const keyLabel = currentLeftMatrix[rowIdx]?.[colIdx] || '';
-                        const coordId = `L_${rowIdx}_${colIdx}`;
-                        const isPressed = pressedKeys.has(coordId);
-                        const isEmpty = !keyLabel;
-                        return (
-                          <div
-                            key={rowIdx}
-                            className={`corne-keycap ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
-                            onClick={() => triggerKeyPress(coordId)}
-                            title={keyLabel ? `Left [${rowIdx},${colIdx}]: ${keyLabel}` : `Left [${rowIdx},${colIdx}]`}
-                          >
-                            {keyLabel ? <span className="keycap-legend">{keyLabel}</span> : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ))}
+      {activeShield.layoutGeometry.type === 'unknown' ? (
+        <div className="flex items-center justify-center gap-8 my-6 relative">
+          {orderedScreens.map((screenKey, index) => (
+            <React.Fragment key={screenKey}>
+              {/* Realign insertion drop slot before unit (ONLY visible while dragging) */}
+              {isRealigning && (
+                <div
+                  className={`preview-realign-drop-slot ${hoveredDropSlot === `slot-${index}` ? 'hovered' : ''}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setHoveredDropSlot(`slot-${index}`);
+                  }}
+                  onDragLeave={() => setHoveredDropSlot((curr) => (curr === `slot-${index}` ? null : curr))}
+                  onDrop={(e) => handleDropOnSlot(e, index)}
+                  title="Drop to realign position"
+                >
+                  <ArrowLeftRight size={16} className="text-[#00f0ff] animate-pulse" />
                 </div>
+              )}
 
-                {/* Thumb Keys Cluster */}
-                <div className="corne-thumbs left-thumbs">
-                  {currentLeftThumbs.map((t, idx) => {
-                    const coordId = `LT_${idx}`;
-                    const isPressed = pressedKeys.has(coordId);
-                    const isEmpty = !t;
-                    return (
-                      <div
-                        key={idx}
-                        className={`corne-thumb-key thumb-${idx} ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
-                        onClick={() => triggerKeyPress(coordId)}
-                        title={t ? `Left Thumb [${idx}]: ${t}` : `Left Thumb [${idx}]`}
-                      >
-                        {t ? <span className="thumb-legend">{t}</span> : null}
+              {/* Realignable Unit Wrapper */}
+              <div
+                draggable
+                onDragStart={(e) => handleUnitDragStart(e, screenKey)}
+                onDragEnd={handleUnitDragEnd}
+                onDragOver={(e) => {
+                  if (isRealigning && draggedUnitKey !== screenKey) {
+                    e.preventDefault();
+                    setHoveredSwapUnitKey(screenKey);
+                  }
+                }}
+                onDragLeave={() => setHoveredSwapUnitKey((curr) => (curr === screenKey ? null : curr))}
+                onDrop={(e) => handleDropOnUnit(e, screenKey)}
+                className={`preview-realignable-unit ${isRealigning ? 'cursor-grab active:cursor-grabbing' : ''} ${
+                  draggedUnitKey === screenKey ? 'opacity-40 scale-95' : ''
+                }`}
+              >
+                {screenKey === 'central' && (
+                  <div className="unknown-shield-unit-case">
+                    <div className="unknown-shield-body">
+                      <div className="unknown-shield-header-badge">
+                        <span className="live-dot" />
+                        <span>{showRightKeyboard ? `${activeShield.name} (Central)` : activeShield.name}</span>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* OLED Display (Inner Side) */}
-              <div className="corne-mcu-bay">
-                <div className="mcu-pcb-socket">
-                  <div
-                    className="oled-glass-housing"
-                    style={{
-                      width: `${leftDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
-                      height: `${leftDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
-                    }}
-                    onMouseEnter={() => setHoveredSide('left')}
-                    onMouseLeave={() => setHoveredSide(null)}
-                    onClick={() => setSelectedBlockId(null)}
-                  >
-                    <div
-                      ref={leftScreenContainerRef}
-                      style={{
-                        position: 'relative',
-                        width: `${leftDisplayDim.displayW}px`,
-                        height: `${leftDisplayDim.displayH}px`,
-                      }}
-                    >
-                      <canvas
-                        ref={leftCanvasRef}
-                        className="corne-oled-canvas"
+                      <div
+                        className="oled-glass-housing"
                         style={{
-                          width: `${leftDisplayDim.displayW}px`,
-                          height: `${leftDisplayDim.displayH}px`,
-                          display: 'block',
+                          width: `${leftDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
+                          height: `${leftDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
+                          borderColor: 'rgba(169, 83, 246, 0.4)',
+                          boxShadow: '0 0 12px rgba(169, 83, 246, 0.15)',
                         }}
-                      />
-                      <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
-                        {leftDisplayBlocks.map(block =>
-                          renderBlockOverlay(block, 'left', leftVWidth, leftVHeight)
-                        )}
+                        onMouseEnter={() => setHoveredSide('central')}
+                        onMouseLeave={() => setHoveredSide(null)}
+                        onClick={() => setSelectedBlockId(null)}
+                      >
+                        <div
+                          ref={leftScreenContainerRef}
+                          style={{
+                            position: 'relative',
+                            width: `${leftDisplayDim.displayW}px`,
+                            height: `${leftDisplayDim.displayH}px`,
+                          }}
+                        >
+                          <canvas
+                            ref={leftCanvasRef}
+                            className="corne-oled-canvas"
+                            style={{
+                              width: `${leftDisplayDim.displayW}px`,
+                              height: `${leftDisplayDim.displayH}px`,
+                              display: 'block',
+                            }}
+                          />
+                          <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
+                            {leftDisplayBlocks.map((block) =>
+                              renderBlockOverlay(block, 'central', leftVWidth, leftVHeight)
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            </div>
-          </div>
+                )}
 
-          {/* RIGHT HALF (PERIPHERAL) */}
-          <div className="corne-half-case right-half">
-            <div className="half-inner-layout mirrored">
-              {/* OLED Display (Inner Side) */}
-              <div className="corne-mcu-bay">
-                <div className="mcu-pcb-socket">
-                  <div
-                    className="oled-glass-housing"
-                    style={{
-                      width: `${rightDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
-                      height: `${rightDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
-                    }}
-                    onMouseEnter={() => setHoveredSide('right')}
-                    onMouseLeave={() => setHoveredSide(null)}
-                    onClick={() => setSelectedBlockId(null)}
-                  >
-                    <div
-                      ref={rightScreenContainerRef}
-                      style={{
-                        position: 'relative',
-                        width: `${rightDisplayDim.displayW}px`,
-                        height: `${rightDisplayDim.displayH}px`,
-                      }}
-                    >
-                      <canvas
-                        ref={rightCanvasRef}
-                        className="corne-oled-canvas"
+                {screenKey === 'peripheral' && (
+                  <div className="unknown-shield-unit-case">
+                    <div className="unknown-shield-body">
+                      <div className="unknown-shield-header-badge">
+                        <span className="live-dot" />
+                        <span>{`${activeShield.name} (Peripheral)`}</span>
+                      </div>
+                      <div
+                        className="oled-glass-housing"
                         style={{
-                          width: `${rightDisplayDim.displayW}px`,
-                          height: `${rightDisplayDim.displayH}px`,
-                          display: 'block',
+                          width: `${rightDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
+                          height: `${rightDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
+                          borderColor: 'rgba(169, 83, 246, 0.4)',
+                          boxShadow: '0 0 12px rgba(169, 83, 246, 0.15)',
                         }}
-                      />
-                      <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
-                        {rightDisplayBlocks.map(block =>
-                          renderBlockOverlay(block, 'right', rightVWidth, rightVHeight)
-                        )}
+                        onMouseEnter={() => setHoveredSide('right')}
+                        onMouseLeave={() => setHoveredSide(null)}
+                        onClick={() => setSelectedBlockId(null)}
+                      >
+                        <div
+                          ref={rightScreenContainerRef}
+                          style={{
+                            position: 'relative',
+                            width: `${rightDisplayDim.displayW}px`,
+                            height: `${rightDisplayDim.displayH}px`,
+                          }}
+                        >
+                          <canvas
+                            ref={rightCanvasRef}
+                            className="corne-oled-canvas"
+                            style={{
+                              width: `${rightDisplayDim.displayW}px`,
+                              height: `${rightDisplayDim.displayH}px`,
+                              display: 'block',
+                            }}
+                          />
+                          <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
+                            {rightDisplayBlocks.map((block) =>
+                              renderBlockOverlay(block, 'right', rightVWidth, rightVHeight)
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
+                )}
+
+                {/* Swap Drop Overlay (ONLY visible while dragging over this target) */}
+                {isRealigning && draggedUnitKey !== screenKey && hoveredSwapUnitKey === screenKey && (
+                  <div className="preview-unit-swap-overlay">
+                    <ArrowLeftRight size={24} className="text-[#00f0ff] animate-bounce" />
+                    <span className="text-xs font-mono font-bold text-[#00f0ff] mt-1.5">Swap Position</span>
+                  </div>
+                )}
               </div>
 
-              {/* Keys Cluster (Matrix + Thumbs tight underneath) */}
-              <div className="corne-keys-cluster">
-                {/* Dynamic Columns Matrix */}
-                <div className="corne-matrix">
-                  {Array.from({ length: keymapLayout.columns }, (_, colIdx) => (
-                    <div
-                      key={colIdx}
-                      className="corne-col"
-                      style={{ transform: `translateY(${getColStagger(colIdx, keymapLayout.columns, true)}px)` }}
-                    >
-                      {Array.from({ length: keymapLayout.rows }, (_, rowIdx) => {
-                        const keyLabel = currentRightMatrix[rowIdx]?.[colIdx] || '';
-                        const coordId = `R_${rowIdx}_${colIdx}`;
-                        const isPressed = pressedKeys.has(coordId);
-                        const isEmpty = !keyLabel;
-                        return (
-                          <div
-                            key={rowIdx}
-                            className={`corne-keycap ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
-                            onClick={() => triggerKeyPress(coordId)}
-                            title={keyLabel ? `Right [${rowIdx},${colIdx}]: ${keyLabel}` : `Right [${rowIdx},${colIdx}]`}
-                          >
-                            {keyLabel ? <span className="keycap-legend">{keyLabel}</span> : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ))}
+              {/* Trailing insertion drop slot after last unit */}
+              {isRealigning && index === orderedScreens.length - 1 && (
+                <div
+                  className={`preview-realign-drop-slot ${hoveredDropSlot === `slot-${index + 1}` ? 'hovered' : ''}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setHoveredDropSlot(`slot-${index + 1}`);
+                  }}
+                  onDragLeave={() => setHoveredDropSlot((curr) => (curr === `slot-${index + 1}` ? null : curr))}
+                  onDrop={(e) => handleDropOnSlot(e, index + 1)}
+                  title="Drop to realign to end"
+                >
+                  <ArrowLeftRight size={16} className="text-[#00f0ff] animate-pulse" />
                 </div>
-
-                {/* Thumb Keys Cluster */}
-                <div className="corne-thumbs right-thumbs">
-                  {currentRightThumbs.map((t, idx) => {
-                    const coordId = `RT_${idx}`;
-                    const isPressed = pressedKeys.has(coordId);
-                    const isEmpty = !t;
-                    return (
-                      <div
-                        key={idx}
-                        className={`corne-thumb-key thumb-${idx} ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
-                        onClick={() => triggerKeyPress(coordId)}
-                        title={t ? `Right Thumb [${idx}]: ${t}` : `Right Thumb [${idx}]`}
-                      >
-                        {t ? <span className="thumb-legend">{t}</span> : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
+              )}
+            </React.Fragment>
+          ))}
         </div>
+      ) : (
+        <div className="corne-keyboard-split">
+          {orderedScreens.map((screenKey, index) => (
+            <React.Fragment key={screenKey}>
+              {/* Realign insertion drop slot before unit (ONLY visible while dragging) */}
+              {isRealigning && (
+                <div
+                  className={`preview-realign-drop-slot ${hoveredDropSlot === `slot-${index}` ? 'hovered' : ''}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setHoveredDropSlot(`slot-${index}`);
+                  }}
+                  onDragLeave={() => setHoveredDropSlot((curr) => (curr === `slot-${index}` ? null : curr))}
+                  onDrop={(e) => handleDropOnSlot(e, index)}
+                  title="Drop to realign position"
+                >
+                  <ArrowLeftRight size={16} className="text-[#00f0ff] animate-pulse" />
+                </div>
+              )}
+
+              {/* Realignable Unit Wrapper */}
+              <div
+                draggable
+                onDragStart={(e) => handleUnitDragStart(e, screenKey)}
+                onDragEnd={handleUnitDragEnd}
+                onDragOver={(e) => {
+                  if (isRealigning && draggedUnitKey !== screenKey) {
+                    e.preventDefault();
+                    setHoveredSwapUnitKey(screenKey);
+                  }
+                }}
+                onDragLeave={() => setHoveredSwapUnitKey((curr) => (curr === screenKey ? null : curr))}
+                onDrop={(e) => handleDropOnUnit(e, screenKey)}
+                className={`preview-realignable-unit ${isRealigning ? 'cursor-grab active:cursor-grabbing' : ''} ${
+                  draggedUnitKey === screenKey ? 'opacity-40 scale-95' : ''
+                }`}
+              >
+                {screenKey === 'central' && (
+                  <div className="corne-half-case left-half">
+                    <div className="half-inner-layout">
+                      {/* Keys Cluster (Matrix + Thumbs tight underneath) */}
+                      <div className="corne-keys-cluster">
+                        {/* Dynamic Columns Matrix */}
+                        <div className="corne-matrix">
+                          {Array.from({ length: keymapLayout.columns }, (_, colIdx) => (
+                            <div
+                              key={colIdx}
+                              className="corne-col"
+                              style={{ transform: `translateY(${getColStagger(colIdx, keymapLayout.columns, false)}px)` }}
+                            >
+                              {Array.from({ length: keymapLayout.rows }, (_, rowIdx) => {
+                                const keyLabel = currentLeftMatrix[rowIdx]?.[colIdx] || '';
+                                const coordId = `L_${rowIdx}_${colIdx}`;
+                                const isPressed = pressedKeys.has(coordId);
+                                const isEmpty = !keyLabel;
+                                return (
+                                  <div
+                                    key={rowIdx}
+                                    className={`corne-keycap ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
+                                    onClick={() => triggerKeyPress(coordId)}
+                                    title={keyLabel ? `Left [${rowIdx},${colIdx}]: ${keyLabel}` : `Left [${rowIdx},${colIdx}]`}
+                                  >
+                                    {keyLabel ? <span className="keycap-legend">{keyLabel}</span> : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Thumb Keys Cluster */}
+                        <div className="corne-thumbs left-thumbs">
+                          {currentLeftThumbs.map((t, idx) => {
+                            const coordId = `LT_${idx}`;
+                            const isPressed = pressedKeys.has(coordId);
+                            const isEmpty = !t;
+                            return (
+                              <div
+                                key={idx}
+                                className={`corne-thumb-key thumb-${idx} ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
+                                onClick={() => triggerKeyPress(coordId)}
+                                title={t ? `Left Thumb [${idx}]: ${t}` : `Left Thumb [${idx}]`}
+                              >
+                                {t ? <span className="thumb-legend">{t}</span> : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* OLED Display (Inner Side) */}
+                      <div className="corne-mcu-bay">
+                        <div className="mcu-pcb-socket">
+                          <div
+                            className="oled-glass-housing"
+                            style={{
+                              width: `${leftDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
+                              height: `${leftDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
+                            }}
+                            onMouseEnter={() => setHoveredSide('left')}
+                            onMouseLeave={() => setHoveredSide(null)}
+                            onClick={() => setSelectedBlockId(null)}
+                          >
+                            <div
+                              ref={leftScreenContainerRef}
+                              style={{
+                                position: 'relative',
+                                width: `${leftDisplayDim.displayW}px`,
+                                height: `${leftDisplayDim.displayH}px`,
+                              }}
+                            >
+                              <canvas
+                                ref={leftCanvasRef}
+                                className="corne-oled-canvas"
+                                style={{
+                                  width: `${leftDisplayDim.displayW}px`,
+                                  height: `${leftDisplayDim.displayH}px`,
+                                  display: 'block',
+                                }}
+                              />
+                              <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
+                                {leftDisplayBlocks.map((block) =>
+                                  renderBlockOverlay(block, 'left', leftVWidth, leftVHeight)
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {screenKey === 'peripheral' && (
+                  <div className="corne-half-case right-half">
+                    <div className="half-inner-layout mirrored">
+                      {/* OLED Display (Inner Side) */}
+                      <div className="corne-mcu-bay">
+                        <div className="mcu-pcb-socket">
+                          <div
+                            className="oled-glass-housing"
+                            style={{
+                              width: `${rightDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
+                              height: `${rightDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
+                            }}
+                            onMouseEnter={() => setHoveredSide('right')}
+                            onMouseLeave={() => setHoveredSide(null)}
+                            onClick={() => setSelectedBlockId(null)}
+                          >
+                            <div
+                              ref={rightScreenContainerRef}
+                              style={{
+                                position: 'relative',
+                                width: `${rightDisplayDim.displayW}px`,
+                                height: `${rightDisplayDim.displayH}px`,
+                              }}
+                            >
+                              <canvas
+                                ref={rightCanvasRef}
+                                className="corne-oled-canvas"
+                                style={{
+                                  width: `${rightDisplayDim.displayW}px`,
+                                  height: `${rightDisplayDim.displayH}px`,
+                                  display: 'block',
+                                }}
+                              />
+                              <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
+                                {rightDisplayBlocks.map((block) =>
+                                  renderBlockOverlay(block, 'right', rightVWidth, rightVHeight)
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Keys Cluster (Matrix + Thumbs tight underneath) */}
+                      <div className="corne-keys-cluster">
+                        {/* Dynamic Columns Matrix */}
+                        <div className="corne-matrix">
+                          {Array.from({ length: keymapLayout.columns }, (_, colIdx) => (
+                            <div
+                              key={colIdx}
+                              className="corne-col"
+                              style={{ transform: `translateY(${getColStagger(colIdx, keymapLayout.columns, true)}px)` }}
+                            >
+                              {Array.from({ length: keymapLayout.rows }, (_, rowIdx) => {
+                                const keyLabel = currentRightMatrix[rowIdx]?.[colIdx] || '';
+                                const coordId = `R_${rowIdx}_${colIdx}`;
+                                const isPressed = pressedKeys.has(coordId);
+                                const isEmpty = !keyLabel;
+                                return (
+                                  <div
+                                    key={rowIdx}
+                                    className={`corne-keycap ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
+                                    onClick={() => triggerKeyPress(coordId)}
+                                    title={keyLabel ? `Right [${rowIdx},${colIdx}]: ${keyLabel}` : `Right [${rowIdx},${colIdx}]`}
+                                  >
+                                    {keyLabel ? <span className="keycap-legend">{keyLabel}</span> : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Thumb Keys Cluster */}
+                        <div className="corne-thumbs right-thumbs">
+                          {currentRightThumbs.map((t, idx) => {
+                            const coordId = `RT_${idx}`;
+                            const isPressed = pressedKeys.has(coordId);
+                            const isEmpty = !t;
+                            return (
+                              <div
+                                key={idx}
+                                className={`corne-thumb-key thumb-${idx} ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
+                                onClick={() => triggerKeyPress(coordId)}
+                                title={t ? `Right Thumb [${idx}]: ${t}` : `Right Thumb [${idx}]`}
+                              >
+                                {t ? <span className="thumb-legend">{t}</span> : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Swap Drop Overlay (ONLY visible while dragging over this target) */}
+                {isRealigning && draggedUnitKey !== screenKey && hoveredSwapUnitKey === screenKey && (
+                  <div className="preview-unit-swap-overlay">
+                    <ArrowLeftRight size={24} className="text-[#00f0ff] animate-bounce" />
+                    <span className="text-xs font-mono font-bold text-[#00f0ff] mt-1.5">Swap Position</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Trailing insertion drop slot after last unit */}
+              {isRealigning && index === orderedScreens.length - 1 && (
+                <div
+                  className={`preview-realign-drop-slot ${hoveredDropSlot === `slot-${index + 1}` ? 'hovered' : ''}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setHoveredDropSlot(`slot-${index + 1}`);
+                  }}
+                  onDragLeave={() => setHoveredDropSlot((curr) => (curr === `slot-${index + 1}` ? null : curr))}
+                  onDrop={(e) => handleDropOnSlot(e, index + 1)}
+                  title="Drop to realign to end"
+                >
+                  <ArrowLeftRight size={16} className="text-[#00f0ff] animate-pulse" />
+                </div>
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+      )}
 
       {/* =========================================================================
           BOTTOM: REACTIVE FIRMWARE SIMULATOR CONTROLS
@@ -1109,7 +1476,13 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
               <Sliders size={17} className="text-accent" />
               <h3 className="card-title">Live Keyboard Simulator Controls</h3>
             </div>
-            <span className="badge-mode">Dual Display Sync</span>
+            <span className="badge-mode">
+              {effectiveEnabledScreens.length > 2
+                ? `${effectiveEnabledScreens.length}-Screen Multi-Display`
+                : effectiveEnabledScreens.length === 1
+                ? 'Single Display'
+                : 'Dual Display Sync'}
+            </span>
           </div>
 
           <div className="controls-grid">
