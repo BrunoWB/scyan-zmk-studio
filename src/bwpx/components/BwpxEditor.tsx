@@ -751,11 +751,207 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     });
   }, []);
 
+  const moveActiveSelection = useCallback(
+    (dx: number, dy: number, isRepeat: boolean) => {
+      const currentSel = selectionRef.current;
+      if (!currentSel || !currentSel.active) return;
+      if (dx === 0 && dy === 0) return;
+
+      const currentGrid = gridRef.current;
+      const activeIds = selectedSliceIdsRef.current?.length
+        ? selectedSliceIdsRef.current
+        : selectedSliceIdRef.current
+        ? [selectedSliceIdRef.current]
+        : [];
+
+      let sliceRects: { x: number; y: number; w: number; h: number }[] = [];
+      const currentSlices = slicesRef.current || [];
+      let matchingSlice: SpriteSlice | undefined;
+
+      if (activeIds.length > 0) {
+        activeIds.forEach(id => {
+          const s = currentSlices.find(item => item.id === id);
+          if (s) {
+            sliceRects.push({ x: s.x, y: s.y, w: s.width, h: s.height });
+          }
+        });
+      } else {
+        matchingSlice = currentSlices.find(
+          s =>
+            s.x === currentSel.x &&
+            s.y === currentSel.y &&
+            s.width === currentSel.w &&
+            s.height === currentSel.h
+        );
+        if (matchingSlice) {
+          sliceRects.push({
+            x: matchingSlice.x,
+            y: matchingSlice.y,
+            w: matchingSlice.width,
+            h: matchingSlice.height,
+          });
+        }
+      }
+
+      const targetX = currentSel.x + dx;
+      const targetY = currentSel.y + dy;
+      const next = currentGrid.clone();
+
+      let extracted: [number, number][] = [];
+      const sliceUpdates: { id: string; prevX: number; prevY: number; newX: number; newY: number }[] = [];
+
+      if (sliceRects.length > 0) {
+        // 1. Extract pixels from slice source rectangles (relative to currentSel)
+        sliceRects.forEach(sr => {
+          const spx = currentGrid.extractRect(sr);
+          spx.forEach(([rx, ry]) => {
+            extracted.push([sr.x + rx - currentSel.x, sr.y + ry - currentSel.y]);
+          });
+        });
+
+        // 2. Clear source slice rectangles
+        sliceRects.forEach(sr => next.clearRect(sr));
+
+        // 3. Clear destination slice rectangles (black overrides beneath)
+        sliceRects.forEach(sr => {
+          next.clearRect({
+            x: sr.x + dx,
+            y: sr.y + dy,
+            w: sr.w,
+            h: sr.h,
+          });
+        });
+
+        // 4. Stamp active pixels at target
+        extracted.forEach(([rx, ry]) => {
+          next.set(targetX + rx, targetY + ry, 1);
+        });
+
+        // 5. Calculate slice updates
+        if (activeIds.length > 0) {
+          activeIds.forEach(id => {
+            const s = currentSlices.find(item => item.id === id);
+            if (s) {
+              sliceUpdates.push({
+                id: s.id,
+                prevX: s.x,
+                prevY: s.y,
+                newX: s.x + dx,
+                newY: s.y + dy,
+              });
+            }
+          });
+        } else if (matchingSlice) {
+          sliceUpdates.push({
+            id: matchingSlice.id,
+            prevX: matchingSlice.x,
+            prevY: matchingSlice.y,
+            newX: targetX,
+            newY: targetY,
+          });
+        }
+      } else {
+        // Free marquee selection without slices
+        const sourceRect = { x: currentSel.x, y: currentSel.y, w: currentSel.w, h: currentSel.h };
+        extracted = currentGrid.extractRect(sourceRect);
+
+        // Clear source
+        next.clearRect(sourceRect);
+        // Clear destination
+        next.clearRect({ x: targetX, y: targetY, w: currentSel.w, h: currentSel.h });
+
+        // Stamp pixels
+        extracted.forEach(([rx, ry]) => {
+          next.set(targetX + rx, targetY + ry, 1);
+        });
+      }
+
+      const newSelection = {
+        x: targetX,
+        y: targetY,
+        w: currentSel.w,
+        h: currentSel.h,
+        active: true,
+      };
+
+      // Update slices in slicesRef immediately so subsequent key repeats use the new positions
+      if (sliceUpdates.length > 0 && slicesRef.current) {
+        slicesRef.current = slicesRef.current.map(s => {
+          const u = sliceUpdates.find(item => item.id === s.id);
+          return u ? { ...s, x: u.newX, y: u.newY } : s;
+        });
+      }
+
+      // Handle history: if isRepeat, coalesce with current top history entry
+      const currentIdx = historyIndexRef.current;
+      if (isRepeat && currentIdx > 0 && historyRef.current[currentIdx]) {
+        const entry = historyRef.current[currentIdx];
+        entry.grid = next.clone();
+        entry.selection = { ...newSelection };
+        if (sliceUpdates.length > 0) {
+          const existingUpdates = entry.sliceUpdates || [];
+          const mergedUpdates = sliceUpdates.map(u => {
+            const existing = existingUpdates.find(eu => eu.id === u.id);
+            return {
+              id: u.id,
+              prevX: existing !== undefined ? existing.prevX : u.prevX,
+              prevY: existing !== undefined ? existing.prevY : u.prevY,
+              newX: u.newX,
+              newY: u.newY,
+            };
+          });
+          entry.sliceUpdates = mergedUpdates;
+        }
+        lastCommittedRef.current = next;
+        gridRef.current = next;
+        workingGridRef.current = next;
+        selectionRef.current = newSelection;
+        setGrid(next);
+        setSelection(newSelection);
+        onGridChange?.(next);
+      } else {
+        if (historyRef.current[currentIdx]) {
+          historyRef.current[currentIdx] = {
+            ...historyRef.current[currentIdx],
+            selection: { ...currentSel },
+          };
+        }
+        commitGridState(next, newSelection, sliceUpdates.length > 0 ? sliceUpdates : undefined);
+        gridRef.current = next;
+        workingGridRef.current = next;
+        selectionRef.current = newSelection;
+      }
+
+      // Notify slice / selection callbacks
+      if (selectedSliceIdsRef.current && selectedSliceIdsRef.current.length > 0 && onSlicesMoveRef.current) {
+        onSlicesMoveRef.current(selectedSliceIdsRef.current.map(id => ({ id, dx, dy })));
+      } else if (selectedSliceIdRef.current && onSliceMoveRef.current) {
+        const s = currentSlices.find(item => item.id === selectedSliceIdRef.current);
+        const targetSliceX = s ? s.x + dx : targetX;
+        const targetSliceY = s ? s.y + dy : targetY;
+        onSliceMoveRef.current(selectedSliceIdRef.current, targetSliceX, targetSliceY);
+      } else if (matchingSlice && onSliceMoveRef.current) {
+        onSliceMoveRef.current(matchingSlice.id, targetX, targetY);
+      } else if (pendingSelection) {
+        onNewSelectionRef.current?.({
+          x: targetX,
+          y: targetY,
+          width: currentSel.w,
+          height: currentSel.h,
+        });
+      }
+
+      renderWorkingGrid();
+      requestOverlayRender();
+    },
+    [commitGridState, onGridChange, renderWorkingGrid, requestOverlayRender, pendingSelection]
+  );
+
   // Spacebar tracking, modifier keys, Undo/Redo, Copy, and Enter/Escape
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
         return;
       }
 
@@ -837,6 +1033,47 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
           setCopiedNotification(true);
           setTimeout(() => setCopiedNotification(false), 2000);
           return;
+        }
+      }
+
+      // Arrow keys: move active selections or ghost placement
+      const isArrowKey =
+        e.key === 'ArrowUp' ||
+        e.key === 'ArrowDown' ||
+        e.key === 'ArrowLeft' ||
+        e.key === 'ArrowRight';
+
+      if (isArrowKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const mp = movingPixelsRef.current;
+        if (!mp || !mp.active) {
+          const sel = selectionRef.current;
+          const ghost = ghostPlacementRef.current;
+          if (sel && sel.active) {
+            e.preventDefault();
+            const step = e.shiftKey ? 10 : 1;
+            let dx = 0;
+            let dy = 0;
+            if (e.key === 'ArrowLeft') dx = -step;
+            else if (e.key === 'ArrowRight') dx = step;
+            else if (e.key === 'ArrowUp') dy = -step;
+            else if (e.key === 'ArrowDown') dy = step;
+
+            moveActiveSelection(dx, dy, e.repeat);
+            return;
+          } else if (ghost) {
+            e.preventDefault();
+            const step = e.shiftKey ? 10 : 1;
+            let dx = 0;
+            let dy = 0;
+            if (e.key === 'ArrowLeft') dx = -step;
+            else if (e.key === 'ArrowRight') dx = step;
+            else if (e.key === 'ArrowUp') dy = -step;
+            else if (e.key === 'ArrowDown') dy = step;
+
+            setGhostPlacement(prev => (prev ? { ...prev, x: prev.x + dx, y: prev.y + dy } : null));
+            requestOverlayRender();
+            return;
+          }
         }
       }
 
@@ -934,7 +1171,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
     };
-  }, [handleUndo, handleRedo]);
+  }, [handleUndo, handleRedo, moveActiveSelection, requestOverlayRender]);
 
   // Global clipboard paste listener with canvas vs external image precedence
   useEffect(() => {
@@ -2442,11 +2679,11 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
               type="button"
               onClick={() => setActiveTool('move')}
               className={`bwpx-tool-btn ${activeTool === 'move' || isShiftHeld ? 'active' : ''}`}
-              title="Move (or Shift click)"
+              title="Move (or Shift click / Arrow keys)"
             >
               <Move size={15} />
             </button>
-            <div className="tooltip">Move (or Shift click)</div>
+            <div className="tooltip">Move (or Shift click / Arrow keys)</div>
           </div>
 
           <div className="bwpx-h-divider" />
