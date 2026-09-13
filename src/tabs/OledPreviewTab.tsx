@@ -1046,20 +1046,6 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
 
   return (
     <div className="oled-preview-fullscreen">
-      {/* SCREEN TOPOLOGY STATUS BAR */}
-      <div className="blocks-screen-topology-bar">
-        <div className="topology-section">
-          <span className="text-xs text-[#94a3b8] font-medium">Hardware Topology:</span>
-          <span className="px-2.5 py-1 rounded-md text-xs font-mono bg-[#161b26] border border-[#2d3748] text-accent font-semibold flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#00f0ff]" />
-            {activeShield.name}
-          </span>
-          <span className="text-xs text-[#64748b]">
-            ({effectiveEnabledScreens.length} Active {effectiveEnabledScreens.length === 1 ? 'Display' : 'Displays'})
-          </span>
-        </div>
-      </div>
-
       {/* =========================================================================
           TOP: KEYBOARD / SHIELD VISUALIZATION WITH OLED DISPLAYS
           Loaded configuration is realignable; drop zones are only shown during drag.

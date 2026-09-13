@@ -73,10 +73,6 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
     // Both peripherals are on the right of the catalog
     expect(html).toContain('Peripheral Active');
     expect(html).toContain('Peripheral 2 Active (Peripheral)');
-
-    // Display counter reflects 1 Central and 2 Peripherals
-    expect(html).toContain('1 Central');
-    expect(html).toContain('2 Peripherals');
   });
 
   it('renders Peripheral Actions with Make Master and Delete in peripheral settings', () => {
@@ -152,9 +148,6 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
     expect(html).toContain('Numpad Display Active (Peripheral)');
     expect(html).toContain('Macro Pad Display Active (Peripheral)');
     expect(html).toContain('Status Bar Display Active (Peripheral)');
-
-    // Counter shows 4 Peripherals
-    expect(html).toContain('4 Peripherals');
 
     // Add button is present and not disabled
     expect(html).toContain('Add Display');
@@ -241,9 +234,5 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
     // Peripheral has idle disabled: renders Peripheral as idle-disabled without idle panel
     expect(html).toContain('Peripheral Active');
     expect(html).not.toContain('Peripheral Idle');
-
-    // Independent Views buttons in topbar
-    expect(html).toContain('All Active');
-    expect(html).toContain('All Idle');
   });
 });

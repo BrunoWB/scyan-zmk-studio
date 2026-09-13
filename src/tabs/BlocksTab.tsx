@@ -16,7 +16,7 @@ import { PeripheralMasterWarningModal } from './blocks/PeripheralMasterWarningMo
 import { SideSettingsPanel } from '../components/ScreenSizePopover';
 import { trackEvent } from '../services/analytics';
 import type { PeripheralScreenData } from '../services/cHeaderParser';
-import { Plus, Monitor } from 'lucide-react';
+import { Plus } from 'lucide-react';
 
 export interface BlocksTabProps {
   centralBlocks?: LayoutBlock[];
@@ -1300,56 +1300,9 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   );
 
   const peripheralScreensList = effectiveEnabledScreens.filter((s) => s !== 'left' && s !== 'central');
-  const peripheralsCount = peripheralScreensList.length;
 
   return (
     <div className="blocks-tab-wrapper">
-      {/* SCREEN TOPOLOGY & VIEW SELECTOR BAR */}
-      <div className="blocks-screen-topology-bar">
-        <div className="topology-section">
-          <span className="text-white font-semibold flex items-center gap-1.5">
-            <Monitor size={14} className="text-[#00f0ff]" />
-            <span>Layout Displays:</span>
-          </span>
-          <span className="text-[10px] font-mono text-[#00f0ff] bg-[#00f0ff]/10 border border-[#00f0ff]/20 px-2 py-0.5 rounded-full">
-            1 Central
-          </span>
-          <span className="text-[10px] font-mono text-[#c084fc] bg-[#a855f7]/10 border border-[#a855f7]/20 px-2 py-0.5 rounded-full">
-            {`${peripheralsCount} Peripheral${peripheralsCount === 1 ? '' : 's'}`}
-          </span>
-        </div>
-
-        <div className="topology-section ml-auto">
-          <span>Views:</span>
-          <div className="topology-pills-group">
-            <button
-              type="button"
-              className="topology-pill-btn"
-              onClick={() => {
-                const activeMap: Record<string, 'active' | 'idle'> = {};
-                for (const s of effectiveEnabledScreens) activeMap[s] = 'active';
-                setScreenModes(activeMap);
-              }}
-              title="Switch all displays to Active screen"
-            >
-              All Active
-            </button>
-            <button
-              type="button"
-              className="topology-pill-btn"
-              onClick={() => {
-                const idleMap: Record<string, 'active' | 'idle'> = {};
-                for (const s of effectiveEnabledScreens) idleMap[s] = 'idle';
-                setScreenModes(idleMap);
-              }}
-              title="Switch all displays to Idle screen"
-            >
-              All Idle
-            </button>
-          </div>
-        </div>
-      </div>
-
       <div className="blocks-tab-container">
         {/* Ghost Drag Floating Overlay attached to cursor */}
         {dragState && (
