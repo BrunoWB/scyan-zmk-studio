@@ -127,19 +127,19 @@ describe('TopologySandboxTab', () => {
     expect(htmlSingle).toContain('Empty OLED');
     expect(htmlSingle).toContain('Drag an OLED display here to mount it on this shield');
 
-    // Extra display configured in Layout tab: 'left', 'right', 'dongle'
+    // Extra display configured in Layout tab: 'central', 'peripheral', 'peripheral-2'
     const htmlExtra = renderToString(
       <TopologySandboxTab
         symbolsGrid={dummyGrid}
         symbolSlices={[]}
         fontGrid={dummyGrid}
-        enabledScreens={['left', 'right', 'dongle']}
+        enabledScreens={['central', 'peripheral', 'peripheral-2']}
       />
     );
 
-    // Unassigned shelf should display the dongle screen ready to drag
+    // Unassigned shelf should display the extra peripheral screen ready to drag
     expect(htmlExtra).toContain('Unassigned:');
-    expect(htmlExtra).toContain('Dongle Display');
+    expect(htmlExtra).toContain('Peripheral 2');
     expect(htmlExtra).toContain('Drag this layout display onto any shield to mount it');
   });
 

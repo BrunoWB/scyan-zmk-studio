@@ -10,10 +10,10 @@ import type {
 import type { WidgetInstanceMap, WidgetInstance } from './types/widget';
 import { WIDGET_REGISTRY } from './services/widgetRegistry';
 import {
-  DEFAULT_LEFT_LAYOUT_BLOCKS,
-  DEFAULT_RIGHT_LAYOUT_BLOCKS,
-  DEFAULT_DONGLE_LAYOUT_BLOCKS,
-  DEFAULT_IDLE_DONGLE_BLOCKS,
+  DEFAULT_CENTRAL_LAYOUT_BLOCKS,
+  DEFAULT_PERIPHERAL_LAYOUT_BLOCKS,
+  DEFAULT_IDLE_CENTRAL_BLOCKS,
+  DEFAULT_IDLE_PERIPHERAL_BLOCKS,
 } from './types/zmk';
 import {
   parseCHeader,
@@ -134,41 +134,45 @@ export function App() {
   const [fontGrid, setFontGrid] = useState<BwpxGrid>(() => getDefaultAssets().fontGrid);
   const [fontGlyphs, setFontGlyphs] = useState<FontGlyph[]>(() => getDefaultAssets().fontGlyphs);
   const [fontMappings, setFontMappings] = useState<FontCharMapping[]>(() => getDefaultAssets().fontMappings);
-  const [leftBlocks, setLeftBlocks] = useState<LayoutBlock[]>(() => {
+  const [centralBlocks, setCentralBlocks] = useState<LayoutBlock[]>(() => {
     try {
-      const saved = localStorage.getItem('zmk-left-blocks');
+      const saved = localStorage.getItem('zmk-central-blocks') || localStorage.getItem('zmk-left-blocks');
       if (saved) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.leftBlocks?.length ? def.metadata.leftBlocks : [...DEFAULT_LEFT_LAYOUT_BLOCKS];
+    return def.metadata?.centralBlocks?.length
+      ? def.metadata.centralBlocks
+      : (def.metadata?.leftBlocks?.length ? def.metadata.leftBlocks : [...DEFAULT_CENTRAL_LAYOUT_BLOCKS]);
   });
-  const [rightBlocks, setRightBlocks] = useState<LayoutBlock[]>(() => {
+  const [peripheralBlocks, setPeripheralBlocks] = useState<LayoutBlock[]>(() => {
     try {
-      const saved = localStorage.getItem('zmk-right-blocks');
+      const saved = localStorage.getItem('zmk-peripheral-blocks') || localStorage.getItem('zmk-right-blocks');
       if (saved) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.rightBlocks?.length ? def.metadata.rightBlocks : [...DEFAULT_RIGHT_LAYOUT_BLOCKS];
+    return def.metadata?.peripheralBlocks?.length
+      ? def.metadata.peripheralBlocks
+      : (def.metadata?.rightBlocks?.length ? def.metadata.rightBlocks : [...DEFAULT_PERIPHERAL_LAYOUT_BLOCKS]);
   });
-  const [idleLeftBlocks, setIdleLeftBlocks] = useState<LayoutBlock[]>(() => {
+  const [idleCentralBlocks, setIdleCentralBlocks] = useState<LayoutBlock[]>(() => {
     try {
-      const saved = localStorage.getItem('zmk-idle-left-blocks');
+      const saved = localStorage.getItem('zmk-idle-central-blocks') || localStorage.getItem('zmk-idle-left-blocks');
       if (saved) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.idleLeftBlocks?.length ? def.metadata.idleLeftBlocks : [
-      { id: 'idle-left-art', widgetType: 'screensaver', name: 'Mascot Image', x: 3, y: 35, width: 26, height: 26, enabled: true, side: 'left' }
-    ];
+    return def.metadata?.idleCentralBlocks?.length
+      ? def.metadata.idleCentralBlocks
+      : (def.metadata?.idleLeftBlocks?.length ? def.metadata.idleLeftBlocks : [...DEFAULT_IDLE_CENTRAL_BLOCKS]);
   });
-  const [idleRightBlocks, setIdleRightBlocks] = useState<LayoutBlock[]>(() => {
+  const [idlePeripheralBlocks, setIdlePeripheralBlocks] = useState<LayoutBlock[]>(() => {
     try {
-      const saved = localStorage.getItem('zmk-idle-right-blocks');
+      const saved = localStorage.getItem('zmk-idle-peripheral-blocks') || localStorage.getItem('zmk-idle-right-blocks');
       if (saved) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.idleRightBlocks?.length ? def.metadata.idleRightBlocks : [
-      { id: 'idle-right-art', widgetType: 'screensaver', name: 'Mascot Image', x: 3, y: 35, width: 26, height: 26, enabled: true, side: 'right' }
-    ];
+    return def.metadata?.idlePeripheralBlocks?.length
+      ? def.metadata.idlePeripheralBlocks
+      : (def.metadata?.idleRightBlocks?.length ? def.metadata.idleRightBlocks : [...DEFAULT_IDLE_PERIPHERAL_BLOCKS]);
   });
   const [screenDimensions, setScreenDimensions] = useState<{ width: number; height: number }>(() => {
     try {
@@ -215,94 +219,40 @@ export function App() {
     return def.metadata?.symmetricSettings ?? true;
   });
 
-  const [rightScreenDimensions, setRightScreenDimensions] = useState<{ width: number; height: number }>(() => {
+  const [peripheralScreenDimensions, setPeripheralScreenDimensions] = useState<{ width: number; height: number }>(() => {
     try {
-      const saved = localStorage.getItem('zmk-right-screen-dimensions');
+      const saved = localStorage.getItem('zmk-peripheral-screen-dimensions') || localStorage.getItem('zmk-right-screen-dimensions');
       if (saved) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.rightScreenDimensions || def.metadata?.screenDimensions || { width: 32, height: 128 };
+    return def.metadata?.peripheralScreenDimensions || def.metadata?.rightScreenDimensions || def.metadata?.screenDimensions || { width: 32, height: 128 };
   });
 
-  const [rightIdleScreensEnabled, setRightIdleScreensEnabled] = useState<boolean>(() => {
+  const [peripheralIdleScreensEnabled, setPeripheralIdleScreensEnabled] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem('zmk-right-idle-screens-enabled');
+      const saved = localStorage.getItem('zmk-peripheral-idle-screens-enabled') || localStorage.getItem('zmk-right-idle-screens-enabled');
       if (saved !== null) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.rightIdleScreensEnabled ?? def.metadata?.idleScreensEnabled ?? true;
+    return def.metadata?.peripheralIdleScreensEnabled ?? def.metadata?.rightIdleScreensEnabled ?? def.metadata?.idleScreensEnabled ?? true;
   });
 
-  const [rightIdleTimeoutSec, setRightIdleTimeoutSec] = useState<number>(() => {
+  const [peripheralIdleTimeoutSec, setPeripheralIdleTimeoutSec] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem('zmk-right-idle-timeout-sec');
+      const saved = localStorage.getItem('zmk-peripheral-idle-timeout-sec') || localStorage.getItem('zmk-right-idle-timeout-sec');
       if (saved) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.rightIdleTimeoutSec ?? def.metadata?.idleTimeoutSec ?? 30;
+    return def.metadata?.peripheralIdleTimeoutSec ?? def.metadata?.rightIdleTimeoutSec ?? def.metadata?.idleTimeoutSec ?? 30;
   });
 
-  const [rightScreenOffTimeoutSec, setRightScreenOffTimeoutSec] = useState<number>(() => {
+  const [peripheralScreenOffTimeoutSec, setPeripheralScreenOffTimeoutSec] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem('zmk-right-screen-off-timeout-sec');
+      const saved = localStorage.getItem('zmk-peripheral-screen-off-timeout-sec') || localStorage.getItem('zmk-right-screen-off-timeout-sec');
       if (saved) return JSON.parse(saved);
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.rightScreenOffTimeoutSec ?? def.metadata?.screenOffTimeoutSec ?? 60;
-  });
-
-  const [dongleBlocks, setDongleBlocks] = useState<LayoutBlock[]>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-dongle-blocks');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.dongleBlocks?.length ? def.metadata.dongleBlocks : DEFAULT_DONGLE_LAYOUT_BLOCKS;
-  });
-
-  const [idleDongleBlocks, setIdleDongleBlocks] = useState<LayoutBlock[]>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-idle-dongle-blocks');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.idleDongleBlocks?.length ? def.metadata.idleDongleBlocks : DEFAULT_IDLE_DONGLE_BLOCKS;
-  });
-
-  const [dongleScreenDimensions, setDongleScreenDimensions] = useState<{ width: number; height: number }>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-dongle-screen-dimensions');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.dongleScreenDimensions || { width: 32, height: 128 };
-  });
-
-  const [dongleIdleScreensEnabled, setDongleIdleScreensEnabled] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-dongle-idle-screens-enabled');
-      if (saved !== null) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.dongleIdleScreensEnabled ?? true;
-  });
-
-  const [dongleIdleTimeoutSec, setDongleIdleTimeoutSec] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-dongle-idle-timeout-sec');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.dongleIdleTimeoutSec ?? 30;
-  });
-
-  const [dongleScreenOffTimeoutSec, setDongleScreenOffTimeoutSec] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-dongle-screen-off-timeout-sec');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.dongleScreenOffTimeoutSec ?? 60;
+    return def.metadata?.peripheralScreenOffTimeoutSec ?? def.metadata?.rightScreenOffTimeoutSec ?? def.metadata?.screenOffTimeoutSec ?? 60;
   });
 
   const [shieldId, setShieldId] = useState<string>(() => {
@@ -313,18 +263,22 @@ export function App() {
     return 'corne';
   });
 
-  const [enabledScreens, setEnabledScreens] = useState<('central' | 'peripheral' | 'dongle' | string)[]>(() => {
+  const [enabledScreens, setEnabledScreens] = useState<('central' | 'peripheral' | string)[]>(() => {
     try {
       const saved = localStorage.getItem('zmk-enabled-screens');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((s: string) => s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s);
+          return parsed
+            .map((s: string) => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
+            .filter((s: string) => s !== 'dongle');
         }
       }
     } catch {}
     const def = getDefaultAssets();
-    return def.metadata?.enabledScreens?.map((s: string) => s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s) ?? ['central', 'peripheral'];
+    return def.metadata?.enabledScreens
+      ?.map((s: string) => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
+      ?.filter((s: string) => s !== 'dongle') ?? ['central', 'peripheral'];
   });
 
   const [peripheralScreens, setPeripheralScreens] = useState<Record<string, PeripheralScreenData>>(() => {
@@ -375,27 +329,27 @@ export function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-left-blocks', JSON.stringify(leftBlocks));
+      localStorage.setItem('zmk-central-blocks', JSON.stringify(centralBlocks));
     } catch {}
-  }, [leftBlocks]);
+  }, [centralBlocks]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-right-blocks', JSON.stringify(rightBlocks));
+      localStorage.setItem('zmk-peripheral-blocks', JSON.stringify(peripheralBlocks));
     } catch {}
-  }, [rightBlocks]);
+  }, [peripheralBlocks]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-idle-left-blocks', JSON.stringify(idleLeftBlocks));
+      localStorage.setItem('zmk-idle-central-blocks', JSON.stringify(idleCentralBlocks));
     } catch {}
-  }, [idleLeftBlocks]);
+  }, [idleCentralBlocks]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-idle-right-blocks', JSON.stringify(idleRightBlocks));
+      localStorage.setItem('zmk-idle-peripheral-blocks', JSON.stringify(idlePeripheralBlocks));
     } catch {}
-  }, [idleRightBlocks]);
+  }, [idlePeripheralBlocks]);
 
   useEffect(() => {
     try {
@@ -423,63 +377,27 @@ export function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-right-screen-dimensions', JSON.stringify(rightScreenDimensions));
+      localStorage.setItem('zmk-peripheral-screen-dimensions', JSON.stringify(peripheralScreenDimensions));
     } catch {}
-  }, [rightScreenDimensions]);
+  }, [peripheralScreenDimensions]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-right-idle-screens-enabled', JSON.stringify(rightIdleScreensEnabled));
+      localStorage.setItem('zmk-peripheral-idle-screens-enabled', JSON.stringify(peripheralIdleScreensEnabled));
     } catch {}
-  }, [rightIdleScreensEnabled]);
+  }, [peripheralIdleScreensEnabled]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-right-idle-timeout-sec', JSON.stringify(rightIdleTimeoutSec));
+      localStorage.setItem('zmk-peripheral-idle-timeout-sec', JSON.stringify(peripheralIdleTimeoutSec));
     } catch {}
-  }, [rightIdleTimeoutSec]);
+  }, [peripheralIdleTimeoutSec]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('zmk-right-screen-off-timeout-sec', JSON.stringify(rightScreenOffTimeoutSec));
+      localStorage.setItem('zmk-peripheral-screen-off-timeout-sec', JSON.stringify(peripheralScreenOffTimeoutSec));
     } catch {}
-  }, [rightScreenOffTimeoutSec]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-dongle-blocks', JSON.stringify(dongleBlocks));
-    } catch {}
-  }, [dongleBlocks]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-idle-dongle-blocks', JSON.stringify(idleDongleBlocks));
-    } catch {}
-  }, [idleDongleBlocks]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-dongle-screen-dimensions', JSON.stringify(dongleScreenDimensions));
-    } catch {}
-  }, [dongleScreenDimensions]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-dongle-idle-screens-enabled', JSON.stringify(dongleIdleScreensEnabled));
-    } catch {}
-  }, [dongleIdleScreensEnabled]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-dongle-idle-timeout-sec', JSON.stringify(dongleIdleTimeoutSec));
-    } catch {}
-  }, [dongleIdleTimeoutSec]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-dongle-screen-off-timeout-sec', JSON.stringify(dongleScreenOffTimeoutSec));
-    } catch {}
-  }, [dongleScreenOffTimeoutSec]);
+  }, [peripheralScreenOffTimeoutSec]);
 
   useEffect(() => {
     try {
@@ -678,17 +596,21 @@ export function App() {
       setFontMappings(parsed.fontMappings);
     }
     if (parsed.metadata) {
-      if (parsed.metadata.leftBlocks && parsed.metadata.leftBlocks.length > 0) {
-        setLeftBlocks(parsed.metadata.leftBlocks);
+      const cBlocks = parsed.metadata.centralBlocks ?? parsed.metadata.leftBlocks;
+      if (cBlocks && cBlocks.length > 0) {
+        setCentralBlocks(cBlocks);
       }
-      if (parsed.metadata.rightBlocks && parsed.metadata.rightBlocks.length > 0) {
-        setRightBlocks(parsed.metadata.rightBlocks);
+      const pBlocks = parsed.metadata.peripheralBlocks ?? parsed.metadata.rightBlocks;
+      if (pBlocks && pBlocks.length > 0) {
+        setPeripheralBlocks(pBlocks);
       }
-      if (parsed.metadata.idleLeftBlocks && parsed.metadata.idleLeftBlocks.length > 0) {
-        setIdleLeftBlocks(parsed.metadata.idleLeftBlocks);
+      const idleCBlocks = parsed.metadata.idleCentralBlocks ?? parsed.metadata.idleLeftBlocks;
+      if (idleCBlocks && idleCBlocks.length > 0) {
+        setIdleCentralBlocks(idleCBlocks);
       }
-      if (parsed.metadata.idleRightBlocks && parsed.metadata.idleRightBlocks.length > 0) {
-        setIdleRightBlocks(parsed.metadata.idleRightBlocks);
+      const idlePBlocks = parsed.metadata.idlePeripheralBlocks ?? parsed.metadata.idleRightBlocks;
+      if (idlePBlocks && idlePBlocks.length > 0) {
+        setIdlePeripheralBlocks(idlePBlocks);
       }
       if (parsed.metadata.screenDimensions) {
         setScreenDimensions(parsed.metadata.screenDimensions);
@@ -714,35 +636,21 @@ export function App() {
       if (parsed.metadata.symmetricSettings !== undefined) {
         setSymmetricSettings(parsed.metadata.symmetricSettings);
       }
-      if (parsed.metadata.rightScreenDimensions) {
-        setRightScreenDimensions(parsed.metadata.rightScreenDimensions);
+      const pDims = parsed.metadata.peripheralScreenDimensions ?? parsed.metadata.rightScreenDimensions;
+      if (pDims) {
+        setPeripheralScreenDimensions(pDims);
       }
-      if (parsed.metadata.rightIdleScreensEnabled !== undefined) {
-        setRightIdleScreensEnabled(parsed.metadata.rightIdleScreensEnabled);
+      const pIdleEnabled = parsed.metadata.peripheralIdleScreensEnabled ?? parsed.metadata.rightIdleScreensEnabled;
+      if (pIdleEnabled !== undefined) {
+        setPeripheralIdleScreensEnabled(pIdleEnabled);
       }
-      if (parsed.metadata.rightIdleTimeoutSec !== undefined) {
-        setRightIdleTimeoutSec(parsed.metadata.rightIdleTimeoutSec);
+      const pIdleTimeout = parsed.metadata.peripheralIdleTimeoutSec ?? parsed.metadata.rightIdleTimeoutSec;
+      if (pIdleTimeout !== undefined) {
+        setPeripheralIdleTimeoutSec(pIdleTimeout);
       }
-      if (parsed.metadata.rightScreenOffTimeoutSec !== undefined) {
-        setRightScreenOffTimeoutSec(parsed.metadata.rightScreenOffTimeoutSec);
-      }
-      if (parsed.metadata.dongleBlocks && parsed.metadata.dongleBlocks.length > 0) {
-        setDongleBlocks(parsed.metadata.dongleBlocks);
-      }
-      if (parsed.metadata.idleDongleBlocks && parsed.metadata.idleDongleBlocks.length > 0) {
-        setIdleDongleBlocks(parsed.metadata.idleDongleBlocks);
-      }
-      if (parsed.metadata.dongleScreenDimensions) {
-        setDongleScreenDimensions(parsed.metadata.dongleScreenDimensions);
-      }
-      if (parsed.metadata.dongleIdleScreensEnabled !== undefined) {
-        setDongleIdleScreensEnabled(parsed.metadata.dongleIdleScreensEnabled);
-      }
-      if (parsed.metadata.dongleIdleTimeoutSec !== undefined) {
-        setDongleIdleTimeoutSec(parsed.metadata.dongleIdleTimeoutSec);
-      }
-      if (parsed.metadata.dongleScreenOffTimeoutSec !== undefined) {
-        setDongleScreenOffTimeoutSec(parsed.metadata.dongleScreenOffTimeoutSec);
+      const pScreenOffTimeout = parsed.metadata.peripheralScreenOffTimeoutSec ?? parsed.metadata.rightScreenOffTimeoutSec;
+      if (pScreenOffTimeout !== undefined) {
+        setPeripheralScreenOffTimeoutSec(pScreenOffTimeout);
       }
       if (parsed.metadata.peripheralScreens) {
         setPeripheralScreens(parsed.metadata.peripheralScreens);
@@ -752,7 +660,9 @@ export function App() {
       }
       const rawEnabled = parsed.metadata.enabledScreens;
       const resolvedEnabledScreens = rawEnabled && rawEnabled.length > 0
-        ? rawEnabled.map(s => s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s)
+        ? rawEnabled
+            .map(s => s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s)
+            .filter(s => s !== 'dongle')
         : ['central', 'peripheral'];
       setEnabledScreens(resolvedEnabledScreens);
     }
@@ -761,21 +671,29 @@ export function App() {
 
   const applyDefaults = useCallback(() => {
     const keysToRemove = [
+      'zmk-central-blocks',
+      'zmk-peripheral-blocks',
+      'zmk-idle-central-blocks',
+      'zmk-idle-peripheral-blocks',
+      'zmk-screen-dimensions',
+      'zmk-idle-screens-enabled',
+      'zmk-idle-timeout-sec',
+      'zmk-screen-off-timeout-sec',
+      'zmk-symmetric-settings',
+      'zmk-peripheral-screen-dimensions',
+      'zmk-peripheral-idle-screens-enabled',
+      'zmk-peripheral-idle-timeout-sec',
+      'zmk-peripheral-screen-off-timeout-sec',
       'zmk-left-blocks',
       'zmk-right-blocks',
       'zmk-dongle-blocks',
       'zmk-idle-left-blocks',
       'zmk-idle-right-blocks',
       'zmk-idle-dongle-blocks',
-      'zmk-screen-dimensions',
       'zmk-dongle-screen-dimensions',
-      'zmk-idle-screens-enabled',
       'zmk-dongle-idle-screens-enabled',
-      'zmk-idle-timeout-sec',
       'zmk-dongle-idle-timeout-sec',
-      'zmk-screen-off-timeout-sec',
       'zmk-dongle-screen-off-timeout-sec',
-      'zmk-symmetric-settings',
       'zmk-right-screen-dimensions',
       'zmk-right-idle-screens-enabled',
       'zmk-right-idle-timeout-sec',
@@ -1211,26 +1129,20 @@ export function App() {
       setIsInstallingStudio(true);
       const metadata: HeaderMetadata = {
         version: 1,
-        leftBlocks,
-        rightBlocks,
-        idleLeftBlocks,
-        idleRightBlocks,
+        centralBlocks,
+        peripheralBlocks,
+        idleCentralBlocks,
+        idlePeripheralBlocks,
         screenDimensions,
         widgetInstances,
         idleTimeoutSec,
         screenOffTimeoutSec,
         idleScreensEnabled,
         symmetricSettings,
-        rightScreenDimensions: symmetricSettings ? undefined : rightScreenDimensions,
-        rightIdleScreensEnabled: symmetricSettings ? undefined : rightIdleScreensEnabled,
-        rightIdleTimeoutSec: symmetricSettings ? undefined : rightIdleTimeoutSec,
-        rightScreenOffTimeoutSec: symmetricSettings ? undefined : rightScreenOffTimeoutSec,
-        dongleBlocks: enabledScreens.includes('dongle') ? dongleBlocks : undefined,
-        idleDongleBlocks: enabledScreens.includes('dongle') ? idleDongleBlocks : undefined,
-        dongleScreenDimensions: enabledScreens.includes('dongle') ? dongleScreenDimensions : undefined,
-        dongleIdleScreensEnabled: enabledScreens.includes('dongle') ? dongleIdleScreensEnabled : undefined,
-        dongleIdleTimeoutSec: enabledScreens.includes('dongle') ? dongleIdleTimeoutSec : undefined,
-        dongleScreenOffTimeoutSec: enabledScreens.includes('dongle') ? dongleScreenOffTimeoutSec : undefined,
+        peripheralScreenDimensions: symmetricSettings ? undefined : peripheralScreenDimensions,
+        peripheralIdleScreensEnabled: symmetricSettings ? undefined : peripheralIdleScreensEnabled,
+        peripheralIdleTimeoutSec: symmetricSettings ? undefined : peripheralIdleTimeoutSec,
+        peripheralScreenOffTimeoutSec: symmetricSettings ? undefined : peripheralScreenOffTimeoutSec,
         shieldId,
         enabledScreens,
         peripheralScreens: Object.keys(peripheralScreens).length > 0 ? peripheralScreens : undefined,
@@ -1333,26 +1245,20 @@ export function App() {
       setIsSaving(true);
       const metadata: HeaderMetadata = {
         version: 1,
-        leftBlocks,
-        rightBlocks,
-        idleLeftBlocks,
-        idleRightBlocks,
+        centralBlocks,
+        peripheralBlocks,
+        idleCentralBlocks,
+        idlePeripheralBlocks,
         screenDimensions,
         widgetInstances,
         idleTimeoutSec,
         screenOffTimeoutSec,
         idleScreensEnabled,
         symmetricSettings,
-        rightScreenDimensions: symmetricSettings ? undefined : rightScreenDimensions,
-        rightIdleScreensEnabled: symmetricSettings ? undefined : rightIdleScreensEnabled,
-        rightIdleTimeoutSec: symmetricSettings ? undefined : rightIdleTimeoutSec,
-        rightScreenOffTimeoutSec: symmetricSettings ? undefined : rightScreenOffTimeoutSec,
-        dongleBlocks: enabledScreens.includes('dongle') ? dongleBlocks : undefined,
-        idleDongleBlocks: enabledScreens.includes('dongle') ? idleDongleBlocks : undefined,
-        dongleScreenDimensions: enabledScreens.includes('dongle') ? dongleScreenDimensions : undefined,
-        dongleIdleScreensEnabled: enabledScreens.includes('dongle') ? dongleIdleScreensEnabled : undefined,
-        dongleIdleTimeoutSec: enabledScreens.includes('dongle') ? dongleIdleTimeoutSec : undefined,
-        dongleScreenOffTimeoutSec: enabledScreens.includes('dongle') ? dongleScreenOffTimeoutSec : undefined,
+        peripheralScreenDimensions: symmetricSettings ? undefined : peripheralScreenDimensions,
+        peripheralIdleScreensEnabled: symmetricSettings ? undefined : peripheralIdleScreensEnabled,
+        peripheralIdleTimeoutSec: symmetricSettings ? undefined : peripheralIdleTimeoutSec,
+        peripheralScreenOffTimeoutSec: symmetricSettings ? undefined : peripheralScreenOffTimeoutSec,
         shieldId,
         enabledScreens,
         peripheralScreens: Object.keys(peripheralScreens).length > 0 ? peripheralScreens : undefined,
@@ -1366,7 +1272,8 @@ export function App() {
         generatedC,
         {
           screenOffTimeoutSec,
-          rightScreenOffTimeoutSec,
+          peripheralScreenOffTimeoutSec,
+          rightScreenOffTimeoutSec: peripheralScreenOffTimeoutSec,
           symmetricSettings,
         },
         '[Scyan Studio] feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio'
@@ -1410,8 +1317,8 @@ export function App() {
     (id: string) => {
       if (id === 'left' || id === 'central') {
         return {
-          blocks: leftBlocks,
-          idleBlocks: idleLeftBlocks,
+          blocks: centralBlocks,
+          idleBlocks: idleCentralBlocks,
           dimensions: screenDimensions,
           idleScreensEnabled,
           idleTimeoutSec,
@@ -1420,22 +1327,12 @@ export function App() {
       }
       if (id === 'right' || id === 'peripheral') {
         return {
-          blocks: rightBlocks,
-          idleBlocks: idleRightBlocks,
-          dimensions: rightScreenDimensions,
-          idleScreensEnabled: rightIdleScreensEnabled,
-          idleTimeoutSec: rightIdleTimeoutSec,
-          screenOffTimeoutSec: rightScreenOffTimeoutSec,
-        };
-      }
-      if (id === 'dongle') {
-        return {
-          blocks: dongleBlocks,
-          idleBlocks: idleDongleBlocks,
-          dimensions: dongleScreenDimensions,
-          idleScreensEnabled: dongleIdleScreensEnabled,
-          idleTimeoutSec: dongleIdleTimeoutSec,
-          screenOffTimeoutSec: dongleScreenOffTimeoutSec,
+          blocks: peripheralBlocks,
+          idleBlocks: idlePeripheralBlocks,
+          dimensions: peripheralScreenDimensions,
+          idleScreensEnabled: peripheralIdleScreensEnabled,
+          idleTimeoutSec: peripheralIdleTimeoutSec,
+          screenOffTimeoutSec: peripheralScreenOffTimeoutSec,
         };
       }
       const p = peripheralScreens[id] || {};
@@ -1450,24 +1347,18 @@ export function App() {
       };
     },
     [
-      leftBlocks,
-      idleLeftBlocks,
+      centralBlocks,
+      idleCentralBlocks,
       screenDimensions,
       idleScreensEnabled,
       idleTimeoutSec,
       screenOffTimeoutSec,
-      rightBlocks,
-      idleRightBlocks,
-      rightScreenDimensions,
-      rightIdleScreensEnabled,
-      rightIdleTimeoutSec,
-      rightScreenOffTimeoutSec,
-      dongleBlocks,
-      idleDongleBlocks,
-      dongleScreenDimensions,
-      dongleIdleScreensEnabled,
-      dongleIdleTimeoutSec,
-      dongleScreenOffTimeoutSec,
+      peripheralBlocks,
+      idlePeripheralBlocks,
+      peripheralScreenDimensions,
+      peripheralIdleScreensEnabled,
+      peripheralIdleTimeoutSec,
+      peripheralScreenOffTimeoutSec,
       peripheralScreens,
     ]
   );
@@ -1486,26 +1377,19 @@ export function App() {
       }
     ) => {
       if (id === 'left' || id === 'central') {
-        setLeftBlocks(data.blocks);
-        setIdleLeftBlocks(data.idleBlocks);
+        setCentralBlocks(data.blocks);
+        setIdleCentralBlocks(data.idleBlocks);
         setScreenDimensions(data.dimensions);
         setIdleScreensEnabled(data.idleScreensEnabled);
         setIdleTimeoutSec(data.idleTimeoutSec);
         setScreenOffTimeoutSec(data.screenOffTimeoutSec);
       } else if (id === 'right' || id === 'peripheral') {
-        setRightBlocks(data.blocks);
-        setIdleRightBlocks(data.idleBlocks);
-        setRightScreenDimensions(data.dimensions);
-        setRightIdleScreensEnabled(data.idleScreensEnabled);
-        setRightIdleTimeoutSec(data.idleTimeoutSec);
-        setRightScreenOffTimeoutSec(data.screenOffTimeoutSec);
-      } else if (id === 'dongle') {
-        setDongleBlocks(data.blocks);
-        setIdleDongleBlocks(data.idleBlocks);
-        setDongleScreenDimensions(data.dimensions);
-        setDongleIdleScreensEnabled(data.idleScreensEnabled);
-        setDongleIdleTimeoutSec(data.idleTimeoutSec);
-        setDongleScreenOffTimeoutSec(data.screenOffTimeoutSec);
+        setPeripheralBlocks(data.blocks);
+        setIdlePeripheralBlocks(data.idleBlocks);
+        setPeripheralScreenDimensions(data.dimensions);
+        setPeripheralIdleScreensEnabled(data.idleScreensEnabled);
+        setPeripheralIdleTimeoutSec(data.idleTimeoutSec);
+        setPeripheralScreenOffTimeoutSec(data.screenOffTimeoutSec);
       } else {
         setPeripheralScreens((prev) => ({
           ...prev,
@@ -1540,8 +1424,8 @@ export function App() {
 
   const handleMakeMaster = useCallback(
     (displayId: string) => {
-      if (displayId === 'left') return;
-      handleSwapDisplays('left', displayId);
+      if (displayId === 'left' || displayId === 'central') return;
+      handleSwapDisplays('central', displayId);
     },
     [handleSwapDisplays]
   );
@@ -1733,22 +1617,17 @@ export function App() {
                 fontGrid={fontGrid}
                 fontGlyphs={fontGlyphs}
                 fontMappings={fontMappings}
-                leftBlocks={leftBlocks}
-                rightBlocks={rightBlocks}
-                dongleBlocks={dongleBlocks}
-                layoutBlocks={leftBlocks}
-                idleLeftBlocks={idleLeftBlocks}
-                idleRightBlocks={idleRightBlocks}
-                idleDongleBlocks={idleDongleBlocks}
-                onLeftBlocksChange={setLeftBlocks}
-                onRightBlocksChange={setRightBlocks}
-                onDongleBlocksChange={setDongleBlocks}
-                onIdleLeftBlocksChange={setIdleLeftBlocks}
-                onIdleRightBlocksChange={setIdleRightBlocks}
-                onIdleDongleBlocksChange={setIdleDongleBlocks}
+                centralBlocks={centralBlocks}
+                peripheralBlocks={peripheralBlocks}
+                layoutBlocks={centralBlocks}
+                idleCentralBlocks={idleCentralBlocks}
+                idlePeripheralBlocks={idlePeripheralBlocks}
+                onCentralBlocksChange={setCentralBlocks}
+                onPeripheralBlocksChange={setPeripheralBlocks}
+                onIdleCentralBlocksChange={setIdleCentralBlocks}
+                onIdlePeripheralBlocksChange={setIdlePeripheralBlocks}
                 screenDimensions={screenDimensions}
-                rightScreenDimensions={rightScreenDimensions}
-                dongleScreenDimensions={dongleScreenDimensions}
+                peripheralScreenDimensions={peripheralScreenDimensions}
                 symmetricSettings={symmetricSettings}
                 shieldId={shieldId}
                 onShieldIdChange={setShieldId}
@@ -1801,33 +1680,29 @@ export function App() {
                 onCustomTextChange={setCustomText}
                 instances={widgetInstances}
                 onInstancesChange={handleInstancesChange}
-                leftBlocks={leftBlocks}
-                rightBlocks={rightBlocks}
-                onLeftBlocksChange={setLeftBlocks}
-                onRightBlocksChange={setRightBlocks}
-                idleLeftBlocks={idleLeftBlocks}
-                idleRightBlocks={idleRightBlocks}
-                onIdleLeftBlocksChange={setIdleLeftBlocks}
-                onIdleRightBlocksChange={setIdleRightBlocks}
+                centralBlocks={centralBlocks}
+                peripheralBlocks={peripheralBlocks}
+                onCentralBlocksChange={setCentralBlocks}
+                onPeripheralBlocksChange={setPeripheralBlocks}
+                idleCentralBlocks={idleCentralBlocks}
+                idlePeripheralBlocks={idlePeripheralBlocks}
+                onIdleCentralBlocksChange={setIdleCentralBlocks}
+                onIdlePeripheralBlocksChange={setIdlePeripheralBlocks}
                 layerNames={keymapLayout.layerNames}
               />
             )}
 
             {(activeTab === 'layout' || activeTab === 'blocks') && (
               <BlocksTab
-                leftBlocks={leftBlocks}
-                rightBlocks={rightBlocks}
-                dongleBlocks={dongleBlocks}
-                onLeftBlocksChange={setLeftBlocks}
-                onRightBlocksChange={setRightBlocks}
-                onDongleBlocksChange={setDongleBlocks}
-                idleLeftBlocks={idleLeftBlocks}
-                idleRightBlocks={idleRightBlocks}
-                idleDongleBlocks={idleDongleBlocks}
+                centralBlocks={centralBlocks}
+                peripheralBlocks={peripheralBlocks}
+                onCentralBlocksChange={setCentralBlocks}
+                onPeripheralBlocksChange={setPeripheralBlocks}
+                idleCentralBlocks={idleCentralBlocks}
+                idlePeripheralBlocks={idlePeripheralBlocks}
                 layerNames={keymapLayout.layerNames}
-                onIdleLeftBlocksChange={setIdleLeftBlocks}
-                onIdleRightBlocksChange={setIdleRightBlocks}
-                onIdleDongleBlocksChange={setIdleDongleBlocks}
+                onIdleCentralBlocksChange={setIdleCentralBlocks}
+                onIdlePeripheralBlocksChange={setIdlePeripheralBlocks}
                 screenDimensions={screenDimensions}
                 onScreenDimensionsChange={setScreenDimensions}
                 idleScreensEnabled={idleScreensEnabled}
@@ -1838,22 +1713,14 @@ export function App() {
                 onScreenOffTimeoutSecChange={setScreenOffTimeoutSec}
                 symmetricSettings={symmetricSettings}
                 onSymmetricSettingsChange={setSymmetricSettings}
-                rightScreenDimensions={rightScreenDimensions}
-                onRightScreenDimensionsChange={setRightScreenDimensions}
-                rightIdleScreensEnabled={rightIdleScreensEnabled}
-                onRightIdleScreensEnabledChange={setRightIdleScreensEnabled}
-                rightIdleTimeoutSec={rightIdleTimeoutSec}
-                onRightIdleTimeoutSecChange={setRightIdleTimeoutSec}
-                rightScreenOffTimeoutSec={rightScreenOffTimeoutSec}
-                onRightScreenOffTimeoutSecChange={setRightScreenOffTimeoutSec}
-                dongleScreenDimensions={dongleScreenDimensions}
-                onDongleScreenDimensionsChange={setDongleScreenDimensions}
-                dongleIdleScreensEnabled={dongleIdleScreensEnabled}
-                onDongleIdleScreensEnabledChange={setDongleIdleScreensEnabled}
-                dongleIdleTimeoutSec={dongleIdleTimeoutSec}
-                onDongleIdleTimeoutSecChange={setDongleIdleTimeoutSec}
-                dongleScreenOffTimeoutSec={dongleScreenOffTimeoutSec}
-                onDongleScreenOffTimeoutSecChange={setDongleScreenOffTimeoutSec}
+                peripheralScreenDimensions={peripheralScreenDimensions}
+                onPeripheralScreenDimensionsChange={setPeripheralScreenDimensions}
+                peripheralIdleScreensEnabled={peripheralIdleScreensEnabled}
+                onPeripheralIdleScreensEnabledChange={setPeripheralIdleScreensEnabled}
+                peripheralIdleTimeoutSec={peripheralIdleTimeoutSec}
+                onPeripheralIdleTimeoutSecChange={setPeripheralIdleTimeoutSec}
+                peripheralScreenOffTimeoutSec={peripheralScreenOffTimeoutSec}
+                onPeripheralScreenOffTimeoutSecChange={setPeripheralScreenOffTimeoutSec}
                 enabledScreens={enabledScreens}
                 onEnabledScreensChange={setEnabledScreens}
                 peripheralScreens={peripheralScreens}
@@ -1866,8 +1733,8 @@ export function App() {
                 customText={customText}
                 instances={widgetInstances}
                 onInstancesChange={handleInstancesChange}
-                layoutBlocks={leftBlocks}
-                onLayoutBlocksChange={setLeftBlocks}
+                layoutBlocks={centralBlocks}
+                onLayoutBlocksChange={setCentralBlocks}
               />
             )}
 
@@ -1884,17 +1751,15 @@ export function App() {
                 fontGrid={fontGrid}
                 fontGlyphs={fontGlyphs}
                 fontMappings={fontMappings}
-                leftBlocks={leftBlocks}
-                rightBlocks={rightBlocks}
-                dongleBlocks={dongleBlocks}
-                idleLeftBlocks={idleLeftBlocks}
-                idleRightBlocks={idleRightBlocks}
-                idleDongleBlocks={idleDongleBlocks}
+                centralBlocks={centralBlocks}
+                peripheralBlocks={peripheralBlocks}
+                idleCentralBlocks={idleCentralBlocks}
+                idlePeripheralBlocks={idlePeripheralBlocks}
                 instances={widgetInstances}
                 customText={customText}
                 onApplyDimensions={(dims, rightDims) => {
                   setScreenDimensions(dims);
-                  if (rightDims) setRightScreenDimensions(rightDims);
+                  if (rightDims) setPeripheralScreenDimensions(rightDims);
                   setToast({
                     type: 'success',
                     message: `Applied shield resolution: ${dims.width}x${dims.height} px`,
@@ -1917,17 +1782,14 @@ export function App() {
                 fontGrid={fontGrid}
                 fontGlyphs={fontGlyphs}
                 fontMappings={fontMappings}
-                leftBlocks={leftBlocks}
-                rightBlocks={rightBlocks}
-                dongleBlocks={dongleBlocks}
-                idleLeftBlocks={idleLeftBlocks}
-                idleRightBlocks={idleRightBlocks}
-                idleDongleBlocks={idleDongleBlocks}
+                centralBlocks={centralBlocks}
+                peripheralBlocks={peripheralBlocks}
+                idleCentralBlocks={idleCentralBlocks}
+                idlePeripheralBlocks={idlePeripheralBlocks}
                 enabledScreens={enabledScreens}
                 peripheralScreens={peripheralScreens}
                 screenDimensions={screenDimensions}
-                rightScreenDimensions={rightScreenDimensions}
-                dongleScreenDimensions={dongleScreenDimensions}
+                peripheralScreenDimensions={peripheralScreenDimensions}
                 instances={widgetInstances}
                 customText={customText}
                 onSwapDisplays={handleSwapDisplays}

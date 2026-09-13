@@ -15,9 +15,11 @@ export interface TopologyPartRendererProps {
   fontGrid: BwpxGrid;
   fontGlyphs?: FontGlyph[];
   fontMappings?: FontCharMapping[];
-  activeLeftBlocks: LayoutBlock[];
-  activeRightBlocks: LayoutBlock[];
-  activeDongleBlocks: LayoutBlock[];
+  activeCentralBlocks?: LayoutBlock[];
+  activePeripheralBlocks?: LayoutBlock[];
+  activeLeftBlocks?: LayoutBlock[];
+  activeRightBlocks?: LayoutBlock[];
+  activeDongleBlocks?: LayoutBlock[];
   batteryLevel?: number;
   typingWpm?: number;
   outputMode?: 'usb' | 'ble';
@@ -46,9 +48,10 @@ export const TopologyPartRenderer: React.FC<TopologyPartRendererProps> = ({
   fontGrid,
   fontGlyphs,
   fontMappings,
+  activeCentralBlocks,
+  activePeripheralBlocks,
   activeLeftBlocks,
   activeRightBlocks,
-  activeDongleBlocks,
   batteryLevel = 88,
   typingWpm = 48,
   outputMode = 'ble',
@@ -67,6 +70,9 @@ export const TopologyPartRenderer: React.FC<TopologyPartRendererProps> = ({
   onDragEnd,
   onKeystroke,
 }) => {
+  const effectiveCentral = activeCentralBlocks ?? activeLeftBlocks ?? [];
+  const effectivePeripheral = activePeripheralBlocks ?? activeRightBlocks ?? [];
+
   const onlySide =
     part.side === 'left' || part.side === 'right' ? part.side : undefined;
 
@@ -146,9 +152,8 @@ export const TopologyPartRenderer: React.FC<TopologyPartRendererProps> = ({
         fontGrid={fontGrid}
         fontGlyphs={fontGlyphs}
         fontMappings={fontMappings}
-        activeLeftBlocks={activeLeftBlocks}
-        activeRightBlocks={activeRightBlocks}
-        activeDongleBlocks={activeDongleBlocks}
+        activeCentralBlocks={effectiveCentral}
+        activePeripheralBlocks={effectivePeripheral}
         batteryLevel={batteryLevel}
         typingWpm={typingWpm}
         outputMode={outputMode}

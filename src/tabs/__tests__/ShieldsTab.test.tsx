@@ -168,12 +168,10 @@ describe('ShieldsTab', () => {
         fontGrid={dummyGrid}
         fontGlyphs={[]}
         fontMappings={[]}
-        leftBlocks={[]}
-        rightBlocks={[]}
-        dongleBlocks={[]}
-        idleLeftBlocks={[]}
-        idleRightBlocks={[]}
-        idleDongleBlocks={[]}
+        centralBlocks={[]}
+        peripheralBlocks={[]}
+        idleCentralBlocks={[]}
+        idlePeripheralBlocks={[]}
       />
     );
 

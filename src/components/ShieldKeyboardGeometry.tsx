@@ -22,9 +22,11 @@ export interface ShieldKeyboardGeometryProps {
   fontGrid: BwpxGrid;
   fontGlyphs?: FontGlyph[];
   fontMappings?: FontCharMapping[];
-  activeLeftBlocks: LayoutBlock[];
-  activeRightBlocks: LayoutBlock[];
-  activeDongleBlocks: LayoutBlock[];
+  activeCentralBlocks?: LayoutBlock[];
+  activePeripheralBlocks?: LayoutBlock[];
+  activeLeftBlocks?: LayoutBlock[];
+  activeRightBlocks?: LayoutBlock[];
+  activeDongleBlocks?: LayoutBlock[];
   isIdle?: boolean;
   batteryLevel?: number;
   outputMode?: 'usb' | 'ble';
@@ -50,9 +52,11 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
   fontGrid,
   fontGlyphs = [],
   fontMappings = [],
+  activeCentralBlocks,
+  activePeripheralBlocks,
   activeLeftBlocks,
   activeRightBlocks,
-  activeDongleBlocks,
+  activeDongleBlocks: _activeDongleBlocks,
   isIdle = false,
   batteryLevel = 88,
   outputMode = 'ble',
@@ -70,6 +74,9 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
   isDisplayDropTarget = false,
   onKeystroke,
 }) => {
+  const effectiveCentralBlocks = activeCentralBlocks ?? activeLeftBlocks ?? [];
+  const effectivePeripheralBlocks = activePeripheralBlocks ?? activeRightBlocks ?? [];
+
   const [pressedKey, setPressedKey] = useState<string | null>(null);
   const [encoderRotations, setEncoderRotations] = useState<Record<string, number>>({});
 
@@ -222,7 +229,7 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
   // Helper to render OLED Bay (either populated with assigned display or empty socket)
   const renderOledBay = (
     defaultBlocks: LayoutBlock[],
-    defaultSide: 'left' | 'right' | 'dongle' | 'single' = 'left',
+    defaultSide: 'central' | 'peripheral' | 'single' | 'left' | 'right' | string = 'central',
     customOledScale: number = oledScale
   ) => {
     const defaultW = shield.displayConfig.nativeResolution.width;
@@ -364,7 +371,7 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
 
     const renderHalf = (side: 'left' | 'right') => {
       const isLeft = side === 'left';
-      const blocks = isLeft ? activeLeftBlocks : activeRightBlocks;
+      const blocks = isLeft ? effectiveCentralBlocks : effectivePeripheralBlocks;
 
       // Column order: on right half, mirror order (inner columns face center)
       const colIndices = Array.from({ length: effectiveCols }, (_, i) =>
@@ -586,7 +593,7 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
 
     const oledDisplay = (
       <div className="flex flex-col items-center justify-center shrink-0 z-10">
-        {renderOledBay(activeLeftBlocks, 'single')}
+        {renderOledBay(effectiveCentralBlocks, 'single')}
       </div>
     );
 
@@ -662,10 +669,10 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
           <div className="dongle-body">
             <div className="dongle-header-badge">
               <span className="live-dot" />
-              <span>Central Dongle Master</span>
+              <span>{shield.name}</span>
             </div>
 
-            {renderOledBay(activeDongleBlocks, 'dongle', oledScale * 1.05)}
+            {renderOledBay(effectiveCentralBlocks, 'central', oledScale * 1.05)}
           </div>
         </div>
       </div>
@@ -686,7 +693,7 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
               <span>{shield.name || 'Custom Shield'}</span>
             </div>
 
-            {renderOledBay(activeLeftBlocks, 'left', oledScale * 1.05)}
+            {renderOledBay(effectiveCentralBlocks, 'central', oledScale * 1.05)}
           </div>
         </div>
       </div>
@@ -706,7 +713,7 @@ export const ShieldKeyboardGeometry: React.FC<ShieldKeyboardGeometryProps> = ({
             style={{ gap: `${Math.round(10 * scale)}px` }}
           >
             <div className="flex-1 flex justify-center">
-              {renderOledBay(activeLeftBlocks, 'single')}
+              {renderOledBay(effectiveCentralBlocks, 'single')}
             </div>
             {geom.hasEncoder && renderEncoderKnob('tidbit_encoder')}
           </div>

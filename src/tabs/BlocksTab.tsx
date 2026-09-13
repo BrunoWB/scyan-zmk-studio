@@ -2,12 +2,10 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { BwpxGrid } from '../bwpx/core/BwpxGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../types/zmk';
 import {
-  DEFAULT_LEFT_LAYOUT_BLOCKS,
-  DEFAULT_RIGHT_LAYOUT_BLOCKS,
-  DEFAULT_IDLE_LEFT_BLOCKS,
-  DEFAULT_IDLE_RIGHT_BLOCKS,
-  DEFAULT_DONGLE_LAYOUT_BLOCKS,
-  DEFAULT_IDLE_DONGLE_BLOCKS,
+  DEFAULT_CENTRAL_LAYOUT_BLOCKS,
+  DEFAULT_PERIPHERAL_LAYOUT_BLOCKS,
+  DEFAULT_IDLE_CENTRAL_BLOCKS,
+  DEFAULT_IDLE_PERIPHERAL_BLOCKS,
 } from '../types/zmk';
 import type { DisplayWidgetDefinition, DragWidgetState } from '../types/widget';
 import { getWidgetNaturalSize, resolveWidgetInstance } from '../services/widgetRegistry';
@@ -21,20 +19,24 @@ import type { PeripheralScreenData } from '../services/cHeaderParser';
 import { Plus, Monitor } from 'lucide-react';
 
 export interface BlocksTabProps {
+  centralBlocks?: LayoutBlock[];
+  peripheralBlocks?: LayoutBlock[];
+  onCentralBlocksChange?: (blocks: LayoutBlock[]) => void;
+  onPeripheralBlocksChange?: (blocks: LayoutBlock[]) => void;
+  idleCentralBlocks?: LayoutBlock[];
+  idlePeripheralBlocks?: LayoutBlock[];
+  onIdleCentralBlocksChange?: (blocks: LayoutBlock[]) => void;
+  onIdlePeripheralBlocksChange?: (blocks: LayoutBlock[]) => void;
   leftBlocks?: LayoutBlock[];
   rightBlocks?: LayoutBlock[];
-  dongleBlocks?: LayoutBlock[];
-  peripheralScreens?: Record<string, PeripheralScreenData>;
-  onPeripheralScreensChange?: (screens: Record<string, PeripheralScreenData>) => void;
   onLeftBlocksChange?: (blocks: LayoutBlock[]) => void;
   onRightBlocksChange?: (blocks: LayoutBlock[]) => void;
-  onDongleBlocksChange?: (blocks: LayoutBlock[]) => void;
   idleLeftBlocks?: LayoutBlock[];
   idleRightBlocks?: LayoutBlock[];
-  idleDongleBlocks?: LayoutBlock[];
   onIdleLeftBlocksChange?: (blocks: LayoutBlock[]) => void;
   onIdleRightBlocksChange?: (blocks: LayoutBlock[]) => void;
-  onIdleDongleBlocksChange?: (blocks: LayoutBlock[]) => void;
+  peripheralScreens?: Record<string, PeripheralScreenData>;
+  onPeripheralScreensChange?: (screens: Record<string, PeripheralScreenData>) => void;
   screenDimensions?: { width: number; height: number };
   onScreenDimensionsChange?: (dimensions: { width: number; height: number }) => void;
   idleScreensEnabled?: boolean;
@@ -45,6 +47,14 @@ export interface BlocksTabProps {
   onScreenOffTimeoutSecChange?: (sec: number) => void;
   symmetricSettings?: boolean;
   onSymmetricSettingsChange?: (symmetric: boolean) => void;
+  peripheralScreenDimensions?: { width: number; height: number };
+  onPeripheralScreenDimensionsChange?: (dimensions: { width: number; height: number }) => void;
+  peripheralIdleScreensEnabled?: boolean;
+  onPeripheralIdleScreensEnabledChange?: (enabled: boolean) => void;
+  peripheralIdleTimeoutSec?: number;
+  onPeripheralIdleTimeoutSecChange?: (sec: number) => void;
+  peripheralScreenOffTimeoutSec?: number;
+  onPeripheralScreenOffTimeoutSecChange?: (sec: number) => void;
   rightScreenDimensions?: { width: number; height: number };
   onRightScreenDimensionsChange?: (dimensions: { width: number; height: number }) => void;
   rightIdleScreensEnabled?: boolean;
@@ -53,27 +63,21 @@ export interface BlocksTabProps {
   onRightIdleTimeoutSecChange?: (sec: number) => void;
   rightScreenOffTimeoutSec?: number;
   onRightScreenOffTimeoutSecChange?: (sec: number) => void;
-  dongleScreenDimensions?: { width: number; height: number };
-  onDongleScreenDimensionsChange?: (dimensions: { width: number; height: number }) => void;
-  dongleIdleScreensEnabled?: boolean;
-  onDongleIdleScreensEnabledChange?: (enabled: boolean) => void;
-  dongleIdleTimeoutSec?: number;
-  onDongleIdleTimeoutSecChange?: (sec: number) => void;
-  dongleScreenOffTimeoutSec?: number;
-  onDongleScreenOffTimeoutSecChange?: (sec: number) => void;
   isSettingsOpen?: boolean;
   onToggleSettings?: () => void;
   onCloseSettings?: () => void;
-  // Independent left/right/dongle side settings props
+  isCentralSettingsOpen?: boolean;
+  onToggleCentralSettings?: () => void;
+  onCloseCentralSettings?: () => void;
+  isPeripheralSettingsOpen?: boolean;
+  onTogglePeripheralSettings?: () => void;
+  onClosePeripheralSettings?: () => void;
   isLeftSettingsOpen?: boolean;
   onToggleLeftSettings?: () => void;
   onCloseLeftSettings?: () => void;
   isRightSettingsOpen?: boolean;
   onToggleRightSettings?: () => void;
   onCloseRightSettings?: () => void;
-  isDongleSettingsOpen?: boolean;
-  onToggleDongleSettings?: () => void;
-  onCloseDongleSettings?: () => void;
   enabledScreens?: string[];
   onEnabledScreensChange?: (screens: string[]) => void;
   onResetDefaults?: () => void;
@@ -93,18 +97,24 @@ export interface BlocksTabProps {
 }
 
 export const BlocksTab: React.FC<BlocksTabProps> = ({
+  centralBlocks,
+  peripheralBlocks,
+  onCentralBlocksChange,
+  onPeripheralBlocksChange,
+  idleCentralBlocks,
+  idlePeripheralBlocks,
+  onIdleCentralBlocksChange,
+  onIdlePeripheralBlocksChange,
   leftBlocks,
   rightBlocks,
-  dongleBlocks,
   onLeftBlocksChange,
   onRightBlocksChange,
-  onDongleBlocksChange,
   idleLeftBlocks,
   idleRightBlocks,
-  idleDongleBlocks,
   onIdleLeftBlocksChange,
   onIdleRightBlocksChange,
-  onIdleDongleBlocksChange,
+  peripheralScreens,
+  onPeripheralScreensChange,
   layerNames,
   screenDimensions = { width: 32, height: 128 },
   onScreenDimensionsChange,
@@ -116,6 +126,14 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   onScreenOffTimeoutSecChange,
   symmetricSettings,
   onSymmetricSettingsChange,
+  peripheralScreenDimensions,
+  onPeripheralScreenDimensionsChange,
+  peripheralIdleScreensEnabled,
+  onPeripheralIdleScreensEnabledChange,
+  peripheralIdleTimeoutSec,
+  onPeripheralIdleTimeoutSecChange,
+  peripheralScreenOffTimeoutSec,
+  onPeripheralScreenOffTimeoutSecChange,
   rightScreenDimensions,
   onRightScreenDimensionsChange,
   rightIdleScreensEnabled,
@@ -124,30 +142,23 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   onRightIdleTimeoutSecChange,
   rightScreenOffTimeoutSec,
   onRightScreenOffTimeoutSecChange,
-  dongleScreenDimensions,
-  onDongleScreenDimensionsChange,
-  dongleIdleScreensEnabled,
-  onDongleIdleScreensEnabledChange,
-  dongleIdleTimeoutSec,
-  onDongleIdleTimeoutSecChange,
-  dongleScreenOffTimeoutSec,
-  onDongleScreenOffTimeoutSecChange,
   isSettingsOpen,
   onToggleSettings,
   onCloseSettings,
+  isCentralSettingsOpen,
+  onToggleCentralSettings,
+  onCloseCentralSettings,
+  isPeripheralSettingsOpen,
+  onTogglePeripheralSettings,
+  onClosePeripheralSettings,
   isLeftSettingsOpen,
   onToggleLeftSettings,
   onCloseLeftSettings,
   isRightSettingsOpen,
   onToggleRightSettings,
   onCloseRightSettings,
-  isDongleSettingsOpen,
-  onToggleDongleSettings,
-  onCloseDongleSettings,
   enabledScreens,
   onEnabledScreensChange,
-  peripheralScreens,
-  onPeripheralScreensChange,
   onResetDefaults: _onResetDefaults,
   symbolsGrid,
   symbolSlices,
@@ -161,67 +172,67 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   onLayoutBlocksChange,
 }) => {
   // Active screen blocks
-  const effectiveLeftBlocks = leftBlocks ?? layoutBlocks ?? DEFAULT_LEFT_LAYOUT_BLOCKS;
-  const effectiveRightBlocks = rightBlocks ?? DEFAULT_RIGHT_LAYOUT_BLOCKS;
-  const effectiveDongleBlocks = dongleBlocks ?? DEFAULT_DONGLE_LAYOUT_BLOCKS;
+  const effectiveCentralBlocks = centralBlocks ?? leftBlocks ?? layoutBlocks ?? DEFAULT_CENTRAL_LAYOUT_BLOCKS;
+  const effectivePeripheralBlocks = peripheralBlocks ?? rightBlocks ?? DEFAULT_PERIPHERAL_LAYOUT_BLOCKS;
 
   // Idle screen blocks
-  const effectiveIdleLeftBlocks = idleLeftBlocks ?? DEFAULT_IDLE_LEFT_BLOCKS;
-  const effectiveIdleRightBlocks = idleRightBlocks ?? DEFAULT_IDLE_RIGHT_BLOCKS;
-  const effectiveIdleDongleBlocks = idleDongleBlocks ?? DEFAULT_IDLE_DONGLE_BLOCKS;
+  const effectiveIdleCentralBlocks = idleCentralBlocks ?? idleLeftBlocks ?? DEFAULT_IDLE_CENTRAL_BLOCKS;
+  const effectiveIdlePeripheralBlocks = idlePeripheralBlocks ?? idleRightBlocks ?? DEFAULT_IDLE_PERIPHERAL_BLOCKS;
+
+  const handleCentralBlocksChange = onCentralBlocksChange || onLeftBlocksChange || onLayoutBlocksChange;
+  const handlePeripheralBlocksChange = onPeripheralBlocksChange || onRightBlocksChange;
+  const handleIdleCentralBlocksChange = onIdleCentralBlocksChange || onIdleLeftBlocksChange;
+  const handleIdlePeripheralBlocksChange = onIdlePeripheralBlocksChange || onIdleRightBlocksChange;
 
   // Dynamic peripheral screens state
   const [localPeripheralScreens, setLocalPeripheralScreens] = useState<Record<string, PeripheralScreenData>>({});
   const effectivePeripheralScreens = peripheralScreens ?? localPeripheralScreens;
   const handlePeripheralScreensChange = onPeripheralScreensChange || setLocalPeripheralScreens;
 
-  const [internalPeripheralSettingsOpen, setInternalPeripheralSettingsOpen] = useState<Record<string, boolean>>({});
+  const [internalDynamicPeripheralSettingsOpen, setInternalDynamicPeripheralSettingsOpen] = useState<Record<string, boolean>>({});
 
   // Screen setup & enabled screens state
-  const [localEnabledScreens, setLocalEnabledScreens] = useState<string[]>(['left', 'right']);
-  const effectiveEnabledScreens = enabledScreens ?? localEnabledScreens;
+  const [localEnabledScreens, setLocalEnabledScreens] = useState<string[]>(['central', 'peripheral']);
+  const effectiveEnabledScreens = (enabledScreens ?? localEnabledScreens)
+    .map((s) => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
+    .filter((s) => s !== 'dongle');
   const handleEnabledScreensChange = onEnabledScreensChange || setLocalEnabledScreens;
 
-  // Independent per-screen focus mode: 'active' or 'idle' for each screen ID ('left', 'right', 'dongle', etc.)
+  // Independent per-screen focus mode: 'active' or 'idle' for each screen ID ('central', 'peripheral', etc.)
   const [screenModes, setScreenModes] = useState<Record<string, 'active' | 'idle'>>({});
 
   const getScreenMode = useCallback(
     (side: string): 'active' | 'idle' => {
-      return screenModes[side] ?? 'active';
+      const normalizedSide = side === 'left' ? 'central' : side === 'right' ? 'peripheral' : side;
+      return screenModes[normalizedSide] ?? 'active';
     },
     [screenModes]
   );
 
   const setScreenMode = useCallback((side: string, mode: 'active' | 'idle') => {
+    const normalizedSide = side === 'left' ? 'central' : side === 'right' ? 'peripheral' : side;
     setScreenModes((prev) => ({
       ...prev,
-      [side]: mode,
+      [normalizedSide]: mode,
     }));
   }, []);
 
-  // Independent left, right & dongle settings state
-  const [internalLeftSettingsOpen, setInternalLeftSettingsOpen] = useState(false);
-  const [internalRightSettingsOpen, setInternalRightSettingsOpen] = useState(false);
-  const [internalDongleSettingsOpen, setInternalDongleSettingsOpen] = useState(false);
+  // Independent Central & Peripheral settings state
+  const [internalCentralSettingsOpen, setInternalCentralSettingsOpen] = useState(false);
+  const [internalPeripheralSettingsOpen, setInternalPeripheralSettingsOpen] = useState(false);
 
-  const effectiveLeftSettingsOpen = isLeftSettingsOpen !== undefined
-    ? isLeftSettingsOpen
-    : (isSettingsOpen !== undefined ? isSettingsOpen : internalLeftSettingsOpen);
-  const effectiveRightSettingsOpen = isRightSettingsOpen !== undefined
-    ? isRightSettingsOpen
-    : internalRightSettingsOpen;
-  const effectiveDongleSettingsOpen = isDongleSettingsOpen !== undefined
-    ? isDongleSettingsOpen
-    : internalDongleSettingsOpen;
+  const effectiveCentralSettingsOpen = isCentralSettingsOpen !== undefined
+    ? isCentralSettingsOpen
+    : (isLeftSettingsOpen !== undefined ? isLeftSettingsOpen : (isSettingsOpen !== undefined ? isSettingsOpen : internalCentralSettingsOpen));
+  const effectivePeripheralSettingsOpen = isPeripheralSettingsOpen !== undefined
+    ? isPeripheralSettingsOpen
+    : (isRightSettingsOpen !== undefined ? isRightSettingsOpen : internalPeripheralSettingsOpen);
 
-  const toggleLeftSettings = onToggleLeftSettings || onToggleSettings || (() => setInternalLeftSettingsOpen(prev => !prev));
-  const closeLeftSettings = onCloseLeftSettings || onCloseSettings || (() => setInternalLeftSettingsOpen(false));
+  const toggleCentralSettings = onToggleCentralSettings || onToggleLeftSettings || onToggleSettings || (() => setInternalCentralSettingsOpen(prev => !prev));
+  const closeCentralSettings = onCloseCentralSettings || onCloseLeftSettings || onCloseSettings || (() => setInternalCentralSettingsOpen(false));
 
-  const toggleRightSettings = onToggleRightSettings || (() => setInternalRightSettingsOpen(prev => !prev));
-  const closeRightSettings = onCloseRightSettings || (() => setInternalRightSettingsOpen(false));
-
-  const toggleDongleSettings = onToggleDongleSettings || (() => setInternalDongleSettingsOpen(prev => !prev));
-  const closeDongleSettings = onCloseDongleSettings || (() => setInternalDongleSettingsOpen(false));
+  const togglePeripheralSettings = onTogglePeripheralSettings || onToggleRightSettings || (() => setInternalPeripheralSettingsOpen(prev => !prev));
+  const closePeripheralSettings = onClosePeripheralSettings || onCloseRightSettings || (() => setInternalPeripheralSettingsOpen(false));
 
   const [localSymmetricSettings, setLocalSymmetricSettings] = useState(true);
   const effectiveSymmetricSettings = symmetricSettings !== undefined ? symmetricSettings : localSymmetricSettings;
@@ -239,194 +250,127 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   const effectiveScreenOffTimeoutSec = screenOffTimeoutSec !== undefined ? screenOffTimeoutSec : localScreenOffTimeoutSec;
   const handleScreenOffTimeoutSecChange = onScreenOffTimeoutSecChange || setLocalScreenOffTimeoutSec;
 
-  // Right-side effective settings (fallback to left when symmetric)
-  const [localRightScreenDimensions, setLocalRightScreenDimensions] = useState(screenDimensions);
-  const effectiveRightScreenDimensions = effectiveSymmetricSettings
+  // Peripheral effective settings (fallback to central when symmetric)
+  const [localPeripheralScreenDimensions, setLocalPeripheralScreenDimensions] = useState(screenDimensions);
+  const effectivePeripheralScreenDimensions = effectiveSymmetricSettings
     ? screenDimensions
-    : (rightScreenDimensions ?? localRightScreenDimensions);
-  const handleRightScreenDimensionsChange = onRightScreenDimensionsChange || setLocalRightScreenDimensions;
+    : (peripheralScreenDimensions ?? rightScreenDimensions ?? localPeripheralScreenDimensions);
+  const handlePeripheralDimensionsChange = onPeripheralScreenDimensionsChange || onRightScreenDimensionsChange || setLocalPeripheralScreenDimensions;
 
   // Idle screen enabled toggles are strictly independent per display
-  const [localRightIdleScreensEnabled, setLocalRightIdleScreensEnabled] = useState(true);
-  const effectiveRightIdleScreensEnabled = rightIdleScreensEnabled !== undefined ? rightIdleScreensEnabled : localRightIdleScreensEnabled;
-  const handleRightIdleScreensEnabledChange = onRightIdleScreensEnabledChange || setLocalRightIdleScreensEnabled;
+  const [localPeripheralIdleScreensEnabled, setLocalPeripheralIdleScreensEnabled] = useState(true);
+  const effectivePeripheralIdleScreensEnabled = peripheralIdleScreensEnabled !== undefined
+    ? peripheralIdleScreensEnabled
+    : (rightIdleScreensEnabled !== undefined ? rightIdleScreensEnabled : localPeripheralIdleScreensEnabled);
+  const handlePeripheralIdleEnabledChange = onPeripheralIdleScreensEnabledChange || onRightIdleScreensEnabledChange || setLocalPeripheralIdleScreensEnabled;
 
-  const [localRightIdleTimeoutSec, setLocalRightIdleTimeoutSec] = useState(30);
-  const effectiveRightIdleTimeoutSec = effectiveSymmetricSettings
+  const [localPeripheralIdleTimeoutSec, setLocalPeripheralIdleTimeoutSec] = useState(30);
+  const effectivePeripheralIdleTimeoutSec = effectiveSymmetricSettings
     ? effectiveIdleTimeoutSec
-    : (rightIdleTimeoutSec !== undefined ? rightIdleTimeoutSec : localRightIdleTimeoutSec);
-  const handleRightIdleTimeoutSecChange = onRightIdleTimeoutSecChange || setLocalRightIdleTimeoutSec;
+    : (peripheralIdleTimeoutSec !== undefined ? peripheralIdleTimeoutSec : (rightIdleTimeoutSec !== undefined ? rightIdleTimeoutSec : localPeripheralIdleTimeoutSec));
+  const handlePeripheralIdleTimeoutChange = onPeripheralIdleTimeoutSecChange || onRightIdleTimeoutSecChange || setLocalPeripheralIdleTimeoutSec;
 
-  const [localRightScreenOffTimeoutSec, setLocalRightScreenOffTimeoutSec] = useState(60);
-  const effectiveRightScreenOffTimeoutSec = effectiveSymmetricSettings
+  const [localPeripheralScreenOffTimeoutSec, setLocalPeripheralScreenOffTimeoutSec] = useState(60);
+  const effectivePeripheralScreenOffTimeoutSec = effectiveSymmetricSettings
     ? effectiveScreenOffTimeoutSec
-    : (rightScreenOffTimeoutSec !== undefined ? rightScreenOffTimeoutSec : localRightScreenOffTimeoutSec);
-  const handleRightScreenOffTimeoutSecChange = onRightScreenOffTimeoutSecChange || setLocalRightScreenOffTimeoutSec;
+    : (peripheralScreenOffTimeoutSec !== undefined ? peripheralScreenOffTimeoutSec : (rightScreenOffTimeoutSec !== undefined ? rightScreenOffTimeoutSec : localPeripheralScreenOffTimeoutSec));
+  const handlePeripheralScreenOffTimeoutChange = onPeripheralScreenOffTimeoutSecChange || onRightScreenOffTimeoutSecChange || setLocalPeripheralScreenOffTimeoutSec;
 
-  // Dongle effective settings
-  const [localDongleScreenDimensions, setLocalDongleScreenDimensions] = useState(screenDimensions);
-  const effectiveDongleScreenDimensions = dongleScreenDimensions ?? localDongleScreenDimensions;
-  const handleDongleScreenDimensionsChange = onDongleScreenDimensionsChange || setLocalDongleScreenDimensions;
-
-  const [localDongleIdleScreensEnabled, setLocalDongleIdleScreensEnabled] = useState(true);
-  const effectiveDongleIdleScreensEnabled = dongleIdleScreensEnabled !== undefined ? dongleIdleScreensEnabled : localDongleIdleScreensEnabled;
-  const handleDongleIdleScreensEnabledChange = onDongleIdleScreensEnabledChange || setLocalDongleIdleScreensEnabled;
-
-  const [localDongleIdleTimeoutSec, setLocalDongleIdleTimeoutSec] = useState(30);
-  const effectiveDongleIdleTimeoutSec = dongleIdleTimeoutSec !== undefined ? dongleIdleTimeoutSec : localDongleIdleTimeoutSec;
-  const handleDongleIdleTimeoutSecChange = onDongleIdleTimeoutSecChange || setLocalDongleIdleTimeoutSec;
-
-  const [localDongleScreenOffTimeoutSec, setLocalDongleScreenOffTimeoutSec] = useState(60);
-  const effectiveDongleScreenOffTimeoutSec = dongleScreenOffTimeoutSec !== undefined ? dongleScreenOffTimeoutSec : localDongleScreenOffTimeoutSec;
-  const handleDongleScreenOffTimeoutSecChange = onDongleScreenOffTimeoutSecChange || setLocalDongleScreenOffTimeoutSec;
-
-  const handleDongleDimensionsChange = (dims: { width: number; height: number }) => {
-    handleDongleScreenDimensionsChange(dims);
-  };
-
-  const handleDongleIdleEnabledChange = (enabled: boolean) => {
-    handleDongleIdleScreensEnabledChange(enabled);
-  };
-
-  const handleDongleIdleTimeoutChange = (sec: number) => {
-    handleDongleIdleTimeoutSecChange(sec);
-  };
-
-  const handleDongleScreenOffTimeoutChange = (sec: number) => {
-    handleDongleScreenOffTimeoutSecChange(sec);
-  };
-
-  // Change handlers for Left half: automatically updates Right half when symmetricSettings is true
-  const handleLeftDimensionsChange = (dims: { width: number; height: number }) => {
+  // Change handlers for Central: automatically updates Peripheral when symmetricSettings is true
+  const handleCentralDimensionsChange = (dims: { width: number; height: number }) => {
     onScreenDimensionsChange?.(dims);
     if (effectiveSymmetricSettings) {
-      handleRightScreenDimensionsChange(dims);
+      handlePeripheralDimensionsChange(dims);
     }
   };
 
-  const handleLeftIdleEnabledChange = (enabled: boolean) => {
+  const handleCentralIdleEnabledChange = (enabled: boolean) => {
     // Idle toggles are strictly independent per display
     handleIdleScreensEnabledChange(enabled);
   };
 
-  const handleLeftIdleTimeoutChange = (sec: number) => {
+  const handleCentralIdleTimeoutChange = (sec: number) => {
     handleIdleTimeoutSecChange(sec);
     if (effectiveSymmetricSettings) {
-      handleRightIdleTimeoutSecChange(sec);
+      handlePeripheralIdleTimeoutChange(sec);
     }
   };
 
-  const handleLeftScreenOffTimeoutChange = (sec: number) => {
+  const handleCentralScreenOffTimeoutChange = (sec: number) => {
     handleScreenOffTimeoutSecChange(sec);
     if (effectiveSymmetricSettings) {
-      handleRightScreenOffTimeoutSecChange(sec);
+      handlePeripheralScreenOffTimeoutChange(sec);
     }
   };
 
   const handleSymmetricChange = (next: boolean) => {
     handleSymmetricSettingsChange(next);
     if (next) {
-      handleRightScreenDimensionsChange(screenDimensions);
-      handleRightIdleTimeoutSecChange(effectiveIdleTimeoutSec);
-      handleRightScreenOffTimeoutSecChange(effectiveScreenOffTimeoutSec);
+      handlePeripheralDimensionsChange(screenDimensions);
+      handlePeripheralIdleTimeoutChange(effectiveIdleTimeoutSec);
+      handlePeripheralScreenOffTimeoutChange(effectiveScreenOffTimeoutSec);
     }
   };
 
   // Peripheral role actions: Make Master and Delete
   const handleMakeMaster = useCallback(
     (peripheralSide: string) => {
-      if (peripheralSide === 'right') {
+      if (peripheralSide === 'right' || peripheralSide === 'peripheral') {
         // 1. Swap active blocks
-        const oldLeft = [...effectiveLeftBlocks];
-        const oldRight = [...effectiveRightBlocks];
-        onLeftBlocksChange?.(oldRight);
-        onRightBlocksChange?.(oldLeft);
+        const oldCentral = [...effectiveCentralBlocks];
+        const oldPeripheral = [...effectivePeripheralBlocks];
+        handleCentralBlocksChange?.(oldPeripheral);
+        handlePeripheralBlocksChange?.(oldCentral);
 
         // 2. Swap idle blocks
-        const oldIdleLeft = [...effectiveIdleLeftBlocks];
-        const oldIdleRight = [...effectiveIdleRightBlocks];
-        onIdleLeftBlocksChange?.(oldIdleRight);
-        onIdleRightBlocksChange?.(oldIdleLeft);
+        const oldIdleCentral = [...effectiveIdleCentralBlocks];
+        const oldIdlePeripheral = [...effectiveIdlePeripheralBlocks];
+        handleIdleCentralBlocksChange?.(oldIdlePeripheral);
+        handleIdlePeripheralBlocksChange?.(oldIdleCentral);
 
         // 3. Swap dimensions
-        const oldLeftDims = { ...screenDimensions };
-        const oldRightDims = { ...effectiveRightScreenDimensions };
-        onScreenDimensionsChange?.(oldRightDims);
-        handleRightScreenDimensionsChange(oldLeftDims);
+        const oldCentralDims = { ...screenDimensions };
+        const oldPeripheralDims = { ...effectivePeripheralScreenDimensions };
+        onScreenDimensionsChange?.(oldPeripheralDims);
+        handlePeripheralDimensionsChange(oldCentralDims);
 
         // 4. Swap timeouts & power settings
-        const oldLeftIdleEnabled = effectiveIdleScreensEnabled;
-        const oldRightIdleEnabled = effectiveRightIdleScreensEnabled;
-        handleIdleScreensEnabledChange(oldRightIdleEnabled);
-        handleRightIdleScreensEnabledChange(oldLeftIdleEnabled);
+        const oldCentralIdleEnabled = effectiveIdleScreensEnabled;
+        const oldPeripheralIdleEnabled = effectivePeripheralIdleScreensEnabled;
+        handleIdleScreensEnabledChange(oldPeripheralIdleEnabled);
+        handlePeripheralIdleEnabledChange(oldCentralIdleEnabled);
 
-        const oldLeftIdleTimeout = effectiveIdleTimeoutSec;
-        const oldRightIdleTimeout = effectiveRightIdleTimeoutSec;
-        handleIdleTimeoutSecChange(oldRightIdleTimeout);
-        handleRightIdleTimeoutSecChange(oldLeftIdleTimeout);
+        const oldCentralIdleTimeout = effectiveIdleTimeoutSec;
+        const oldPeripheralIdleTimeout = effectivePeripheralIdleTimeoutSec;
+        handleIdleTimeoutSecChange(oldPeripheralIdleTimeout);
+        handlePeripheralIdleTimeoutChange(oldCentralIdleTimeout);
 
-        const oldLeftOffTimeout = effectiveScreenOffTimeoutSec;
-        const oldRightOffTimeout = effectiveRightScreenOffTimeoutSec;
-        handleScreenOffTimeoutSecChange(oldRightOffTimeout);
-        handleRightScreenOffTimeoutSecChange(oldLeftOffTimeout);
+        const oldCentralOffTimeout = effectiveScreenOffTimeoutSec;
+        const oldPeripheralOffTimeout = effectivePeripheralScreenOffTimeoutSec;
+        handleScreenOffTimeoutSecChange(oldPeripheralOffTimeout);
+        handlePeripheralScreenOffTimeoutChange(oldCentralOffTimeout);
 
-        trackEvent('make_master_swap', { from: 'right', to: 'left' });
-      } else if (peripheralSide === 'dongle') {
-        // 1. Swap active blocks
-        const oldLeft = [...effectiveLeftBlocks];
-        const oldDongle = [...effectiveDongleBlocks];
-        onLeftBlocksChange?.(oldDongle);
-        onDongleBlocksChange?.(oldLeft);
-
-        // 2. Swap idle blocks
-        const oldIdleLeft = [...effectiveIdleLeftBlocks];
-        const oldIdleDongle = [...effectiveIdleDongleBlocks];
-        onIdleLeftBlocksChange?.(oldIdleDongle);
-        onIdleDongleBlocksChange?.(oldIdleLeft);
-
-        // 3. Swap dimensions
-        const oldLeftDims = { ...screenDimensions };
-        const oldDongleDims = { ...effectiveDongleScreenDimensions };
-        onScreenDimensionsChange?.(oldDongleDims);
-        handleDongleDimensionsChange(oldLeftDims);
-
-        // 4. Swap timeouts & power settings
-        const oldLeftIdleEnabled = effectiveIdleScreensEnabled;
-        const oldDongleIdleEnabled = effectiveDongleIdleScreensEnabled;
-        handleIdleScreensEnabledChange(oldDongleIdleEnabled);
-        handleDongleIdleEnabledChange(oldLeftIdleEnabled);
-
-        const oldLeftIdleTimeout = effectiveIdleTimeoutSec;
-        const oldDongleIdleTimeout = effectiveDongleIdleTimeoutSec;
-        handleIdleTimeoutSecChange(oldDongleIdleTimeout);
-        handleDongleIdleTimeoutChange(oldLeftIdleTimeout);
-
-        const oldLeftOffTimeout = effectiveScreenOffTimeoutSec;
-        const oldDongleOffTimeout = effectiveDongleScreenOffTimeoutSec;
-        handleScreenOffTimeoutSecChange(oldDongleOffTimeout);
-        handleDongleScreenOffTimeoutChange(oldLeftOffTimeout);
-
-        trackEvent('make_master_swap', { from: 'dongle', to: 'left' });
+        trackEvent('make_master_swap', { from: 'peripheral', to: 'central' });
       } else {
-        // Swap with dynamic peripheral (e.g. peripheral-3)
+        // Swap with dynamic peripheral (e.g. peripheral-2)
         const pData = effectivePeripheralScreens[peripheralSide] || {
-          blocks: [...DEFAULT_RIGHT_LAYOUT_BLOCKS],
-          idleBlocks: [...DEFAULT_IDLE_RIGHT_BLOCKS],
+          blocks: [...DEFAULT_PERIPHERAL_LAYOUT_BLOCKS],
+          idleBlocks: [...DEFAULT_IDLE_PERIPHERAL_BLOCKS],
           screenDimensions: { width: 32, height: 128 },
           idleScreensEnabled: true,
           idleTimeoutSec: 30,
           screenOffTimeoutSec: 60,
         };
 
-        const oldLeft = [...effectiveLeftBlocks];
-        const oldIdleLeft = [...effectiveIdleLeftBlocks];
-        const oldLeftDims = { ...screenDimensions };
-        const oldLeftIdleEnabled = effectiveIdleScreensEnabled;
-        const oldLeftIdleTimeout = effectiveIdleTimeoutSec;
-        const oldLeftOffTimeout = effectiveScreenOffTimeoutSec;
+        const oldCentral = [...effectiveCentralBlocks];
+        const oldIdleCentral = [...effectiveIdleCentralBlocks];
+        const oldCentralDims = { ...screenDimensions };
+        const oldCentralIdleEnabled = effectiveIdleScreensEnabled;
+        const oldCentralIdleTimeout = effectiveIdleTimeoutSec;
+        const oldCentralOffTimeout = effectiveScreenOffTimeoutSec;
 
-        onLeftBlocksChange?.(pData.blocks || []);
-        onIdleLeftBlocksChange?.(pData.idleBlocks || []);
+        handleCentralBlocksChange?.(pData.blocks || []);
+        handleIdleCentralBlocksChange?.(pData.idleBlocks || []);
         onScreenDimensionsChange?.(pData.screenDimensions || { width: 32, height: 128 });
         handleIdleScreensEnabledChange(pData.idleScreensEnabled ?? true);
         handleIdleTimeoutSecChange(pData.idleTimeoutSec ?? 30);
@@ -436,56 +380,44 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
           ...effectivePeripheralScreens,
           [peripheralSide]: {
             ...pData,
-            blocks: oldLeft,
-            idleBlocks: oldIdleLeft,
-            screenDimensions: oldLeftDims,
-            idleScreensEnabled: oldLeftIdleEnabled,
-            idleTimeoutSec: oldLeftIdleTimeout,
-            screenOffTimeoutSec: oldLeftOffTimeout,
+            blocks: oldCentral,
+            idleBlocks: oldIdleCentral,
+            screenDimensions: oldCentralDims,
+            idleScreensEnabled: oldCentralIdleEnabled,
+            idleTimeoutSec: oldCentralIdleTimeout,
+            screenOffTimeoutSec: oldCentralOffTimeout,
           },
         });
 
-        trackEvent('make_master_swap', { from: peripheralSide, to: 'left' });
+        trackEvent('make_master_swap', { from: peripheralSide, to: 'central' });
       }
     },
     [
-      effectiveLeftBlocks,
-      effectiveRightBlocks,
-      effectiveDongleBlocks,
-      effectiveIdleLeftBlocks,
-      effectiveIdleRightBlocks,
-      effectiveIdleDongleBlocks,
+      effectiveCentralBlocks,
+      effectivePeripheralBlocks,
+      effectiveIdleCentralBlocks,
+      effectiveIdlePeripheralBlocks,
       effectivePeripheralScreens,
       screenDimensions,
-      effectiveRightScreenDimensions,
-      effectiveDongleScreenDimensions,
+      effectivePeripheralScreenDimensions,
       effectiveIdleScreensEnabled,
-      effectiveRightIdleScreensEnabled,
-      effectiveDongleIdleScreensEnabled,
+      effectivePeripheralIdleScreensEnabled,
       effectiveIdleTimeoutSec,
-      effectiveRightIdleTimeoutSec,
-      effectiveDongleIdleTimeoutSec,
+      effectivePeripheralIdleTimeoutSec,
       effectiveScreenOffTimeoutSec,
-      effectiveRightScreenOffTimeoutSec,
-      effectiveDongleScreenOffTimeoutSec,
-      onLeftBlocksChange,
-      onRightBlocksChange,
-      onDongleBlocksChange,
-      onIdleLeftBlocksChange,
-      onIdleRightBlocksChange,
-      onIdleDongleBlocksChange,
+      effectivePeripheralScreenOffTimeoutSec,
+      handleCentralBlocksChange,
+      handlePeripheralBlocksChange,
+      handleIdleCentralBlocksChange,
+      handleIdlePeripheralBlocksChange,
       onScreenDimensionsChange,
-      handleRightScreenDimensionsChange,
-      handleDongleDimensionsChange,
+      handlePeripheralDimensionsChange,
       handleIdleScreensEnabledChange,
-      handleRightIdleScreensEnabledChange,
-      handleDongleIdleEnabledChange,
+      handlePeripheralIdleEnabledChange,
       handleIdleTimeoutSecChange,
-      handleRightIdleTimeoutSecChange,
-      handleDongleIdleTimeoutChange,
+      handlePeripheralIdleTimeoutChange,
       handleScreenOffTimeoutSecChange,
-      handleRightScreenOffTimeoutSecChange,
-      handleDongleScreenOffTimeoutChange,
+      handlePeripheralScreenOffTimeoutChange,
       handlePeripheralScreensChange,
     ]
   );
@@ -494,41 +426,37 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     (peripheralSide: string) => {
       const updatedScreens = effectiveEnabledScreens.filter((s) => s !== peripheralSide);
       handleEnabledScreensChange(updatedScreens);
-      if (peripheralSide === 'right') {
-        closeRightSettings();
-      } else if (peripheralSide === 'dongle') {
-        closeDongleSettings();
+      if (peripheralSide === 'right' || peripheralSide === 'peripheral') {
+        closePeripheralSettings();
       } else {
         const copy = { ...effectivePeripheralScreens };
         delete copy[peripheralSide];
         handlePeripheralScreensChange(copy);
-        setInternalPeripheralSettingsOpen(prev => ({ ...prev, [peripheralSide]: false }));
+        setInternalDynamicPeripheralSettingsOpen(prev => ({ ...prev, [peripheralSide]: false }));
       }
       trackEvent('delete_peripheral_display', { side: peripheralSide });
     },
-    [effectiveEnabledScreens, effectivePeripheralScreens, handleEnabledScreensChange, handlePeripheralScreensChange, closeRightSettings, closeDongleSettings]
+    [effectiveEnabledScreens, effectivePeripheralScreens, handleEnabledScreensChange, handlePeripheralScreensChange, closePeripheralSettings]
   );
 
   const handleAddPeripheral = useCallback(() => {
     let nextSide: string;
-    if (!effectiveEnabledScreens.includes('right')) {
-      nextSide = 'right';
-    } else if (!effectiveEnabledScreens.includes('dongle')) {
-      nextSide = 'dongle';
+    if (!effectiveEnabledScreens.includes('peripheral') && !effectiveEnabledScreens.includes('right')) {
+      nextSide = 'peripheral';
     } else {
-      let idx = 3;
+      let idx = 2;
       while (effectiveEnabledScreens.includes(`peripheral-${idx}`)) {
         idx++;
       }
       nextSide = `peripheral-${idx}`;
     }
 
-    if (!nextSide.startsWith('right') && !nextSide.startsWith('dongle')) {
+    if (nextSide !== 'peripheral') {
       const num = nextSide.replace('peripheral-', '');
       const newPeripheralData: PeripheralScreenData = {
         name: `Peripheral ${num}`,
-        blocks: [...DEFAULT_RIGHT_LAYOUT_BLOCKS],
-        idleBlocks: [...DEFAULT_IDLE_RIGHT_BLOCKS],
+        blocks: [...DEFAULT_PERIPHERAL_LAYOUT_BLOCKS],
+        idleBlocks: [...DEFAULT_IDLE_PERIPHERAL_BLOCKS],
         screenDimensions: { width: 32, height: 128 },
         idleScreensEnabled: true,
         idleTimeoutSec: 30,
@@ -549,16 +477,12 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     setScreenModes((prev) => {
       let changed = false;
       const next = { ...prev };
-      if (!effectiveIdleScreensEnabled && next['left'] === 'idle') {
-        next['left'] = 'active';
+      if (!effectiveIdleScreensEnabled && (next['central'] === 'idle' || next['left'] === 'idle')) {
+        next['central'] = 'active';
         changed = true;
       }
-      if (!effectiveRightIdleScreensEnabled && next['right'] === 'idle') {
-        next['right'] = 'active';
-        changed = true;
-      }
-      if (!effectiveDongleIdleScreensEnabled && next['dongle'] === 'idle') {
-        next['dongle'] = 'active';
+      if (!effectivePeripheralIdleScreensEnabled && (next['peripheral'] === 'idle' || next['right'] === 'idle')) {
+        next['peripheral'] = 'active';
         changed = true;
       }
       for (const [pSide, pData] of Object.entries(effectivePeripheralScreens)) {
@@ -571,83 +495,56 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     });
   }, [
     effectiveIdleScreensEnabled,
-    effectiveRightIdleScreensEnabled,
-    effectiveDongleIdleScreensEnabled,
+    effectivePeripheralIdleScreensEnabled,
     effectivePeripheralScreens,
   ]);
 
   // Undo history stacks (one per block list)
-  const undoLeftRef = useRef<LayoutBlock[][]>([]);
-  const undoRightRef = useRef<LayoutBlock[][]>([]);
-  const undoDongleRef = useRef<LayoutBlock[][]>([]);
-  const undoIdleLeftRef = useRef<LayoutBlock[][]>([]);
-  const undoIdleRightRef = useRef<LayoutBlock[][]>([]);
-  const undoIdleDongleRef = useRef<LayoutBlock[][]>([]);
+  const undoCentralRef = useRef<LayoutBlock[][]>([]);
+  const undoPeripheralRef = useRef<LayoutBlock[][]>([]);
+  const undoIdleCentralRef = useRef<LayoutBlock[][]>([]);
+  const undoIdlePeripheralRef = useRef<LayoutBlock[][]>([]);
 
-  const handleLeftBlocksChange = (newBlocks: LayoutBlock[]) => {
-    undoLeftRef.current.push([...effectiveLeftBlocks]);
-    if (onLeftBlocksChange) onLeftBlocksChange(newBlocks);
-    if (onLayoutBlocksChange) onLayoutBlocksChange(newBlocks);
+  const handleCentralBlocksChangeWithUndo = (newBlocks: LayoutBlock[]) => {
+    undoCentralRef.current.push([...effectiveCentralBlocks]);
+    if (handleCentralBlocksChange) handleCentralBlocksChange(newBlocks);
   };
 
-  const handleRightBlocksChange = (newBlocks: LayoutBlock[]) => {
-    undoRightRef.current.push([...effectiveRightBlocks]);
-    if (onRightBlocksChange) onRightBlocksChange(newBlocks);
+  const handlePeripheralBlocksChangeWithUndo = (newBlocks: LayoutBlock[]) => {
+    undoPeripheralRef.current.push([...effectivePeripheralBlocks]);
+    if (handlePeripheralBlocksChange) handlePeripheralBlocksChange(newBlocks);
   };
 
-  const handleDongleBlocksChange = (newBlocks: LayoutBlock[]) => {
-    undoDongleRef.current.push([...effectiveDongleBlocks]);
-    if (onDongleBlocksChange) onDongleBlocksChange(newBlocks);
+  const handleIdleCentralBlocksChangeWithUndo = (newBlocks: LayoutBlock[]) => {
+    undoIdleCentralRef.current.push([...effectiveIdleCentralBlocks]);
+    if (handleIdleCentralBlocksChange) handleIdleCentralBlocksChange(newBlocks);
   };
 
-  const handleIdleLeftBlocksChange = (newBlocks: LayoutBlock[]) => {
-    undoIdleLeftRef.current.push([...effectiveIdleLeftBlocks]);
-    if (onIdleLeftBlocksChange) onIdleLeftBlocksChange(newBlocks);
-  };
-
-  const handleIdleRightBlocksChange = (newBlocks: LayoutBlock[]) => {
-    undoIdleRightRef.current.push([...effectiveIdleRightBlocks]);
-    if (onIdleRightBlocksChange) onIdleRightBlocksChange(newBlocks);
-  };
-
-  const handleIdleDongleBlocksChange = (newBlocks: LayoutBlock[]) => {
-    undoIdleDongleRef.current.push([...effectiveIdleDongleBlocks]);
-    if (onIdleDongleBlocksChange) onIdleDongleBlocksChange(newBlocks);
+  const handleIdlePeripheralBlocksChangeWithUndo = (newBlocks: LayoutBlock[]) => {
+    undoIdlePeripheralRef.current.push([...effectiveIdlePeripheralBlocks]);
+    if (handleIdlePeripheralBlocksChange) handleIdlePeripheralBlocksChange(newBlocks);
   };
 
   // Undo handlers per panel
-  const handleUndoLeft = useCallback(() => {
-    const prev = undoLeftRef.current.pop();
-    if (prev) {
-      if (onLeftBlocksChange) onLeftBlocksChange(prev);
-      if (onLayoutBlocksChange) onLayoutBlocksChange(prev);
-    }
-  }, [onLeftBlocksChange, onLayoutBlocksChange]);
+  const handleUndoCentral = useCallback(() => {
+    const prev = undoCentralRef.current.pop();
+    if (prev && handleCentralBlocksChange) handleCentralBlocksChange(prev);
+  }, [handleCentralBlocksChange]);
 
-  const handleUndoRight = useCallback(() => {
-    const prev = undoRightRef.current.pop();
-    if (prev && onRightBlocksChange) onRightBlocksChange(prev);
-  }, [onRightBlocksChange]);
+  const handleUndoPeripheral = useCallback(() => {
+    const prev = undoPeripheralRef.current.pop();
+    if (prev && handlePeripheralBlocksChange) handlePeripheralBlocksChange(prev);
+  }, [handlePeripheralBlocksChange]);
 
-  const handleUndoDongle = useCallback(() => {
-    const prev = undoDongleRef.current.pop();
-    if (prev && onDongleBlocksChange) onDongleBlocksChange(prev);
-  }, [onDongleBlocksChange]);
+  const handleUndoIdleCentral = useCallback(() => {
+    const prev = undoIdleCentralRef.current.pop();
+    if (prev && handleIdleCentralBlocksChange) handleIdleCentralBlocksChange(prev);
+  }, [handleIdleCentralBlocksChange]);
 
-  const handleUndoIdleLeft = useCallback(() => {
-    const prev = undoIdleLeftRef.current.pop();
-    if (prev && onIdleLeftBlocksChange) onIdleLeftBlocksChange(prev);
-  }, [onIdleLeftBlocksChange]);
-
-  const handleUndoIdleRight = useCallback(() => {
-    const prev = undoIdleRightRef.current.pop();
-    if (prev && onIdleRightBlocksChange) onIdleRightBlocksChange(prev);
-  }, [onIdleRightBlocksChange]);
-
-  const handleUndoIdleDongle = useCallback(() => {
-    const prev = undoIdleDongleRef.current.pop();
-    if (prev && onIdleDongleBlocksChange) onIdleDongleBlocksChange(prev);
-  }, [onIdleDongleBlocksChange]);
+  const handleUndoIdlePeripheral = useCallback(() => {
+    const prev = undoIdlePeripheralRef.current.pop();
+    if (prev && handleIdlePeripheralBlocksChange) handleIdlePeripheralBlocksChange(prev);
+  }, [handleIdlePeripheralBlocksChange]);
 
   // Global Ctrl+Z handler (undoes the most recent change across all panels)
   useEffect(() => {
@@ -658,12 +555,10 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         e.preventDefault();
         // Find the most recently modified stack and pop it
         const stacks = [
-          { ref: undoLeftRef, fn: handleUndoLeft },
-          { ref: undoDongleRef, fn: handleUndoDongle },
-          { ref: undoRightRef, fn: handleUndoRight },
-          { ref: undoIdleLeftRef, fn: handleUndoIdleLeft },
-          { ref: undoIdleDongleRef, fn: handleUndoIdleDongle },
-          { ref: undoIdleRightRef, fn: handleUndoIdleRight },
+          { ref: undoCentralRef, fn: handleUndoCentral },
+          { ref: undoPeripheralRef, fn: handleUndoPeripheral },
+          { ref: undoIdleCentralRef, fn: handleUndoIdleCentral },
+          { ref: undoIdlePeripheralRef, fn: handleUndoIdlePeripheral },
         ];
         // Pop the stack with the most entries (last changed)
         let maxStack = stacks[0];
@@ -677,103 +572,66 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndoLeft, handleUndoDongle, handleUndoRight, handleUndoIdleLeft, handleUndoIdleDongle, handleUndoIdleRight]);
-
-
+  }, [handleUndoCentral, handleUndoPeripheral, handleUndoIdleCentral, handleUndoIdlePeripheral]);
 
   // Unified block selection state across all displays
-  const [selectedBlockSide, setSelectedBlockSide] = useState<string | null>('left');
+  const [selectedBlockSide, setSelectedBlockSide] = useState<string | null>('central');
   const [selectedBlockKind, setSelectedBlockKind] = useState<'active' | 'idle'>('active');
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(
-    effectiveLeftBlocks[0]?.id || null
+    effectiveCentralBlocks[0]?.id || null
   );
 
   // Screen Clear Action Handlers
-  const handleClearLeft = useCallback(() => {
-    handleLeftBlocksChange([]);
+  const handleClearCentral = useCallback(() => {
+    handleCentralBlocksChangeWithUndo([]);
     setSelectedBlockId(null);
-  }, [handleLeftBlocksChange]);
+  }, [handleCentralBlocksChangeWithUndo]);
 
-  const handleClearDongle = useCallback(() => {
-    handleDongleBlocksChange([]);
+  const handleClearPeripheral = useCallback(() => {
+    handlePeripheralBlocksChangeWithUndo([]);
     setSelectedBlockId(null);
-  }, [handleDongleBlocksChange]);
+  }, [handlePeripheralBlocksChangeWithUndo]);
 
-  const handleClearRight = useCallback(() => {
-    handleRightBlocksChange([]);
+  const handleClearIdleCentral = useCallback(() => {
+    handleIdleCentralBlocksChangeWithUndo([]);
     setSelectedBlockId(null);
-  }, [handleRightBlocksChange]);
+  }, [handleIdleCentralBlocksChangeWithUndo]);
 
-  const handleClearIdleLeft = useCallback(() => {
-    handleIdleLeftBlocksChange([]);
+  const handleClearIdlePeripheral = useCallback(() => {
+    handleIdlePeripheralBlocksChangeWithUndo([]);
     setSelectedBlockId(null);
-  }, [handleIdleLeftBlocksChange]);
-
-  const handleClearIdleDongle = useCallback(() => {
-    handleIdleDongleBlocksChange([]);
-    setSelectedBlockId(null);
-  }, [handleIdleDongleBlocksChange]);
-
-  const handleClearIdleRight = useCallback(() => {
-    handleIdleRightBlocksChange([]);
-    setSelectedBlockId(null);
-  }, [handleIdleRightBlocksChange]);
+  }, [handleIdlePeripheralBlocksChangeWithUndo]);
 
   const getPeripheralConfig = useCallback((side: string) => {
     if (side === 'right' || side === 'peripheral') {
       return {
         title: 'Peripheral Active',
         idleTitle: 'Peripheral Idle',
-        blocks: effectiveRightBlocks,
-        onBlocksChange: handleRightBlocksChange,
-        idleBlocks: effectiveIdleRightBlocks,
-        onIdleBlocksChange: handleIdleRightBlocksChange,
-        dimensions: effectiveRightScreenDimensions,
-        onDimensionsChange: handleRightScreenDimensionsChange,
-        idleEnabled: effectiveRightIdleScreensEnabled,
-        onIdleEnabledChange: handleRightIdleScreensEnabledChange,
-        idleTimeout: effectiveRightIdleTimeoutSec,
-        onIdleTimeoutChange: handleRightIdleTimeoutSecChange,
-        screenOffTimeout: effectiveRightScreenOffTimeoutSec,
-        onScreenOffTimeoutChange: handleRightScreenOffTimeoutSecChange,
-        isOpen: effectiveRightSettingsOpen,
-        toggleSettings: toggleRightSettings,
-        closeSettings: closeRightSettings,
-        onClear: handleClearRight,
-        onClearIdle: handleClearIdleRight,
-        onUndo: handleUndoRight,
-        onUndoIdle: handleUndoIdleRight,
-      };
-    }
-    if (side === 'dongle') {
-      return {
-        title: 'Dongle Active (Peripheral)',
-        idleTitle: 'Dongle Idle (Peripheral)',
-        blocks: effectiveDongleBlocks,
-        onBlocksChange: handleDongleBlocksChange,
-        idleBlocks: effectiveIdleDongleBlocks,
-        onIdleBlocksChange: handleIdleDongleBlocksChange,
-        dimensions: effectiveDongleScreenDimensions,
-        onDimensionsChange: handleDongleDimensionsChange,
-        idleEnabled: effectiveDongleIdleScreensEnabled,
-        onIdleEnabledChange: handleDongleIdleEnabledChange,
-        idleTimeout: effectiveDongleIdleTimeoutSec,
-        onIdleTimeoutChange: handleDongleIdleTimeoutChange,
-        screenOffTimeout: effectiveDongleScreenOffTimeoutSec,
-        onScreenOffTimeoutChange: handleDongleScreenOffTimeoutChange,
-        isOpen: effectiveDongleSettingsOpen,
-        toggleSettings: toggleDongleSettings,
-        closeSettings: closeDongleSettings,
-        onClear: handleClearDongle,
-        onClearIdle: handleClearIdleDongle,
-        onUndo: handleUndoDongle,
-        onUndoIdle: handleUndoIdleDongle,
+        blocks: effectivePeripheralBlocks,
+        onBlocksChange: handlePeripheralBlocksChangeWithUndo,
+        idleBlocks: effectiveIdlePeripheralBlocks,
+        onIdleBlocksChange: handleIdlePeripheralBlocksChangeWithUndo,
+        dimensions: effectivePeripheralScreenDimensions,
+        onDimensionsChange: handlePeripheralDimensionsChange,
+        idleEnabled: effectivePeripheralIdleScreensEnabled,
+        onIdleEnabledChange: handlePeripheralIdleEnabledChange,
+        idleTimeout: effectivePeripheralIdleTimeoutSec,
+        onIdleTimeoutChange: handlePeripheralIdleTimeoutChange,
+        screenOffTimeout: effectivePeripheralScreenOffTimeoutSec,
+        onScreenOffTimeoutChange: handlePeripheralScreenOffTimeoutChange,
+        isOpen: effectivePeripheralSettingsOpen,
+        toggleSettings: togglePeripheralSettings,
+        closeSettings: closePeripheralSettings,
+        onClear: handleClearPeripheral,
+        onClearIdle: handleClearIdlePeripheral,
+        onUndo: handleUndoPeripheral,
+        onUndoIdle: handleUndoIdlePeripheral,
       };
     }
     const pData = effectivePeripheralScreens[side] || {
       name: side.startsWith('peripheral-') ? `Peripheral ${side.replace('peripheral-', '')}` : side,
-      blocks: [...DEFAULT_RIGHT_LAYOUT_BLOCKS],
-      idleBlocks: [...DEFAULT_IDLE_RIGHT_BLOCKS],
+      blocks: [...DEFAULT_PERIPHERAL_LAYOUT_BLOCKS],
+      idleBlocks: [...DEFAULT_IDLE_PERIPHERAL_BLOCKS],
       screenDimensions: { width: 32, height: 128 },
       idleScreensEnabled: true,
       idleTimeoutSec: 30,
@@ -794,9 +652,9 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     return {
       title: `${pName} Active (Peripheral)`,
       idleTitle: `${pName} Idle (Peripheral)`,
-      blocks: pData.blocks ?? DEFAULT_RIGHT_LAYOUT_BLOCKS,
+      blocks: pData.blocks ?? DEFAULT_PERIPHERAL_LAYOUT_BLOCKS,
       onBlocksChange: (newBlocks: LayoutBlock[]) => updatePeripheral({ blocks: newBlocks }),
-      idleBlocks: pData.idleBlocks ?? DEFAULT_IDLE_RIGHT_BLOCKS,
+      idleBlocks: pData.idleBlocks ?? DEFAULT_IDLE_PERIPHERAL_BLOCKS,
       onIdleBlocksChange: (newBlocks: LayoutBlock[]) => updatePeripheral({ idleBlocks: newBlocks }),
       dimensions: pData.screenDimensions ?? { width: 32, height: 128 },
       onDimensionsChange: (dims: { width: number; height: number }) => updatePeripheral({ screenDimensions: dims }),
@@ -806,56 +664,37 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       onIdleTimeoutChange: (sec: number) => updatePeripheral({ idleTimeoutSec: sec }),
       screenOffTimeout: pData.screenOffTimeoutSec ?? 60,
       onScreenOffTimeoutChange: (sec: number) => updatePeripheral({ screenOffTimeoutSec: sec }),
-      isOpen: !!internalPeripheralSettingsOpen[side],
-      toggleSettings: () => setInternalPeripheralSettingsOpen(prev => ({ ...prev, [side]: !prev[side] })),
-      closeSettings: () => setInternalPeripheralSettingsOpen(prev => ({ ...prev, [side]: false })),
+      isOpen: !!internalDynamicPeripheralSettingsOpen[side],
+      toggleSettings: () => setInternalDynamicPeripheralSettingsOpen(prev => ({ ...prev, [side]: !prev[side] })),
+      closeSettings: () => setInternalDynamicPeripheralSettingsOpen(prev => ({ ...prev, [side]: false })),
       onClear: () => updatePeripheral({ blocks: [] }),
       onClearIdle: () => updatePeripheral({ idleBlocks: [] }),
       onUndo: () => {},
       onUndoIdle: () => {},
     };
   }, [
-    effectiveRightBlocks,
-    handleRightBlocksChange,
-    effectiveIdleRightBlocks,
-    handleIdleRightBlocksChange,
-    effectiveRightScreenDimensions,
-    handleRightScreenDimensionsChange,
-    effectiveRightIdleScreensEnabled,
-    handleRightIdleScreensEnabledChange,
-    effectiveRightIdleTimeoutSec,
-    handleRightIdleTimeoutSecChange,
-    effectiveRightScreenOffTimeoutSec,
-    handleRightScreenOffTimeoutSecChange,
-    effectiveRightSettingsOpen,
-    toggleRightSettings,
-    closeRightSettings,
-    handleClearRight,
-    handleClearIdleRight,
-    handleUndoRight,
-    handleUndoIdleRight,
-    effectiveDongleBlocks,
-    handleDongleBlocksChange,
-    effectiveIdleDongleBlocks,
-    handleIdleDongleBlocksChange,
-    effectiveDongleScreenDimensions,
-    handleDongleDimensionsChange,
-    effectiveDongleIdleScreensEnabled,
-    handleDongleIdleEnabledChange,
-    effectiveDongleIdleTimeoutSec,
-    handleDongleIdleTimeoutChange,
-    effectiveDongleScreenOffTimeoutSec,
-    handleDongleScreenOffTimeoutChange,
-    effectiveDongleSettingsOpen,
-    toggleDongleSettings,
-    closeDongleSettings,
-    handleClearDongle,
-    handleClearIdleDongle,
-    handleUndoDongle,
-    handleUndoIdleDongle,
+    effectivePeripheralBlocks,
+    handlePeripheralBlocksChangeWithUndo,
+    effectiveIdlePeripheralBlocks,
+    handleIdlePeripheralBlocksChangeWithUndo,
+    effectivePeripheralScreenDimensions,
+    handlePeripheralDimensionsChange,
+    effectivePeripheralIdleScreensEnabled,
+    handlePeripheralIdleEnabledChange,
+    effectivePeripheralIdleTimeoutSec,
+    handlePeripheralIdleTimeoutChange,
+    effectivePeripheralScreenOffTimeoutSec,
+    handlePeripheralScreenOffTimeoutChange,
+    effectivePeripheralSettingsOpen,
+    togglePeripheralSettings,
+    closePeripheralSettings,
+    handleClearPeripheral,
+    handleClearIdlePeripheral,
+    handleUndoPeripheral,
+    handleUndoIdlePeripheral,
     effectivePeripheralScreens,
     handlePeripheralScreensChange,
-    internalPeripheralSettingsOpen,
+    internalDynamicPeripheralSettingsOpen,
   ]);
 
   const getSideConfig = useCallback((side: string) => {
@@ -863,48 +702,48 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       return {
         title: 'Central Active',
         idleTitle: 'Central Idle',
-        blocks: effectiveLeftBlocks,
-        onBlocksChange: handleLeftBlocksChange,
-        idleBlocks: effectiveIdleLeftBlocks,
-        onIdleBlocksChange: handleIdleLeftBlocksChange,
+        blocks: effectiveCentralBlocks,
+        onBlocksChange: handleCentralBlocksChangeWithUndo,
+        idleBlocks: effectiveIdleCentralBlocks,
+        onIdleBlocksChange: handleIdleCentralBlocksChangeWithUndo,
         dimensions: screenDimensions,
-        onDimensionsChange: handleLeftDimensionsChange,
+        onDimensionsChange: handleCentralDimensionsChange,
         idleEnabled: effectiveIdleScreensEnabled,
-        onIdleEnabledChange: handleLeftIdleEnabledChange,
+        onIdleEnabledChange: handleCentralIdleEnabledChange,
         idleTimeout: effectiveIdleTimeoutSec,
-        onIdleTimeoutChange: handleLeftIdleTimeoutChange,
+        onIdleTimeoutChange: handleCentralIdleTimeoutChange,
         screenOffTimeout: effectiveScreenOffTimeoutSec,
-        onScreenOffTimeoutChange: handleLeftScreenOffTimeoutChange,
-        isOpen: effectiveLeftSettingsOpen,
-        toggleSettings: toggleLeftSettings,
-        closeSettings: closeLeftSettings,
-        onClear: handleClearLeft,
-        onClearIdle: handleClearIdleLeft,
-        onUndo: handleUndoLeft,
-        onUndoIdle: handleUndoIdleLeft,
+        onScreenOffTimeoutChange: handleCentralScreenOffTimeoutChange,
+        isOpen: effectiveCentralSettingsOpen,
+        toggleSettings: toggleCentralSettings,
+        closeSettings: closeCentralSettings,
+        onClear: handleClearCentral,
+        onClearIdle: handleClearIdleCentral,
+        onUndo: handleUndoCentral,
+        onUndoIdle: handleUndoIdleCentral,
       };
     }
     return getPeripheralConfig(side);
   }, [
-    effectiveLeftBlocks,
-    handleLeftBlocksChange,
-    effectiveIdleLeftBlocks,
-    handleIdleLeftBlocksChange,
+    effectiveCentralBlocks,
+    handleCentralBlocksChangeWithUndo,
+    effectiveIdleCentralBlocks,
+    handleIdleCentralBlocksChangeWithUndo,
     screenDimensions,
-    handleLeftDimensionsChange,
+    handleCentralDimensionsChange,
     effectiveIdleScreensEnabled,
-    handleLeftIdleEnabledChange,
+    handleCentralIdleEnabledChange,
     effectiveIdleTimeoutSec,
-    handleLeftIdleTimeoutChange,
+    handleCentralIdleTimeoutChange,
     effectiveScreenOffTimeoutSec,
-    handleLeftScreenOffTimeoutChange,
-    effectiveLeftSettingsOpen,
-    toggleLeftSettings,
-    closeLeftSettings,
-    handleClearLeft,
-    handleClearIdleLeft,
-    handleUndoLeft,
-    handleUndoIdleLeft,
+    handleCentralScreenOffTimeoutChange,
+    effectiveCentralSettingsOpen,
+    toggleCentralSettings,
+    closeCentralSettings,
+    handleClearCentral,
+    handleClearIdleCentral,
+    handleUndoCentral,
+    handleUndoIdleCentral,
     getPeripheralConfig,
   ]);
 
@@ -916,15 +755,15 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     isOpen: boolean;
     widgetName: string;
     blockId: string;
-    side: 'left' | 'right' | 'dongle' | string;
+    side: 'central' | 'peripheral' | string;
     targetMode: 'active' | 'idle';
   } | null>(null);
 
   const checkPeripheralMasterWarning = useCallback(
-    (widget: DisplayWidgetDefinition, side: 'left' | 'right' | 'dongle' | string, blockId: string, targetMode: 'active' | 'idle') => {
+    (widget: DisplayWidgetDefinition, side: 'central' | 'peripheral' | string, blockId: string, targetMode: 'active' | 'idle') => {
       // In our dynamic layout architecture:
-      // Left display is always Master. Any display on the right (right, dongle, peripheral-3...) is Peripheral.
-      const isPeripheral = side !== 'left';
+      // Central display is always Master. Any display on peripheral is Peripheral.
+      const isPeripheral = side !== 'central' && side !== 'left';
 
       if (isPeripheral && widget.requiresMaster) {
         const isSuppressed = typeof window !== 'undefined' && localStorage.getItem('scyan_suppress_peripheral_master_modal') === 'true';
@@ -1003,7 +842,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
 
   // Quick add helper (clicks on catalog card)
   const handleQuickAdd = useCallback(
-    (widget: DisplayWidgetDefinition, side: 'left' | 'right' | 'dongle' | string) => {
+    (widget: DisplayWidgetDefinition, side: 'central' | 'peripheral' | string) => {
       const cfg = getSideConfig(side);
       const targetMode = cfg.idleEnabled ? getScreenMode(side) : 'active';
       const targetList = targetMode === 'active' ? cfg.blocks : cfg.idleBlocks;
@@ -1053,7 +892,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       setSelectedBlockSide(side);
       setSelectedBlockKind(targetMode);
       setSelectedBlockId(newBlock.id);
-      if (side !== 'left') {
+      if (side !== 'central' && side !== 'left') {
         checkPeripheralMasterWarning(widget, side, newBlock.id, targetMode);
       }
     },
@@ -1080,7 +919,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       const activeInstance = resolveWidgetInstance(instances, currentWidget.id, patchedWidget.instanceId);
       const naturalSize = getWidgetNaturalSize(currentWidget, symbolSlices, activeInstance, fontGlyphs, fontMappings);
 
-      const candidateSides = ['left', ...effectiveEnabledScreens.filter(s => s !== 'left')];
+      const candidateSides = ['central', ...effectiveEnabledScreens.filter(s => s !== 'central' && s !== 'left')];
       for (const side of candidateSides) {
         const cfg = getSideConfig(side);
         const targetSuffix = cfg.idleEnabled ? getScreenMode(side) : 'active';
@@ -1158,7 +997,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         setSelectedBlockSide(side);
         setSelectedBlockKind(targetMode);
         setSelectedBlockId(newBlock.id);
-        if (side !== 'left') {
+        if (side !== 'central' && side !== 'left') {
           checkPeripheralMasterWarning(active.widget, side, newBlock.id, targetMode);
         }
       }
@@ -1192,28 +1031,28 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
 
   const masterSettingsPanel = (isOverlay: boolean) => (
     <SideSettingsPanel
-      side="left"
-      isOpen={effectiveLeftSettingsOpen}
-      onClose={closeLeftSettings}
+      side="central"
+      isOpen={effectiveCentralSettingsOpen}
+      onClose={closeCentralSettings}
       isOverlay={isOverlay}
       screenDimensions={screenDimensions}
-      onScreenDimensionsChange={handleLeftDimensionsChange}
+      onScreenDimensionsChange={handleCentralDimensionsChange}
       idleScreensEnabled={effectiveIdleScreensEnabled}
-      onIdleScreensEnabledChange={handleLeftIdleEnabledChange}
+      onIdleScreensEnabledChange={handleCentralIdleEnabledChange}
       idleTimeoutSec={effectiveIdleTimeoutSec}
-      onIdleTimeoutSecChange={handleLeftIdleTimeoutChange}
+      onIdleTimeoutSecChange={handleCentralIdleTimeoutChange}
       screenOffTimeoutSec={effectiveScreenOffTimeoutSec}
-      onScreenOffTimeoutSecChange={handleLeftScreenOffTimeoutChange}
+      onScreenOffTimeoutSecChange={handleCentralScreenOffTimeoutChange}
       symmetricSettings={effectiveSymmetricSettings}
       onSymmetricSettingsChange={handleSymmetricChange}
-      rightScreenDimensions={effectiveRightScreenDimensions}
-      onRightScreenDimensionsChange={handleRightScreenDimensionsChange}
-      rightIdleScreensEnabled={effectiveRightIdleScreensEnabled}
-      onRightIdleScreensEnabledChange={handleRightIdleScreensEnabledChange}
-      rightIdleTimeoutSec={effectiveRightIdleTimeoutSec}
-      onRightIdleTimeoutSecChange={handleRightIdleTimeoutSecChange}
-      rightScreenOffTimeoutSec={effectiveRightScreenOffTimeoutSec}
-      onRightScreenOffTimeoutSecChange={handleRightScreenOffTimeoutSecChange}
+      rightScreenDimensions={effectivePeripheralScreenDimensions}
+      onRightScreenDimensionsChange={handlePeripheralDimensionsChange}
+      rightIdleScreensEnabled={effectivePeripheralIdleScreensEnabled}
+      onRightIdleScreensEnabledChange={handlePeripheralIdleEnabledChange}
+      rightIdleTimeoutSec={effectivePeripheralIdleTimeoutSec}
+      onRightIdleTimeoutSecChange={handlePeripheralIdleTimeoutChange}
+      rightScreenOffTimeoutSec={effectivePeripheralScreenOffTimeoutSec}
+      onRightScreenOffTimeoutSecChange={handlePeripheralScreenOffTimeoutChange}
       isPeripheral={false}
     />
   );
@@ -1250,22 +1089,22 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     );
   };
 
-  const leftMode = getScreenMode('left');
-  const leftColumnNode = (
+  const centralMode = getScreenMode('central');
+  const centralColumnNode = (
     <React.Fragment key="master-display">
       {!isOverlaySettings && masterSettingsPanel(false)}
-      <div className={`blocks-column-oled ${!effectiveIdleScreensEnabled ? 'idle-disabled' : leftMode === 'active' ? 'active-expanded' : 'idle-expanded'}`}>
+      <div className={`blocks-column-oled ${!effectiveIdleScreensEnabled ? 'idle-disabled' : centralMode === 'active' ? 'active-expanded' : 'idle-expanded'}`}>
         <OledPanelColumn
-          side="left"
+          side="central"
           screenKind="active"
           title="Central Active"
           subtitle="Central Host Coordinator Display"
-          blocks={effectiveLeftBlocks}
-          onBlocksChange={handleLeftBlocksChange}
-          onClearScreen={handleClearLeft}
-          onUndo={handleUndoLeft}
-          onToggleSettings={toggleLeftSettings}
-          isSettingsOpen={effectiveLeftSettingsOpen}
+          blocks={effectiveCentralBlocks}
+          onBlocksChange={handleCentralBlocksChangeWithUndo}
+          onClearScreen={handleClearCentral}
+          onUndo={handleUndoCentral}
+          onToggleSettings={toggleCentralSettings}
+          isSettingsOpen={effectiveCentralSettingsOpen}
           symbolsGrid={symbolsGrid}
           symbolSlices={symbolSlices}
           fontGrid={fontGrid}
@@ -1273,36 +1112,36 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
           fontMappings={fontMappings}
           customText={customText}
           instances={instances}
-          isDropTarget={dragState?.targetSide === 'left' && (leftMode === 'active' || !effectiveIdleScreensEnabled)}
-          dropTargetX={dragState?.targetSide === 'left' ? dragState.targetX : null}
-          dropTargetY={dragState?.targetSide === 'left' ? dragState.targetY : null}
+          isDropTarget={dragState?.targetSide === 'central' && (centralMode === 'active' || !effectiveIdleScreensEnabled)}
+          dropTargetX={dragState?.targetSide === 'central' ? dragState.targetX : null}
+          dropTargetY={dragState?.targetSide === 'central' ? dragState.targetY : null}
           draggedWidget={dragState?.widget || null}
-          selectedBlockId={selectedBlockSide === 'left' && selectedBlockKind === 'active' ? selectedBlockId : null}
+          selectedBlockId={selectedBlockSide === 'central' && selectedBlockKind === 'active' ? selectedBlockId : null}
           onSelectBlock={id => {
-            setSelectedBlockSide(id ? 'left' : null);
+            setSelectedBlockSide(id ? 'central' : null);
             setSelectedBlockKind('active');
             setSelectedBlockId(id);
           }}
           onRegisterScreenElement={handleRegisterScreenElement}
           screenDimensions={screenDimensions}
           layerNames={layerNames}
-          isCompact={effectiveIdleScreensEnabled && leftMode === 'idle'}
-          onExpand={() => setScreenMode('left', 'active')}
-          onSwitchMode={effectiveIdleScreensEnabled ? () => setScreenMode('left', 'idle') : undefined}
+          isCompact={effectiveIdleScreensEnabled && centralMode === 'idle'}
+          onExpand={() => setScreenMode('central', 'active')}
+          onSwitchMode={effectiveIdleScreensEnabled ? () => setScreenMode('central', 'idle') : undefined}
         />
 
         {effectiveIdleScreensEnabled && (
           <OledPanelColumn
-            side="left"
+            side="central"
             screenKind="idle"
             title="Central Idle"
             subtitle="Central Host Coordinator Display"
-            blocks={effectiveIdleLeftBlocks}
-            onBlocksChange={handleIdleLeftBlocksChange}
-            onClearScreen={handleClearIdleLeft}
-            onUndo={handleUndoIdleLeft}
-            onToggleSettings={toggleLeftSettings}
-            isSettingsOpen={effectiveLeftSettingsOpen}
+            blocks={effectiveIdleCentralBlocks}
+            onBlocksChange={handleIdleCentralBlocksChangeWithUndo}
+            onClearScreen={handleClearIdleCentral}
+            onUndo={handleUndoIdleCentral}
+            onToggleSettings={toggleCentralSettings}
+            isSettingsOpen={effectiveCentralSettingsOpen}
             symbolsGrid={symbolsGrid}
             symbolSlices={symbolSlices}
             fontGrid={fontGrid}
@@ -1310,22 +1149,22 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
             fontMappings={fontMappings}
             customText={customText}
             instances={instances}
-            isDropTarget={dragState?.targetSide === 'left' && leftMode === 'idle'}
-            dropTargetX={dragState?.targetSide === 'left' ? dragState.targetX : null}
-            dropTargetY={dragState?.targetSide === 'left' ? dragState.targetY : null}
+            isDropTarget={dragState?.targetSide === 'central' && centralMode === 'idle'}
+            dropTargetX={dragState?.targetSide === 'central' ? dragState.targetX : null}
+            dropTargetY={dragState?.targetSide === 'central' ? dragState.targetY : null}
             draggedWidget={dragState?.widget || null}
-            selectedBlockId={selectedBlockSide === 'left' && selectedBlockKind === 'idle' ? selectedBlockId : null}
+            selectedBlockId={selectedBlockSide === 'central' && selectedBlockKind === 'idle' ? selectedBlockId : null}
             onSelectBlock={id => {
-              setSelectedBlockSide(id ? 'left' : null);
+              setSelectedBlockSide(id ? 'central' : null);
               setSelectedBlockKind('idle');
               setSelectedBlockId(id);
             }}
             onRegisterScreenElement={handleRegisterScreenElement}
             screenDimensions={screenDimensions}
             layerNames={layerNames}
-            isCompact={leftMode === 'active'}
-            onExpand={() => setScreenMode('left', 'idle')}
-            onSwitchMode={() => setScreenMode('left', 'active')}
+            isCompact={centralMode === 'active'}
+            onExpand={() => setScreenMode('central', 'idle')}
+            onSwitchMode={() => setScreenMode('central', 'active')}
           />
         )}
 
@@ -1537,7 +1376,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         )}
 
         {/* 1. Master Display always on the LEFT of widgets */}
-        {leftColumnNode}
+        {centralColumnNode}
 
         {/* 2. Widgets Catalog in the CENTER */}
         {catalogColumnNode}

@@ -25,9 +25,8 @@ describe('ShieldKeyboardGeometry', () => {
         symbolsGrid={dummyGrid}
         symbolSlices={[]}
         fontGrid={dummyGrid}
-        activeLeftBlocks={[]}
-        activeRightBlocks={[]}
-        activeDongleBlocks={[]}
+        activeCentralBlocks={[]}
+        activePeripheralBlocks={[]}
         corneColumns={6}
       />
     );
@@ -54,9 +53,8 @@ describe('ShieldKeyboardGeometry', () => {
         symbolsGrid={dummyGrid}
         symbolSlices={[]}
         fontGrid={dummyGrid}
-        activeLeftBlocks={[]}
-        activeRightBlocks={[]}
-        activeDongleBlocks={[]}
+        activeCentralBlocks={[]}
+        activePeripheralBlocks={[]}
         corneColumns={5}
       />
     );
@@ -73,9 +71,8 @@ describe('ShieldKeyboardGeometry', () => {
         symbolsGrid={dummyGrid}
         symbolSlices={[]}
         fontGrid={dummyGrid}
-        activeLeftBlocks={[]}
-        activeRightBlocks={[]}
-        activeDongleBlocks={[]}
+        activeCentralBlocks={[]}
+        activePeripheralBlocks={[]}
       />
     );
 
@@ -93,9 +90,8 @@ describe('ShieldKeyboardGeometry', () => {
         symbolsGrid={dummyGrid}
         symbolSlices={[]}
         fontGrid={dummyGrid}
-        activeLeftBlocks={[]}
-        activeRightBlocks={[]}
-        activeDongleBlocks={[]}
+        activeCentralBlocks={[]}
+        activePeripheralBlocks={[]}
       />
     );
 
@@ -114,9 +110,8 @@ describe('ShieldKeyboardGeometry', () => {
         symbolsGrid={dummyGrid}
         symbolSlices={[]}
         fontGrid={dummyGrid}
-        activeLeftBlocks={[]}
-        activeRightBlocks={[]}
-        activeDongleBlocks={[]}
+        activeCentralBlocks={[]}
+        activePeripheralBlocks={[]}
       />
     );
 
@@ -134,9 +129,8 @@ describe('ShieldKeyboardGeometry', () => {
         symbolsGrid={dummyGrid}
         symbolSlices={[]}
         fontGrid={dummyGrid}
-        activeLeftBlocks={[]}
-        activeRightBlocks={[]}
-        activeDongleBlocks={[]}
+        activeCentralBlocks={[]}
+        activePeripheralBlocks={[]}
       />
     );
 
@@ -153,9 +147,8 @@ describe('ShieldKeyboardGeometry', () => {
         symbolsGrid={dummyGrid}
         symbolSlices={[]}
         fontGrid={dummyGrid}
-        activeLeftBlocks={[]}
-        activeRightBlocks={[]}
-        activeDongleBlocks={[]}
+        activeCentralBlocks={[]}
+        activePeripheralBlocks={[]}
       />
     );
 
@@ -172,9 +165,8 @@ describe('ShieldKeyboardGeometry', () => {
         symbolsGrid={dummyGrid}
         symbolSlices={[]}
         fontGrid={dummyGrid}
-        activeLeftBlocks={[]}
-        activeRightBlocks={[]}
-        activeDongleBlocks={[]}
+        activeCentralBlocks={[]}
+        activePeripheralBlocks={[]}
       />
     );
 
@@ -192,9 +184,8 @@ describe('ShieldKeyboardGeometry', () => {
         symbolsGrid={dummyGrid}
         symbolSlices={[]}
         fontGrid={dummyGrid}
-        activeLeftBlocks={[]}
-        activeRightBlocks={[]}
-        activeDongleBlocks={[]}
+        activeCentralBlocks={[]}
+        activePeripheralBlocks={[]}
       />
     );
 
@@ -211,9 +202,8 @@ describe('ShieldKeyboardGeometry', () => {
         symbolsGrid={dummyGrid}
         symbolSlices={[]}
         fontGrid={dummyGrid}
-        activeLeftBlocks={[]}
-        activeRightBlocks={[]}
-        activeDongleBlocks={[]}
+        activeCentralBlocks={[]}
+        activePeripheralBlocks={[]}
       />
     );
 
@@ -221,7 +211,7 @@ describe('ShieldKeyboardGeometry', () => {
     expect(html).toContain('dongle-usb-connector');
     expect(html).toContain('dongle-usb-metal');
     expect(html).toContain('dongle-usb-pin');
-    expect(html).toContain('Central Dongle Master');
+    expect(html).toContain('Seeed XIAO BLE Dongle');
     expect(html).toContain('oled-glass-housing');
     expect(html).not.toContain('Host Receiver Node (0 keys)');
   });
@@ -233,9 +223,8 @@ describe('ShieldKeyboardGeometry', () => {
         symbolsGrid={dummyGrid}
         symbolSlices={[]}
         fontGrid={dummyGrid}
-        activeLeftBlocks={[]}
-        activeRightBlocks={[]}
-        activeDongleBlocks={[]}
+        activeCentralBlocks={[]}
+        activePeripheralBlocks={[]}
       />
     );
 
@@ -254,9 +243,8 @@ describe('ShieldKeyboardGeometry', () => {
         symbolsGrid={dummyGrid}
         symbolSlices={[]}
         fontGrid={dummyGrid}
-        activeLeftBlocks={[]}
-        activeRightBlocks={[]}
-        activeDongleBlocks={[]}
+        activeCentralBlocks={[]}
+        activePeripheralBlocks={[]}
         compact={true}
       />
     );
@@ -275,9 +263,8 @@ describe('ShieldKeyboardGeometry', () => {
         symbolsGrid={dummyGrid}
         symbolSlices={[]}
         fontGrid={dummyGrid}
-        activeLeftBlocks={[]}
-        activeRightBlocks={[]}
-        activeDongleBlocks={[]}
+        activeCentralBlocks={[]}
+        activePeripheralBlocks={[]}
       />
     );
 

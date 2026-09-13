@@ -780,11 +780,11 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
             />
           ) : (
             <div className="space-y-4">
-              {/* Block 1: Left Half Display & Power Settings */}
+              {/* Block 1: Central Display & Power Settings */}
               <SideSettingsBlock
-                title="Left Half Display & Power Settings"
-                badge="Left Half (Master)"
-                sideName="Left Half"
+                title="Central Display & Power Settings"
+                badge="Central (Master)"
+                sideName="Central"
                 themeColor="cyan"
                 screenDimensions={screenDimensions}
                 onScreenDimensionsChange={handleLeftDimensionsChange}
@@ -796,11 +796,11 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
                 onScreenOffTimeoutSecChange={handleLeftScreenOffTimeoutChange}
               />
 
-              {/* Block 2: Right Half Display & Power Settings */}
+              {/* Block 2: Peripheral Display & Power Settings */}
               <SideSettingsBlock
-                title="Right Half Display & Power Settings"
-                badge="Right Half (Peripheral)"
-                sideName="Right Half"
+                title="Peripheral Display & Power Settings"
+                badge="Peripheral"
+                sideName="Peripheral"
                 themeColor="purple"
                 screenDimensions={effectiveRightDimensions}
                 onScreenDimensionsChange={onRightScreenDimensionsChange || (() => {})}
@@ -855,7 +855,7 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
                 {/* Left Timeline */}
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
                   <div className="flex items-center gap-2 overflow-x-auto max-w-full font-mono text-[10px]">
-                    <span className="text-[10px] font-mono text-[#00f0ff] font-bold shrink-0">Left Half:</span>
+                    <span className="text-[10px] font-mono text-[#00f0ff] font-bold shrink-0">Central:</span>
                     <span className="px-1.5 py-0.5 rounded bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/30 shrink-0 text-[9px]">
                       Active: 0–{idleScreensEnabled ? idleTimeoutSec : screenOffTimeoutSec}s
                     </span>
@@ -876,7 +876,7 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
                 {/* Right Timeline */}
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
                   <div className="flex items-center gap-2 overflow-x-auto max-w-full font-mono text-[10px]">
-                    <span className="text-[10px] font-mono text-[#a953f6] font-bold shrink-0">Right Half:</span>
+                    <span className="text-[10px] font-mono text-[#a953f6] font-bold shrink-0">Peripheral:</span>
                     <span className="px-1.5 py-0.5 rounded bg-[#a953f6]/15 text-[#a953f6] border border-[#a953f6]/30 shrink-0 text-[9px]">
                       Active: 0–{effectiveRightIdleEnabled ? effectiveRightIdleTimeout : effectiveRightScreenOffTimeout}s
                     </span>
@@ -906,7 +906,7 @@ export type ScreenSizePopoverProps = BlockSettingsSectionProps;
 export const ScreenSizePopover = BlockSettingsSection;
 
 export interface SideSettingsPanelProps {
-  side: 'left' | 'right' | 'dongle' | string;
+  side: 'central' | 'peripheral' | string;
   isOpen: boolean;
   onClose: () => void;
   // Master / Left settings
@@ -1046,11 +1046,10 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
     }
   };
 
-  const isLeft = side === 'left';
-  const isDongle = side === 'dongle';
+  const isCentral = side === 'central' || side === 'left';
   const peripheralIndex = side.startsWith('peripheral-') ? side.replace('peripheral-', '') : null;
-  const sideTitle = isDongle ? 'Dongle Settings' : isLeft ? 'Master Settings' : peripheralIndex ? `Peripheral ${peripheralIndex} Settings` : 'Peripheral Settings';
-  const sideBadge = isDongle ? 'Dongle' : isLeft ? 'Left Half' : peripheralIndex ? `Peripheral ${peripheralIndex}` : 'Right Half';
+  const sideTitle = isCentral ? 'Central (Master) Settings' : peripheralIndex ? `Peripheral ${peripheralIndex} Settings` : 'Peripheral Settings';
+  const sideBadge = isCentral ? 'Central' : peripheralIndex ? `Peripheral ${peripheralIndex}` : 'Peripheral';
 
   return (
     <aside
@@ -1063,7 +1062,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
       ].filter(Boolean).join(' ')}
       aria-hidden={!isOpen}
       role="region"
-      aria-label={`${isDongle ? 'Dongle Master' : isLeft ? 'Left Active (Master)' : `Peripheral ${peripheralIndex || ''} Active (Peripheral)`} Display & Power Settings`}
+      aria-label={`${isCentral ? 'Central (Master)' : `Peripheral ${peripheralIndex || ''}`} Display & Power Settings`}
     >
       <div className="side-settings-panel-inner">
         {/* Header */}
@@ -1071,7 +1070,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
           <div className="flex items-center gap-2">
             <div
               className={`size-6 rounded-lg flex items-center justify-center shrink-0 border ${
-                isDongle || !isLeft
+                !isCentral
                   ? 'bg-[#a953f6]/15 border-[#a953f6]/30 text-[#a953f6] shadow-[0_0_8px_rgba(169,83,246,0.2)]'
                   : 'bg-[#00f0ff]/15 border-[#00f0ff]/30 text-[#00f0ff] shadow-[0_0_8px_rgba(0,240,255,0.2)]'
               }`}
@@ -1083,7 +1082,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
                 <span>{sideTitle}</span>
                 <span
                   className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
-                    isDongle || !isLeft
+                    !isCentral
                       ? 'bg-[#a953f6]/10 text-[#a953f6] border-[#a953f6]/20'
                       : 'bg-[#00f0ff]/10 text-[#00f0ff] border-[#00f0ff]/20'
                   }`}
@@ -1098,7 +1097,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
             onClick={onClose}
             className="text-[#94a3b8] hover:text-white hover:bg-white/5 transition-all p-1 rounded-md cursor-pointer flex items-center gap-1 text-xs"
             title="Close Settings (Esc)"
-            aria-label={`Close ${isDongle ? 'Dongle' : isLeft ? 'Master' : 'Peripheral'} Settings`}
+            aria-label={`Close ${isCentral ? 'Master' : 'Peripheral'} Settings`}
           >
             <X size={14} />
           </button>
@@ -1106,26 +1105,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
 
         {/* Scrollable Body */}
         <div className="side-settings-panel-body custom-scrollbar">
-          {isDongle ? (
-            <>
-              <SideSettingsBlock
-                sideName="Dongle Master"
-                themeColor="purple"
-                screenDimensions={screenDimensions}
-                onScreenDimensionsChange={onScreenDimensionsChange}
-                idleScreensEnabled={idleScreensEnabled}
-                onIdleScreensEnabledChange={onIdleScreensEnabledChange ?? (() => {})}
-                idleTimeoutSec={idleTimeoutSec}
-                onIdleTimeoutSecChange={onIdleTimeoutSecChange ?? (() => {})}
-                screenOffTimeoutSec={screenOffTimeoutSec}
-                onScreenOffTimeoutSecChange={onScreenOffTimeoutSecChange ?? (() => {})}
-                layout="vertical"
-              />
-              <div className="pt-2 border-t border-white/10 text-[10px] text-[#64748b] font-mono shrink-0">
-                {`#define SCYAN_SLEEP_TIMEOUT_MS_DONGLE ${screenOffTimeoutSec * 1000}`}
-              </div>
-            </>
-          ) : isLeft ? (
+          {isCentral ? (
             <>
               {effectiveSymmetric && (
                 <div className="p-2 rounded-lg bg-[#00f0ff]/10 border border-[#00f0ff]/20 text-[11px] text-[#e2f1ff] flex items-center gap-1.5 shrink-0">
@@ -1137,7 +1117,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
               )}
 
               <SideSettingsBlock
-                sideName="Left Half"
+                sideName="Central (Master)"
                 themeColor="cyan"
                 screenDimensions={screenDimensions}
                 onScreenDimensionsChange={handleLeftDimensionsChange}
@@ -1199,7 +1179,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
                   <div className="p-2 rounded-lg bg-[#00f0ff]/10 border border-[#00f0ff]/20 text-[11px] text-[#e2f1ff] flex items-start gap-2">
                     <Check size={13} className="text-[#00f0ff] shrink-0 mt-0.5" />
                     <div className="text-[10px] text-[#94a3b8] leading-tight">
-                      <strong className="text-white font-medium block">Mirroring Left Half (Master)</strong>
+                      <strong className="text-white font-medium block">Mirroring Central (Master)</strong>
                       Peripheral settings are visually locked. Turn off symmetric settings to edit independently.
                     </div>
                   </div>

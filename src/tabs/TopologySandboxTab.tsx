@@ -2,9 +2,10 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { BwpxGrid } from '../bwpx/core/BwpxGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../types/zmk';
 import {
-  DEFAULT_LEFT_LAYOUT_BLOCKS,
-  DEFAULT_RIGHT_LAYOUT_BLOCKS,
-  DEFAULT_DONGLE_LAYOUT_BLOCKS,
+  DEFAULT_CENTRAL_LAYOUT_BLOCKS,
+  DEFAULT_PERIPHERAL_LAYOUT_BLOCKS,
+  DEFAULT_IDLE_CENTRAL_BLOCKS,
+  DEFAULT_IDLE_PERIPHERAL_BLOCKS,
   DEFAULT_SYMBOL_SLICES,
   DEFAULT_FONT_GLYPHS,
   DEFAULT_FONT_MAPPINGS,
@@ -28,17 +29,19 @@ export interface TopologySandboxTabProps {
   fontGrid: BwpxGrid;
   fontGlyphs?: FontGlyph[];
   fontMappings?: FontCharMapping[];
+  centralBlocks?: LayoutBlock[];
+  peripheralBlocks?: LayoutBlock[];
   leftBlocks?: LayoutBlock[];
   rightBlocks?: LayoutBlock[];
-  dongleBlocks?: LayoutBlock[];
+  idleCentralBlocks?: LayoutBlock[];
+  idlePeripheralBlocks?: LayoutBlock[];
   idleLeftBlocks?: LayoutBlock[];
   idleRightBlocks?: LayoutBlock[];
-  idleDongleBlocks?: LayoutBlock[];
   enabledScreens?: string[];
   peripheralScreens?: Record<string, PeripheralScreenData>;
   screenDimensions?: { width: number; height: number };
+  peripheralScreenDimensions?: { width: number; height: number };
   rightScreenDimensions?: { width: number; height: number };
-  dongleScreenDimensions?: { width: number; height: number };
   instances?: WidgetInstanceMap;
   customText?: string;
   onNavigateToPreview?: () => void;
@@ -52,17 +55,19 @@ export const TopologySandboxTab: React.FC<TopologySandboxTabProps> = ({
   fontGrid,
   fontGlyphs = [],
   fontMappings = [],
+  centralBlocks,
+  peripheralBlocks,
   leftBlocks = [],
   rightBlocks = [],
-  dongleBlocks = [],
+  idleCentralBlocks,
+  idlePeripheralBlocks,
   idleLeftBlocks = [],
   idleRightBlocks = [],
-  idleDongleBlocks = [],
   enabledScreens,
   peripheralScreens,
   screenDimensions,
+  peripheralScreenDimensions,
   rightScreenDimensions,
-  dongleScreenDimensions,
   instances,
   customText = 'SCYAN',
   onSwapDisplays,
@@ -85,14 +90,17 @@ export const TopologySandboxTab: React.FC<TopologySandboxTabProps> = ({
   const [masterShieldKey, setMasterShieldKey] = useState<string | null>('0,0');
 
   const effectiveEnabledScreens = useMemo(() => {
-    return enabledScreens && enabledScreens.length > 0 ? enabledScreens : ['left', 'right'];
+    return enabledScreens && enabledScreens.length > 0 ? enabledScreens : ['central', 'peripheral'];
   }, [enabledScreens]);
 
   const [displayAssignments, setDisplayAssignments] = useState<Record<string, string | null>>(() => {
     const initial: Record<string, string | null> = {};
-    const screens = enabledScreens && enabledScreens.length > 0 ? enabledScreens : ['left', 'right'];
-    if (screens.includes('left')) initial['0,0'] = 'left';
-    if (screens.includes('right')) initial['1,0'] = 'right';
+    const screens = enabledScreens && enabledScreens.length > 0 ? enabledScreens : ['central', 'peripheral'];
+    if (screens.includes('central')) initial['0,0'] = 'central';
+    else if (screens.includes('left')) initial['0,0'] = 'left';
+
+    if (screens.includes('peripheral')) initial['1,0'] = 'peripheral';
+    else if (screens.includes('right')) initial['1,0'] = 'right';
     return initial;
   });
 
@@ -142,44 +150,45 @@ export const TopologySandboxTab: React.FC<TopologySandboxTabProps> = ({
     [fontMappings]
   );
 
-  const effectiveLeftBlocks = useMemo(
-    () => (leftBlocks && leftBlocks.length > 0 ? leftBlocks : DEFAULT_LEFT_LAYOUT_BLOCKS),
-    [leftBlocks]
+  const effectiveCentralBlocks = useMemo(
+    () => (centralBlocks?.length ? centralBlocks : leftBlocks?.length ? leftBlocks : DEFAULT_CENTRAL_LAYOUT_BLOCKS),
+    [centralBlocks, leftBlocks]
   );
-  const effectiveRightBlocks = useMemo(
-    () => (rightBlocks && rightBlocks.length > 0 ? rightBlocks : DEFAULT_RIGHT_LAYOUT_BLOCKS),
-    [rightBlocks]
+  const effectivePeripheralBlocks = useMemo(
+    () => (peripheralBlocks?.length ? peripheralBlocks : rightBlocks?.length ? rightBlocks : DEFAULT_PERIPHERAL_LAYOUT_BLOCKS),
+    [peripheralBlocks, rightBlocks]
   );
-  const effectiveDongleBlocks = useMemo(
-    () => (dongleBlocks && dongleBlocks.length > 0 ? dongleBlocks : DEFAULT_DONGLE_LAYOUT_BLOCKS),
-    [dongleBlocks]
+  const effectiveIdleCentralBlocks = useMemo(
+    () => (idleCentralBlocks?.length ? idleCentralBlocks : idleLeftBlocks?.length ? idleLeftBlocks : DEFAULT_IDLE_CENTRAL_BLOCKS),
+    [idleCentralBlocks, idleLeftBlocks]
+  );
+  const effectiveIdlePeripheralBlocks = useMemo(
+    () => (idlePeripheralBlocks?.length ? idlePeripheralBlocks : idleRightBlocks?.length ? idleRightBlocks : DEFAULT_IDLE_PERIPHERAL_BLOCKS),
+    [idlePeripheralBlocks, idleRightBlocks]
   );
 
   const layoutDisplays = useMemo<Record<string, LayoutDisplayItem>>(() => {
     const record: Record<string, LayoutDisplayItem> = {};
     for (const screenId of effectiveEnabledScreens) {
-      const isMaster = screenId === 'left';
-      let name = 'Master Display';
+      const isMaster = screenId === 'central' || screenId === 'left';
+      let name = isMaster ? 'Master Display' : 'Peripheral Display';
       let dimensions = screenDimensions || { width: 32, height: 128 };
-      let blocks = effectiveLeftBlocks;
-      let idleBlocks = idleLeftBlocks;
+      let blocks = effectiveCentralBlocks;
+      let idleBlocks = effectiveIdleCentralBlocks;
 
-      if (screenId === 'right') {
-        name = 'Right Peripheral';
-        dimensions = rightScreenDimensions || { width: 32, height: 128 };
-        blocks = effectiveRightBlocks;
-        idleBlocks = idleRightBlocks;
-      } else if (screenId === 'dongle') {
-        name = 'Dongle Display';
-        dimensions = dongleScreenDimensions || { width: 128, height: 64 };
-        blocks = effectiveDongleBlocks;
-        idleBlocks = idleDongleBlocks;
+      if (screenId === 'peripheral' || screenId === 'right') {
+        name = 'Peripheral Display';
+        dimensions = peripheralScreenDimensions || rightScreenDimensions || { width: 32, height: 128 };
+        blocks = effectivePeripheralBlocks;
+        idleBlocks = effectiveIdlePeripheralBlocks;
       } else if (peripheralScreens && peripheralScreens[screenId]) {
         const periph = peripheralScreens[screenId];
         name = periph.name || `Peripheral ${screenId.replace('peripheral-', '')}`;
         dimensions = periph.screenDimensions || { width: 32, height: 128 };
         blocks = periph.blocks || [];
         idleBlocks = periph.idleBlocks || [];
+      } else if (screenId.startsWith('peripheral-')) {
+        name = `Peripheral ${screenId.replace('peripheral-', '')}`;
       }
 
       record[screenId] = {
@@ -195,15 +204,12 @@ export const TopologySandboxTab: React.FC<TopologySandboxTabProps> = ({
   }, [
     effectiveEnabledScreens,
     screenDimensions,
+    peripheralScreenDimensions,
     rightScreenDimensions,
-    dongleScreenDimensions,
-    effectiveLeftBlocks,
-    effectiveRightBlocks,
-    effectiveDongleBlocks,
-    idleLeftBlocks,
-    idleRightBlocks,
-    idleDongleBlocks,
-    peripheralScreens,
+    effectiveCentralBlocks,
+    effectivePeripheralBlocks,
+    effectiveIdleCentralBlocks,
+    effectiveIdlePeripheralBlocks,
   ]);
 
   return (
@@ -218,9 +224,8 @@ export const TopologySandboxTab: React.FC<TopologySandboxTabProps> = ({
         fontGrid={fontGrid}
         fontGlyphs={effectiveFontGlyphs}
         fontMappings={effectiveFontMappings}
-        activeLeftBlocks={effectiveLeftBlocks}
-        activeRightBlocks={effectiveRightBlocks}
-        activeDongleBlocks={effectiveDongleBlocks}
+        activeCentralBlocks={effectiveCentralBlocks}
+        activePeripheralBlocks={effectivePeripheralBlocks}
         layoutDisplays={layoutDisplays}
         displayAssignments={displayAssignments}
         onDisplayAssignmentsChange={setDisplayAssignments}
@@ -242,9 +247,8 @@ export const TopologySandboxTab: React.FC<TopologySandboxTabProps> = ({
         fontGrid={fontGrid}
         fontGlyphs={effectiveFontGlyphs}
         fontMappings={effectiveFontMappings}
-        activeLeftBlocks={effectiveLeftBlocks}
-        activeRightBlocks={effectiveRightBlocks}
-        activeDongleBlocks={effectiveDongleBlocks}
+        activeCentralBlocks={effectiveCentralBlocks}
+        activePeripheralBlocks={effectivePeripheralBlocks}
       />
     </div>
   );

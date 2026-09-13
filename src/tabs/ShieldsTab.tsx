@@ -2,9 +2,8 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { BwpxGrid } from '../bwpx/core/BwpxGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../types/zmk';
 import {
-  DEFAULT_LEFT_LAYOUT_BLOCKS,
-  DEFAULT_RIGHT_LAYOUT_BLOCKS,
-  DEFAULT_DONGLE_LAYOUT_BLOCKS,
+  DEFAULT_CENTRAL_LAYOUT_BLOCKS,
+  DEFAULT_PERIPHERAL_LAYOUT_BLOCKS,
   DEFAULT_SYMBOL_SLICES,
   DEFAULT_FONT_GLYPHS,
   DEFAULT_FONT_MAPPINGS,
@@ -26,12 +25,12 @@ export interface ShieldsTabProps {
   fontGrid: BwpxGrid;
   fontGlyphs?: FontGlyph[];
   fontMappings?: FontCharMapping[];
+  centralBlocks?: LayoutBlock[];
+  peripheralBlocks?: LayoutBlock[];
   leftBlocks?: LayoutBlock[];
   rightBlocks?: LayoutBlock[];
-  dongleBlocks?: LayoutBlock[];
-  idleLeftBlocks?: LayoutBlock[];
-  idleRightBlocks?: LayoutBlock[];
-  idleDongleBlocks?: LayoutBlock[];
+  idleCentralBlocks?: LayoutBlock[];
+  idlePeripheralBlocks?: LayoutBlock[];
   instances?: WidgetInstanceMap;
   customText?: string;
   onApplyDimensions?: (
@@ -48,12 +47,12 @@ export const ShieldsTab: React.FC<ShieldsTabProps> = ({
   fontGrid,
   fontGlyphs = [],
   fontMappings = [],
+  centralBlocks,
+  peripheralBlocks,
   leftBlocks = [],
   rightBlocks = [],
-  dongleBlocks = [],
-  idleLeftBlocks: _idleLeftBlocks = [],
-  idleRightBlocks: _idleRightBlocks = [],
-  idleDongleBlocks: _idleDongleBlocks = [],
+  idleCentralBlocks: _idleCentralBlocks,
+  idlePeripheralBlocks: _idlePeripheralBlocks,
   instances,
   customText = 'SCYAN',
   onApplyDimensions,
@@ -112,17 +111,13 @@ export const ShieldsTab: React.FC<ShieldsTabProps> = ({
     [fontMappings]
   );
 
-  const effectiveLeftBlocks = useMemo(
-    () => (leftBlocks && leftBlocks.length > 0 ? leftBlocks : DEFAULT_LEFT_LAYOUT_BLOCKS),
-    [leftBlocks]
+  const effectiveCentralBlocks = useMemo(
+    () => (centralBlocks?.length ? centralBlocks : leftBlocks?.length ? leftBlocks : DEFAULT_CENTRAL_LAYOUT_BLOCKS),
+    [centralBlocks, leftBlocks]
   );
-  const effectiveRightBlocks = useMemo(
-    () => (rightBlocks && rightBlocks.length > 0 ? rightBlocks : DEFAULT_RIGHT_LAYOUT_BLOCKS),
-    [rightBlocks]
-  );
-  const effectiveDongleBlocks = useMemo(
-    () => (dongleBlocks && dongleBlocks.length > 0 ? dongleBlocks : DEFAULT_DONGLE_LAYOUT_BLOCKS),
-    [dongleBlocks]
+  const effectivePeripheralBlocks = useMemo(
+    () => (peripheralBlocks?.length ? peripheralBlocks : rightBlocks?.length ? rightBlocks : DEFAULT_PERIPHERAL_LAYOUT_BLOCKS),
+    [peripheralBlocks, rightBlocks]
   );
 
   const handleApplyShieldConfig = useCallback(
@@ -253,9 +248,8 @@ export const ShieldsTab: React.FC<ShieldsTabProps> = ({
               fontGrid={fontGrid}
               fontGlyphs={effectiveFontGlyphs}
               fontMappings={effectiveFontMappings}
-              activeLeftBlocks={effectiveLeftBlocks}
-              activeRightBlocks={effectiveRightBlocks}
-              activeDongleBlocks={effectiveDongleBlocks}
+              activeCentralBlocks={effectiveCentralBlocks}
+              activePeripheralBlocks={effectivePeripheralBlocks}
               isIdle={false}
               batteryLevel={88}
               outputMode="ble"
@@ -425,9 +419,8 @@ export const ShieldsTab: React.FC<ShieldsTabProps> = ({
                     fontGrid={fontGrid}
                     fontGlyphs={effectiveFontGlyphs}
                     fontMappings={effectiveFontMappings}
-                    activeLeftBlocks={effectiveLeftBlocks}
-                    activeRightBlocks={effectiveRightBlocks}
-                    activeDongleBlocks={effectiveDongleBlocks}
+                    activeCentralBlocks={effectiveCentralBlocks}
+                    activePeripheralBlocks={effectivePeripheralBlocks}
                     isIdle={false}
                     batteryLevel={88}
                     outputMode="ble"

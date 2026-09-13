@@ -35,12 +35,10 @@ import {
   resolveWidgetInstance,
 } from '../services/widgetRegistry';
 import {
-  DEFAULT_LEFT_LAYOUT_BLOCKS,
-  DEFAULT_RIGHT_LAYOUT_BLOCKS,
-  DEFAULT_IDLE_LEFT_BLOCKS,
-  DEFAULT_IDLE_RIGHT_BLOCKS,
-  DEFAULT_DONGLE_LAYOUT_BLOCKS,
-  DEFAULT_IDLE_DONGLE_BLOCKS,
+  DEFAULT_CENTRAL_LAYOUT_BLOCKS,
+  DEFAULT_PERIPHERAL_LAYOUT_BLOCKS,
+  DEFAULT_IDLE_CENTRAL_BLOCKS,
+  DEFAULT_IDLE_PERIPHERAL_BLOCKS,
 } from '../types/zmk';
 import { getShieldDefinition } from '../data/shieldsData';
 
@@ -86,27 +84,31 @@ export interface OledPreviewTabProps {
   fontGrid: BwpxGrid;
   fontGlyphs?: FontGlyph[];
   fontMappings?: FontCharMapping[];
+  centralBlocks?: LayoutBlock[];
+  peripheralBlocks?: LayoutBlock[];
+  idleCentralBlocks?: LayoutBlock[];
+  idlePeripheralBlocks?: LayoutBlock[];
+  onCentralBlocksChange?: (blocks: LayoutBlock[]) => void;
+  onPeripheralBlocksChange?: (blocks: LayoutBlock[]) => void;
+  onIdleCentralBlocksChange?: (blocks: LayoutBlock[]) => void;
+  onIdlePeripheralBlocksChange?: (blocks: LayoutBlock[]) => void;
   leftBlocks?: LayoutBlock[];
   rightBlocks?: LayoutBlock[];
-  dongleBlocks?: LayoutBlock[];
   layoutBlocks?: LayoutBlock[];
   idleLeftBlocks?: LayoutBlock[];
   idleRightBlocks?: LayoutBlock[];
-  idleDongleBlocks?: LayoutBlock[];
   onLeftBlocksChange?: (blocks: LayoutBlock[]) => void;
   onRightBlocksChange?: (blocks: LayoutBlock[]) => void;
-  onDongleBlocksChange?: (blocks: LayoutBlock[]) => void;
   onIdleLeftBlocksChange?: (blocks: LayoutBlock[]) => void;
   onIdleRightBlocksChange?: (blocks: LayoutBlock[]) => void;
-  onIdleDongleBlocksChange?: (blocks: LayoutBlock[]) => void;
   screenDimensions?: { width: number; height: number };
+  peripheralScreenDimensions?: { width: number; height: number };
   rightScreenDimensions?: { width: number; height: number };
-  dongleScreenDimensions?: { width: number; height: number };
   symmetricSettings?: boolean;
   shieldId?: string;
   onShieldIdChange?: (id: string) => void;
-  enabledScreens?: ('left' | 'right' | 'dongle' | string)[];
-  onEnabledScreensChange?: (screens: ('left' | 'right' | 'dongle' | string)[]) => void;
+  enabledScreens?: ('central' | 'peripheral' | string)[];
+  onEnabledScreensChange?: (screens: ('central' | 'peripheral' | string)[]) => void;
   onSwapDisplays?: (idA: string, idB: string) => void;
   customText: string;
   onCustomTextChange: (text: string) => void;
@@ -121,11 +123,10 @@ export interface OledPreviewTabProps {
   onKeymapLayoutChange?: (layout: ParsedKeymapLayout) => void;
 }
 
-function normalizeScreenKey(key: string): 'central' | 'peripheral' | 'dongle' {
+function normalizeScreenKey(key: string): 'central' | 'peripheral' | string {
   if (key === 'left' || key === 'central') return 'central';
   if (key === 'right' || key === 'peripheral') return 'peripheral';
-  if (key === 'dongle') return 'dongle';
-  return 'central';
+  return key;
 }
 
 export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
@@ -134,22 +135,26 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   fontGrid,
   fontGlyphs = [],
   fontMappings = [],
+  centralBlocks,
+  peripheralBlocks,
+  onCentralBlocksChange,
+  onPeripheralBlocksChange,
+  idleCentralBlocks,
+  idlePeripheralBlocks,
+  onIdleCentralBlocksChange,
+  onIdlePeripheralBlocksChange,
   leftBlocks,
   rightBlocks,
-  dongleBlocks,
   layoutBlocks,
   idleLeftBlocks,
   idleRightBlocks,
-  idleDongleBlocks,
   onLeftBlocksChange,
   onRightBlocksChange,
-  onDongleBlocksChange,
   onIdleLeftBlocksChange,
   onIdleRightBlocksChange,
-  onIdleDongleBlocksChange,
   screenDimensions,
+  peripheralScreenDimensions,
   rightScreenDimensions,
-  dongleScreenDimensions,
   symmetricSettings,
   shieldId = 'corne',
   onShieldIdChange: _onShieldIdChange,
@@ -168,9 +173,13 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   keymapLayout: propKeymapLayout,
   onKeymapLayoutChange,
 }) => {
-  const activeLeftBlocks = leftBlocks ?? layoutBlocks ?? DEFAULT_LEFT_LAYOUT_BLOCKS;
-  const activeRightBlocks = rightBlocks ?? DEFAULT_RIGHT_LAYOUT_BLOCKS;
-  const activeDongleBlocks = dongleBlocks ?? DEFAULT_DONGLE_LAYOUT_BLOCKS;
+  const activeCentralBlocks = centralBlocks ?? leftBlocks ?? layoutBlocks ?? DEFAULT_CENTRAL_LAYOUT_BLOCKS;
+  const activePeripheralBlocks = peripheralBlocks ?? rightBlocks ?? DEFAULT_PERIPHERAL_LAYOUT_BLOCKS;
+
+  const handleCentralBlocksChange = onCentralBlocksChange || onLeftBlocksChange;
+  const handlePeripheralBlocksChange = onPeripheralBlocksChange || onRightBlocksChange;
+  const handleIdleCentralBlocksChange = onIdleCentralBlocksChange || onIdleLeftBlocksChange;
+  const handleIdlePeripheralBlocksChange = onIdlePeripheralBlocksChange || onIdleRightBlocksChange;
 
   const activeShield = useMemo(() => {
     return getShieldDefinition(shieldId);
@@ -183,8 +192,8 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     return ['central', 'peripheral'];
   }, [enabledScreens]);
 
-  const orderedScreens = useMemo<('central' | 'peripheral' | 'dongle')[]>(() => {
-    const list: ('central' | 'peripheral' | 'dongle')[] = [];
+  const orderedScreens = useMemo<('central' | 'peripheral' | string)[]>(() => {
+    const list: ('central' | 'peripheral' | string)[] = [];
     for (const raw of effectiveEnabledScreens) {
       const canonical = normalizeScreenKey(raw);
       if (!list.includes(canonical)) {
@@ -194,17 +203,15 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     return list.length > 0 ? list : ['central', 'peripheral'];
   }, [effectiveEnabledScreens]);
 
-  const hasDongle = orderedScreens.includes('dongle');
-  const showLeftKeyboard = orderedScreens.includes('central');
   const showRightKeyboard = orderedScreens.includes('peripheral');
 
   // Realign drag state (ONLY active & visible while dragging)
   const [isRealigning, setIsRealigning] = useState<boolean>(false);
-  const [draggedUnitKey, setDraggedUnitKey] = useState<'central' | 'peripheral' | 'dongle' | null>(null);
+  const [draggedUnitKey, setDraggedUnitKey] = useState<'central' | 'peripheral' | string | null>(null);
   const [hoveredDropSlot, setHoveredDropSlot] = useState<string | null>(null);
-  const [hoveredSwapUnitKey, setHoveredSwapUnitKey] = useState<'central' | 'peripheral' | 'dongle' | null>(null);
+  const [hoveredSwapUnitKey, setHoveredSwapUnitKey] = useState<'central' | 'peripheral' | string | null>(null);
 
-  const handleUnitDragStart = useCallback((e: React.DragEvent, screenKey: 'central' | 'peripheral' | 'dongle') => {
+  const handleUnitDragStart = useCallback((e: React.DragEvent, screenKey: 'central' | 'peripheral' | string) => {
     const target = e.target as HTMLElement | null;
     if (target?.closest('.corne-keycap, .corne-thumb-key, .oled-block-overlay')) {
       e.preventDefault();
@@ -249,7 +256,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     }
   }, [draggedUnitKey, orderedScreens, onEnabledScreensChange, onShowToast]);
 
-  const handleDropOnUnit = useCallback((e: React.DragEvent, targetKey: 'central' | 'peripheral' | 'dongle') => {
+  const handleDropOnUnit = useCallback((e: React.DragEvent, targetKey: 'central' | 'peripheral' | string) => {
     e.preventDefault();
     e.stopPropagation();
     setIsRealigning(false);
@@ -277,46 +284,38 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   const leftVWidth = screenDimensions?.width || 32;
   const leftVHeight = screenDimensions?.height || 128;
   const effectiveSymmetric = symmetricSettings !== undefined ? symmetricSettings : true;
-  const rightVWidth = (effectiveSymmetric ? leftVWidth : rightScreenDimensions?.width) || 32;
-  const rightVHeight = (effectiveSymmetric ? leftVHeight : rightScreenDimensions?.height) || 128;
-  const dongleVWidth = dongleScreenDimensions?.width || 32;
-  const dongleVHeight = dongleScreenDimensions?.height || 128;
+  const rightVWidth = (effectiveSymmetric ? leftVWidth : (peripheralScreenDimensions?.width ?? rightScreenDimensions?.width)) || 32;
+  const rightVHeight = (effectiveSymmetric ? leftVHeight : (peripheralScreenDimensions?.height ?? rightScreenDimensions?.height)) || 128;
 
   // Proportional display dimensions in px for housing and canvas
   const leftDisplayDim = useMemo(() => getOledDisplayDimensions(leftVWidth, leftVHeight), [leftVWidth, leftVHeight]);
   const rightDisplayDim = useMemo(() => getOledDisplayDimensions(rightVWidth, rightVHeight), [rightVWidth, rightVHeight]);
-  const dongleDisplayDim = useMemo(() => getOledDisplayDimensions(dongleVWidth, dongleVHeight), [dongleVWidth, dongleVHeight]);
 
   // Simulator states
   const [isIdle, setIsIdle] = useState<boolean>(false);
 
   // Active blocks according to idle/active mode
   const leftDisplayBlocks = isIdle
-    ? (idleLeftBlocks && idleLeftBlocks.length > 0 ? idleLeftBlocks : DEFAULT_IDLE_LEFT_BLOCKS)
-    : activeLeftBlocks;
+    ? (idleCentralBlocks && idleCentralBlocks.length > 0 ? idleCentralBlocks : (idleLeftBlocks && idleLeftBlocks.length > 0 ? idleLeftBlocks : DEFAULT_IDLE_CENTRAL_BLOCKS))
+    : activeCentralBlocks;
 
   const rightDisplayBlocks = isIdle
-    ? (idleRightBlocks && idleRightBlocks.length > 0 ? idleRightBlocks : DEFAULT_IDLE_RIGHT_BLOCKS)
-    : activeRightBlocks;
-
-  const dongleDisplayBlocks = isIdle
-    ? (idleDongleBlocks && idleDongleBlocks.length > 0 ? idleDongleBlocks : DEFAULT_IDLE_DONGLE_BLOCKS)
-    : activeDongleBlocks;
+    ? (idlePeripheralBlocks && idlePeripheralBlocks.length > 0 ? idlePeripheralBlocks : (idleRightBlocks && idleRightBlocks.length > 0 ? idleRightBlocks : DEFAULT_IDLE_PERIPHERAL_BLOCKS))
+    : activePeripheralBlocks;
 
   // Direct widget manipulation state
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [internalDraggingBlockId, setInternalDraggingBlockId] = useState<string | null>(null);
-  const [hoveredSide, setHoveredSide] = useState<'left' | 'right' | 'dongle' | null>(null);
+  const [hoveredSide, setHoveredSide] = useState<'central' | 'peripheral' | 'left' | 'right' | string | null>(null);
   const dragStartXRef = useRef<number>(0);
   const dragStartYRef = useRef<number>(0);
   const blockInitialXRef = useRef<number>(0);
   const blockInitialYRef = useRef<number>(0);
-  const draggingSideRef = useRef<'left' | 'right' | 'dongle'>('left');
+  const draggingSideRef = useRef<'central' | 'peripheral' | 'left' | 'right' | string>('central');
   const leftScreenContainerRef = useRef<HTMLDivElement | null>(null);
   const rightScreenContainerRef = useRef<HTMLDivElement | null>(null);
-  const dongleScreenContainerRef = useRef<HTMLDivElement | null>(null);
 
-  const handleStartMoveBlock = (e: React.PointerEvent, block: LayoutBlock, side: 'left' | 'right' | 'dongle') => {
+  const handleStartMoveBlock = (e: React.PointerEvent, block: LayoutBlock, side: 'central' | 'peripheral' | 'left' | 'right' | string) => {
     e.stopPropagation();
     setSelectedBlockId(block.id);
     setInternalDraggingBlockId(block.id);
@@ -333,20 +332,17 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     if (!internalDraggingBlockId) return;
 
     const side = draggingSideRef.current;
-    const isLeft = side === 'left';
-    const isDongle = side === 'dongle';
+    const isLeft = side === 'central' || side === 'left';
     const container = isLeft
       ? leftScreenContainerRef.current
-      : isDongle
-      ? dongleScreenContainerRef.current
       : rightScreenContainerRef.current;
     if (!container) return;
 
     const rect = container.getBoundingClientRect();
     const screenWidthPx = rect.width || 48;
     const screenHeightPx = rect.height || 192;
-    const vWidth = isLeft ? leftVWidth : isDongle ? dongleVWidth : rightVWidth;
-    const vHeight = isLeft ? leftVHeight : isDongle ? dongleVHeight : rightVHeight;
+    const vWidth = isLeft ? leftVWidth : rightVWidth;
+    const vHeight = isLeft ? leftVHeight : rightVHeight;
     const pxToGridX = vWidth / screenWidthPx;
     const pxToGridY = vHeight / screenHeightPx;
 
@@ -356,7 +352,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
       const deltaGridX = Math.round(deltaScreenX * pxToGridX);
       const deltaGridY = Math.round(deltaScreenY * pxToGridY);
 
-      const blockList = isLeft ? leftDisplayBlocks : isDongle ? dongleDisplayBlocks : rightDisplayBlocks;
+      const blockList = isLeft ? leftDisplayBlocks : rightDisplayBlocks;
       const currentBlock = blockList.find(b => b.id === internalDraggingBlockId);
       if (!currentBlock) return;
 
@@ -374,21 +370,15 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
         const updated = blockList.map(b => b.id === internalDraggingBlockId ? { ...b, x: newX, y: newY } : b);
         if (isLeft) {
           if (isIdle) {
-            onIdleLeftBlocksChange?.(updated);
+            handleIdleCentralBlocksChange?.(updated);
           } else {
-            onLeftBlocksChange?.(updated);
-          }
-        } else if (isDongle) {
-          if (isIdle) {
-            onIdleDongleBlocksChange?.(updated);
-          } else {
-            onDongleBlocksChange?.(updated);
+            handleCentralBlocksChange?.(updated);
           }
         } else {
           if (isIdle) {
-            onIdleRightBlocksChange?.(updated);
+            handleIdlePeripheralBlocksChange?.(updated);
           } else {
-            onRightBlocksChange?.(updated);
+            handlePeripheralBlocksChange?.(updated);
           }
         }
       }
@@ -413,17 +403,12 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     leftVHeight,
     rightVWidth,
     rightVHeight,
-    dongleVWidth,
-    dongleVHeight,
     leftDisplayBlocks,
     rightDisplayBlocks,
-    dongleDisplayBlocks,
-    onLeftBlocksChange,
-    onRightBlocksChange,
-    onDongleBlocksChange,
-    onIdleLeftBlocksChange,
-    onIdleRightBlocksChange,
-    onIdleDongleBlocksChange,
+    handleCentralBlocksChange,
+    handlePeripheralBlocksChange,
+    handleIdleCentralBlocksChange,
+    handleIdlePeripheralBlocksChange,
     instances,
     symbolSlices,
     fontMappings,
@@ -504,7 +489,6 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
 
   const leftCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rightCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const dongleCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const keystrokeTimestampsRef = useRef<number[]>([]);
   const hadRecentKeystrokesRef = useRef<boolean>(false);
 
@@ -975,57 +959,9 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
       }
     }
 
-    // 3. RENDER DONGLE (CENTRAL MASTER) DISPLAY
-    const dongleCanvas = dongleCanvasRef.current;
-    if (dongleCanvas && hasDongle) {
-      const ctx = dongleCanvas.getContext('2d');
-      if (ctx) {
-        const vbuf = new BwpxGrid(dongleVWidth, dongleVHeight);
-        renderBlocksToGrid(dongleDisplayBlocks, vbuf, {
-          symbolsGrid,
-          symbolSlices,
-          fontGrid,
-          fontGlyphs,
-          fontMappings,
-          battery,
-          outputMode,
-          bleProfileIndex,
-          currentLayer,
-          layerNames,
-          wpm,
-          wpmHistory,
-          splitConnected,
-          capsLock,
-          customText,
-          instances,
-          side: 'dongle',
-          isIdle,
-          customizations,
-          bongoState,
-          animationTimestamp: animTimestamp,
-        });
-
-        dongleCanvas.width = dongleVWidth * PIXEL_PITCH;
-        dongleCanvas.height = dongleVHeight * PIXEL_PITCH;
-
-        ctx.fillStyle = '#05070a';
-        ctx.fillRect(0, 0, dongleCanvas.width, dongleCanvas.height);
-
-        ctx.fillStyle = onColor;
-        for (let y = 0; y < dongleVHeight; y++) {
-          for (let x = 0; x < dongleVWidth; x++) {
-            if (vbuf.get(x, y)) {
-              ctx.fillRect(x * PIXEL_PITCH, y * PIXEL_PITCH, DOT_SIZE, DOT_SIZE);
-            }
-          }
-        }
-      }
-    }
   }, [
     leftDisplayBlocks,
     rightDisplayBlocks,
-    dongleDisplayBlocks,
-    hasDongle,
     symbolsGrid,
     symbolSlices,
     fontGrid,
@@ -1035,8 +971,6 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     leftVHeight,
     rightVWidth,
     rightVHeight,
-    dongleVWidth,
-    dongleVHeight,
     outputMode,
     bleProfileIndex,
     battery,
@@ -1055,7 +989,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
 
   const renderBlockOverlay = (
     block: LayoutBlock,
-    side: 'left' | 'right' | 'dongle',
+    side: 'central' | 'peripheral' | 'left' | 'right' | string,
     vWidth: number,
     vHeight: number
   ) => {
@@ -1124,11 +1058,6 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
             ({effectiveEnabledScreens.length} Active {effectiveEnabledScreens.length === 1 ? 'Display' : 'Displays'})
           </span>
         </div>
-        {hasDongle && (
-          <span className="text-xs text-purple-400 font-mono font-medium">
-            Central Dongle Active
-          </span>
-        )}
       </div>
 
       {/* =========================================================================
@@ -1187,7 +1116,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
                           borderColor: 'rgba(169, 83, 246, 0.4)',
                           boxShadow: '0 0 12px rgba(169, 83, 246, 0.15)',
                         }}
-                        onMouseEnter={() => setHoveredSide('left')}
+                        onMouseEnter={() => setHoveredSide('central')}
                         onMouseLeave={() => setHoveredSide(null)}
                         onClick={() => setSelectedBlockId(null)}
                       >
@@ -1210,60 +1139,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
                           />
                           <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
                             {leftDisplayBlocks.map((block) =>
-                              renderBlockOverlay(block, 'left', leftVWidth, leftVHeight)
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {screenKey === 'dongle' && (
-                  <div className="dongle-unit-case">
-                    <div className="dongle-usb-connector">
-                      <div className="dongle-usb-metal">
-                        <div className="dongle-usb-pin" />
-                        <div className="dongle-usb-pin" />
-                      </div>
-                    </div>
-                    <div className="dongle-body">
-                      <div className="dongle-header-badge">
-                        <span className="live-dot" />
-                        <span>Dongle Master</span>
-                      </div>
-                      <div
-                        className="oled-glass-housing"
-                        style={{
-                          width: `${dongleDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
-                          height: `${dongleDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
-                          borderColor: 'rgba(169, 83, 246, 0.4)',
-                          boxShadow: '0 0 12px rgba(169, 83, 246, 0.15)',
-                        }}
-                        onMouseEnter={() => setHoveredSide('dongle')}
-                        onMouseLeave={() => setHoveredSide(null)}
-                        onClick={() => setSelectedBlockId(null)}
-                      >
-                        <div
-                          ref={dongleScreenContainerRef}
-                          style={{
-                            position: 'relative',
-                            width: `${dongleDisplayDim.displayW}px`,
-                            height: `${dongleDisplayDim.displayH}px`,
-                          }}
-                        >
-                          <canvas
-                            ref={dongleCanvasRef}
-                            className="corne-oled-canvas"
-                            style={{
-                              width: `${dongleDisplayDim.displayW}px`,
-                              height: `${dongleDisplayDim.displayH}px`,
-                              display: 'block',
-                            }}
-                          />
-                          <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
-                            {dongleDisplayBlocks.map((block) =>
-                              renderBlockOverlay(block, 'dongle', dongleVWidth, dongleVHeight)
+                              renderBlockOverlay(block, 'central', leftVWidth, leftVHeight)
                             )}
                           </div>
                         </div>
@@ -1479,64 +1355,6 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
                   </div>
                 )}
 
-                {screenKey === 'dongle' && (
-                  <div className="dongle-unit-case">
-                    {/* USB Type-A connector plug */}
-                    <div className="dongle-usb-connector">
-                      <div className="dongle-usb-metal">
-                        <div className="dongle-usb-pin" />
-                        <div className="dongle-usb-pin" />
-                      </div>
-                    </div>
-
-                    {/* Dongle Enclosure Body */}
-                    <div className="dongle-body">
-                      <div className="dongle-header-badge">
-                        <span className="live-dot" />
-                        <span>Dongle Master</span>
-                      </div>
-
-                      {/* OLED Display Housing */}
-                      <div
-                        className="oled-glass-housing"
-                        style={{
-                          width: `${dongleDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
-                          height: `${dongleDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
-                          borderColor: 'rgba(169, 83, 246, 0.4)',
-                          boxShadow: '0 0 12px rgba(169, 83, 246, 0.15)',
-                        }}
-                        onMouseEnter={() => setHoveredSide('dongle')}
-                        onMouseLeave={() => setHoveredSide(null)}
-                        onClick={() => setSelectedBlockId(null)}
-                      >
-                        <div
-                          ref={dongleScreenContainerRef}
-                          style={{
-                            position: 'relative',
-                            width: `${dongleDisplayDim.displayW}px`,
-                            height: `${dongleDisplayDim.displayH}px`,
-                          }}
-                        >
-                          <canvas
-                            ref={dongleCanvasRef}
-                            className="corne-oled-canvas"
-                            style={{
-                              width: `${dongleDisplayDim.displayW}px`,
-                              height: `${dongleDisplayDim.displayH}px`,
-                              display: 'block',
-                            }}
-                          />
-                          <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
-                            {dongleDisplayBlocks.map((block) =>
-                              renderBlockOverlay(block, 'dongle', dongleVWidth, dongleVHeight)
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 {screenKey === 'peripheral' && (
                   <div className="corne-half-case right-half">
                     <div className="half-inner-layout mirrored">
@@ -1673,9 +1491,11 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
               <h3 className="card-title">Live Keyboard Simulator Controls</h3>
             </div>
             <span className="badge-mode">
-              {hasDongle
-                ? (!showLeftKeyboard && !showRightKeyboard ? 'Dongle Display' : `${effectiveEnabledScreens.length}-Screen Multi-Display`)
-                : (effectiveEnabledScreens.length > 2 ? `${effectiveEnabledScreens.length}-Screen Multi-Display` : 'Dual Display Sync')}
+              {effectiveEnabledScreens.length > 2
+                ? `${effectiveEnabledScreens.length}-Screen Multi-Display`
+                : effectiveEnabledScreens.length === 1
+                ? 'Single Display'
+                : 'Dual Display Sync'}
             </span>
           </div>
 

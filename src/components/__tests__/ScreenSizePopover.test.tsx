@@ -144,8 +144,8 @@ describe('BlockSettingsSection & ScreenSizePopover', () => {
     expect(html).toContain('role="switch"');
     expect(html).toContain('aria-checked="true"');
     // Only one unified block when symmetric
-    expect(html).not.toContain('Left Half Display &amp; Power Settings');
-    expect(html).not.toContain('Right Half Display &amp; Power Settings');
+    expect(html).not.toContain('Central Display &amp; Power Settings');
+    expect(html).not.toContain('Peripheral Display &amp; Power Settings');
   });
 
   it('renders two independent blocks for Left and Right sides when symmetric settings is unchecked', () => {
@@ -170,19 +170,19 @@ describe('BlockSettingsSection & ScreenSizePopover', () => {
     expect(html).toContain('aria-checked="false"');
 
     // Both independent side blocks are rendered
-    expect(html).toContain('Left Half Display &amp; Power Settings');
-    expect(html).toContain('Left Half (Master)');
-    expect(html).toContain('Right Half Display &amp; Power Settings');
-    expect(html).toContain('Right Half (Peripheral)');
+    expect(html).toContain('Central Display &amp; Power Settings');
+    expect(html).toContain('Central (Master)');
+    expect(html).toContain('Peripheral Display &amp; Power Settings');
+    expect(html).toContain('Peripheral');
 
     // Left dimensions and Right dimensions are distinct
     expect(html).toContain('32×128px');
     expect(html).toContain('68×160px');
 
-    // Left and Right timers in timeline footer
-    expect(html).toContain('Left Half:');
+    // Central and Peripheral timers in timeline footer
+    expect(html).toContain('Central:');
     expect(html).toContain('#define SCYAN_SLEEP_TIMEOUT_MS 60000');
-    expect(html).toContain('Right Half:');
+    expect(html).toContain('Peripheral:');
     expect(html).toContain('#define SCYAN_SLEEP_TIMEOUT_MS_RIGHT 120000');
   });
 });
@@ -206,7 +206,7 @@ describe('SideSettingsPanel (Side-Docked Display & Power Panels)', () => {
     expect(html).not.toContain('side-settings-panel-container side-left open');
     expect(html).toContain('aria-hidden="true"');
     expect(html).toContain('role="region"');
-    expect(html).toContain('aria-label="Left Active (Master) Display &amp; Power Settings"');
+    expect(html).toContain('aria-label="Central (Master) Display &amp; Power Settings"');
   });
 
   it('renders open state for Master (Left) with controls and defines', () => {
@@ -225,8 +225,8 @@ describe('SideSettingsPanel (Side-Docked Display & Power Panels)', () => {
     );
 
     expect(html).toContain('side-settings-panel-container side-left open');
-    expect(html).toContain('Master Settings');
-    expect(html).toContain('Left Half');
+    expect(html).toContain('Central (Master) Settings');
+    expect(html).toContain('Central');
     expect(html).toContain('Symmetric Mode:');
     expect(html).toContain('Screen Dimensions');
     expect(html).toContain('32×128px');
@@ -256,7 +256,7 @@ describe('SideSettingsPanel (Side-Docked Display & Power Panels)', () => {
 
     expect(html).toContain('side-settings-panel-container side-right open');
     expect(html).toContain('Peripheral Settings');
-    expect(html).toContain('Right Half');
+    expect(html).toContain('Peripheral');
 
     // Symmetric Settings toggle is inside Peripheral panel, checked true
     expect(html).toContain('Symmetric Settings');
@@ -264,7 +264,7 @@ describe('SideSettingsPanel (Side-Docked Display & Power Panels)', () => {
     expect(html).toContain('aria-checked="true"');
 
     // Mirroring Master indicator banner
-    expect(html).toContain('Mirroring Left Half (Master)');
+    expect(html).toContain('Mirroring Central (Master)');
 
     // Controls container is visually disabled with opacity-40 pointer-events-none select-none
     expect(html).toContain('opacity-40 pointer-events-none select-none');
@@ -295,7 +295,7 @@ describe('SideSettingsPanel (Side-Docked Display & Power Panels)', () => {
 
     expect(html).toContain('side-settings-panel-container side-right open');
     expect(html).toContain('Peripheral Settings');
-    expect(html).toContain('Right Half');
+    expect(html).toContain('Peripheral');
 
     // Symmetric Settings toggle is unchecked
     expect(html).toContain('Symmetric Settings');

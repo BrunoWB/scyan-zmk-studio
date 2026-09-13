@@ -12,9 +12,11 @@ export interface TopologyPartsPaletteProps {
   fontGrid: BwpxGrid;
   fontGlyphs?: FontGlyph[];
   fontMappings?: FontCharMapping[];
-  activeLeftBlocks: LayoutBlock[];
-  activeRightBlocks: LayoutBlock[];
-  activeDongleBlocks: LayoutBlock[];
+  activeCentralBlocks?: LayoutBlock[];
+  activePeripheralBlocks?: LayoutBlock[];
+  activeLeftBlocks?: LayoutBlock[];
+  activeRightBlocks?: LayoutBlock[];
+  activeDongleBlocks?: LayoutBlock[];
 }
 
 export const TopologyPartsPalette: React.FC<TopologyPartsPaletteProps> = ({
@@ -24,10 +26,13 @@ export const TopologyPartsPalette: React.FC<TopologyPartsPaletteProps> = ({
   fontGrid,
   fontGlyphs = [],
   fontMappings = [],
+  activeCentralBlocks,
+  activePeripheralBlocks,
   activeLeftBlocks,
   activeRightBlocks,
-  activeDongleBlocks,
 }) => {
+  const effectiveCentral = activeCentralBlocks ?? activeLeftBlocks ?? [];
+  const effectivePeripheral = activePeripheralBlocks ?? activeRightBlocks ?? [];
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'split-half' | 'single-piece'>('all');
 
@@ -190,9 +195,8 @@ export const TopologyPartsPalette: React.FC<TopologyPartsPaletteProps> = ({
                   fontGrid={fontGrid}
                   fontGlyphs={fontGlyphs}
                   fontMappings={fontMappings}
-                  activeLeftBlocks={activeLeftBlocks}
-                  activeRightBlocks={activeRightBlocks}
-                  activeDongleBlocks={activeDongleBlocks}
+                  activeCentralBlocks={effectiveCentral}
+                  activePeripheralBlocks={effectivePeripheral}
                   compact={true}
                 />
               </div>

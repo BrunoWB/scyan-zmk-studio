@@ -13,7 +13,7 @@ export interface OledDisplayModuleProps {
   fontGrid: BwpxGrid;
   fontGlyphs?: FontGlyph[];
   fontMappings?: FontCharMapping[];
-  side?: 'left' | 'right' | 'dongle' | 'single';
+  side?: 'central' | 'peripheral' | 'single' | string;
   badge?: string;
   isIdle?: boolean;
   battery?: number;
@@ -71,7 +71,7 @@ export const OledDisplayModule: React.FC<OledDisplayModuleProps> = ({
   fontGrid,
   fontGlyphs = [],
   fontMappings = [],
-  side = 'left',
+  side = 'central',
   badge: _badge,
   isIdle = false,
   battery = 85,
@@ -137,7 +137,7 @@ export const OledDisplayModule: React.FC<OledDisplayModuleProps> = ({
     const vHeight = height > 0 ? height : 128;
 
     const vbuf = new BwpxGrid(vWidth, vHeight);
-    const renderSide = side === 'single' ? 'left' : side;
+    const renderSide = side === 'single' ? 'central' : side;
 
     renderBlocksToGrid(blocks, vbuf, {
       symbolsGrid,
@@ -211,12 +211,8 @@ export const OledDisplayModule: React.FC<OledDisplayModuleProps> = ({
   const housingWidth = displayDim.displayW + OLED_BORDER_UNITS * 2;
   const housingHeight = displayDim.displayH + OLED_BORDER_UNITS * 2;
 
-  const housingBorderColor = accentColor || (side === 'dongle' ? 'rgba(169, 83, 246, 0.4)' : undefined);
-  const housingShadow = accentColor
-    ? `0 0 12px ${accentColor}33`
-    : side === 'dongle'
-      ? '0 0 12px rgba(169, 83, 246, 0.15)'
-      : undefined;
+  const housingBorderColor = accentColor;
+  const housingShadow = accentColor ? `0 0 12px ${accentColor}33` : undefined;
 
   const innerContent = (
     <div

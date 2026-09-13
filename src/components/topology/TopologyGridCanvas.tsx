@@ -24,7 +24,7 @@ export interface PlacedPartInstance {
 }
 
 export interface LayoutDisplayItem {
-  id: string; // e.g. 'left', 'right', 'dongle', 'peripheral-1'
+  id: string; // e.g. 'central', 'peripheral', 'peripheral-2'
   name: string; // e.g. 'Master Display', 'Right Peripheral', 'Dongle'
   isMaster: boolean;
   blocks: LayoutBlock[];
@@ -41,9 +41,11 @@ export interface TopologyGridCanvasProps {
   fontGrid: BwpxGrid;
   fontGlyphs?: FontGlyph[];
   fontMappings?: FontCharMapping[];
-  activeLeftBlocks: LayoutBlock[];
-  activeRightBlocks: LayoutBlock[];
-  activeDongleBlocks: LayoutBlock[];
+  activeCentralBlocks?: LayoutBlock[];
+  activePeripheralBlocks?: LayoutBlock[];
+  activeLeftBlocks?: LayoutBlock[];
+  activeRightBlocks?: LayoutBlock[];
+  activeDongleBlocks?: LayoutBlock[];
   layoutDisplays?: Record<string, LayoutDisplayItem>;
   displayAssignments?: Record<string, string | null>;
   onDisplayAssignmentsChange?: (assignments: Record<string, string | null>) => void;
@@ -104,9 +106,10 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
   fontGrid,
   fontGlyphs,
   fontMappings,
+  activeCentralBlocks,
+  activePeripheralBlocks,
   activeLeftBlocks,
   activeRightBlocks,
-  activeDongleBlocks,
   layoutDisplays,
   displayAssignments,
   onDisplayAssignmentsChange,
@@ -122,6 +125,9 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
   instances,
   onKeystroke,
 }) => {
+  const effectiveCentral = activeCentralBlocks ?? activeLeftBlocks ?? [];
+  const effectivePeripheral = activePeripheralBlocks ?? activeRightBlocks ?? [];
+
   const [zoomScale, setZoomScale] = useState<number>(0.85);
   const [hoveredDropSlot, setHoveredDropSlot] = useState<string | null>(null);
   const [draggingPartKey, setDraggingPartKey] = useState<string | null>(null);
@@ -132,28 +138,28 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
       return layoutDisplays;
     }
     return {
-      left: {
-        id: 'left',
+      central: {
+        id: 'central',
         name: 'Master Display',
         isMaster: true,
-        blocks: activeLeftBlocks,
+        blocks: effectiveCentral,
         dimensions: { width: 32, height: 128 },
       },
-      right: {
-        id: 'right',
-        name: 'Right Peripheral',
+      peripheral: {
+        id: 'peripheral',
+        name: 'Peripheral Display',
         isMaster: false,
-        blocks: activeRightBlocks,
+        blocks: effectivePeripheral,
         dimensions: { width: 32, height: 128 },
       },
     };
-  }, [layoutDisplays, activeLeftBlocks, activeRightBlocks]);
+  }, [layoutDisplays, effectiveCentral, effectivePeripheral]);
 
   // Local fallback for display assignments
   const [localDisplayAssignments, setLocalDisplayAssignments] = useState<Record<string, string | null>>(() => {
     return {
-      '0,0': 'left',
-      '1,0': 'right',
+      '0,0': 'central',
+      '1,0': 'peripheral',
     };
   });
 
@@ -377,8 +383,8 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
             nextAssignments[targetKey] = nextUnassigned ? nextUnassigned.id : null;
             updateDisplayAssignments(nextAssignments);
 
-            // If this is the first part or a left half, set as master shield
-            if (isEmpty || foundPart.side === 'left' || foundPart.side === 'dongle') {
+            // If this is the first part placed on the canvas, set as master shield
+            if (isEmpty) {
               updateMasterShieldKey(targetKey);
             }
           }
@@ -544,8 +550,8 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
       });
       updateMasterShieldKey('0,0');
       updateDisplayAssignments({
-        '0,0': 'left',
-        '1,0': effectiveLayoutDisplays['right'] ? 'right' : null,
+        '0,0': 'central',
+        '1,0': effectiveLayoutDisplays['peripheral'] ? 'peripheral' : null,
       });
     } else if (presetKey === 'dongle-split' && corneLeft && corneRight && xiao) {
       onPlacedPartsChange({
@@ -555,9 +561,9 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
       });
       updateMasterShieldKey('1,0'); // Dongle is Master!
       updateDisplayAssignments({
-        '1,0': 'left', // Master display on Dongle
-        '0,0': effectiveLayoutDisplays['right'] ? 'right' : null,
-        '2,0': effectiveLayoutDisplays['dongle'] ? 'dongle' : null,
+        '1,0': 'central', // Master display on Dongle
+        '0,0': effectiveLayoutDisplays['peripheral'] ? 'peripheral' : null,
+        '2,0': null,
       });
     } else if (presetKey === 'numpad' && corneLeft && corneRight && tidbit) {
       onPlacedPartsChange({
@@ -567,9 +573,9 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
       });
       updateMasterShieldKey('0,0');
       updateDisplayAssignments({
-        '0,0': 'left',
-        '1,0': effectiveLayoutDisplays['right'] ? 'right' : null,
-        '2,0': effectiveLayoutDisplays['dongle'] ? 'dongle' : null,
+        '0,0': 'central',
+        '1,0': effectiveLayoutDisplays['peripheral'] ? 'peripheral' : null,
+        '2,0': null,
       });
     } else if (presetKey === 'reviung' && reviung && tidbit) {
       onPlacedPartsChange({
@@ -578,8 +584,8 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
       });
       updateMasterShieldKey('0,0');
       updateDisplayAssignments({
-        '0,0': 'left',
-        '1,0': effectiveLayoutDisplays['right'] ? 'right' : null,
+        '0,0': 'central',
+        '1,0': effectiveLayoutDisplays['peripheral'] ? 'peripheral' : null,
       });
     }
   };
@@ -829,9 +835,8 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
                           fontGrid={fontGrid}
                           fontGlyphs={fontGlyphs}
                           fontMappings={fontMappings}
-                          activeLeftBlocks={activeLeftBlocks}
-                          activeRightBlocks={activeRightBlocks}
-                          activeDongleBlocks={activeDongleBlocks}
+                          activeCentralBlocks={effectiveCentral}
+                          activePeripheralBlocks={effectivePeripheral}
                           batteryLevel={batteryLevel}
                           typingWpm={typingWpm}
                           outputMode={outputMode}

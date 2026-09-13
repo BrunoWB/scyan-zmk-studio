@@ -7,14 +7,14 @@ import type { LayoutBlock } from '../../types/zmk';
 describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
   const dummyGrid = new BwpxGrid(32, 128);
 
-  const sampleLeftBlocks: LayoutBlock[] = [
-    { id: 'left-wpm', widgetType: 'wpm', name: 'WPM Left', x: 0, y: 0, width: 20, height: 10, enabled: true, side: 'left' },
+  const sampleCentralBlocks: LayoutBlock[] = [
+    { id: 'central-wpm', widgetType: 'wpm', name: 'WPM Central', x: 0, y: 0, width: 20, height: 10, enabled: true, side: 'central' },
   ];
-  const sampleRightBlocks: LayoutBlock[] = [
-    { id: 'right-battery', widgetType: 'battery', name: 'Battery Right', x: 0, y: 0, width: 17, height: 10, enabled: true, side: 'right' },
+  const samplePeripheralBlocks: LayoutBlock[] = [
+    { id: 'peripheral-battery', widgetType: 'battery', name: 'Battery Peripheral', x: 0, y: 0, width: 17, height: 10, enabled: true, side: 'peripheral' },
   ];
-  const sampleDongleBlocks: LayoutBlock[] = [
-    { id: 'dongle-conn', widgetType: 'connection', name: 'Output Dongle', x: 0, y: 0, width: 12, height: 10, enabled: true, side: 'dongle' },
+  const samplePeripheral2Blocks: LayoutBlock[] = [
+    { id: 'p2-conn', widgetType: 'connection', name: 'Output P2', x: 0, y: 0, width: 12, height: 10, enabled: true, side: 'peripheral-2' },
   ];
 
   it('renders Master display on the left, Widgets catalog in the center, and Peripheral on the right', () => {
@@ -24,9 +24,9 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
         symbolSlices={[]}
         fontGrid={dummyGrid}
         customText="TEST"
-        leftBlocks={sampleLeftBlocks}
-        rightBlocks={sampleRightBlocks}
-        enabledScreens={['left', 'right']}
+        centralBlocks={sampleCentralBlocks}
+        peripheralBlocks={samplePeripheralBlocks}
+        enabledScreens={['central', 'peripheral']}
       />
     );
 
@@ -55,10 +55,15 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
         symbolSlices={[]}
         fontGrid={dummyGrid}
         customText="TEST"
-        leftBlocks={sampleLeftBlocks}
-        rightBlocks={sampleRightBlocks}
-        dongleBlocks={sampleDongleBlocks}
-        enabledScreens={['left', 'right', 'dongle']}
+        centralBlocks={sampleCentralBlocks}
+        peripheralBlocks={samplePeripheralBlocks}
+        enabledScreens={['central', 'peripheral', 'peripheral-2']}
+        peripheralScreens={{
+          'peripheral-2': {
+            name: 'Peripheral 2',
+            blocks: samplePeripheral2Blocks,
+          },
+        }}
       />
     );
 
@@ -67,7 +72,7 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
 
     // Both peripherals are on the right of the catalog
     expect(html).toContain('Peripheral Active');
-    expect(html).toContain('Dongle Active (Peripheral)');
+    expect(html).toContain('Peripheral 2 Active (Peripheral)');
 
     // Display counter reflects 1 Central and 2 Peripherals
     expect(html).toContain('1 Central');
@@ -81,10 +86,10 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
         symbolSlices={[]}
         fontGrid={dummyGrid}
         customText="TEST"
-        leftBlocks={sampleLeftBlocks}
-        rightBlocks={sampleRightBlocks}
+        centralBlocks={sampleCentralBlocks}
+        peripheralBlocks={samplePeripheralBlocks}
         isRightSettingsOpen={true}
-        enabledScreens={['left', 'right']}
+        enabledScreens={['central', 'peripheral']}
       />
     );
 
@@ -101,9 +106,9 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
         symbolSlices={[]}
         fontGrid={dummyGrid}
         customText="TEST"
-        leftBlocks={sampleLeftBlocks}
+        centralBlocks={sampleCentralBlocks}
         isLeftSettingsOpen={true}
-        enabledScreens={['left']}
+        enabledScreens={['central']}
       />
     );
 
@@ -119,11 +124,14 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
         symbolSlices={[]}
         fontGrid={dummyGrid}
         customText="TEST"
-        leftBlocks={sampleLeftBlocks}
-        rightBlocks={sampleRightBlocks}
-        dongleBlocks={sampleDongleBlocks}
-        enabledScreens={['left', 'right', 'dongle', 'peripheral-3', 'peripheral-4']}
+        centralBlocks={sampleCentralBlocks}
+        peripheralBlocks={samplePeripheralBlocks}
+        enabledScreens={['central', 'peripheral', 'peripheral-2', 'peripheral-3', 'peripheral-4']}
         peripheralScreens={{
+          'peripheral-2': {
+            name: 'Numpad Display',
+            blocks: [{ id: 'p2-blk', widgetType: 'connection', name: 'Conn P2', x: 0, y: 0, width: 12, height: 10, enabled: true, side: 'peripheral-2' }],
+          },
           'peripheral-3': {
             name: 'Macro Pad Display',
             blocks: [{ id: 'p3-blk', widgetType: 'layer', name: 'Layer P3', x: 0, y: 0, width: 20, height: 10, enabled: true, side: 'peripheral-3' }],
@@ -141,7 +149,7 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
 
     // All 4 peripherals on the right of widgets catalog
     expect(html).toContain('Peripheral Active');
-    expect(html).toContain('Dongle Active (Peripheral)');
+    expect(html).toContain('Numpad Display Active (Peripheral)');
     expect(html).toContain('Macro Pad Display Active (Peripheral)');
     expect(html).toContain('Status Bar Display Active (Peripheral)');
 
@@ -162,9 +170,9 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
         symbolSlices={[]}
         fontGrid={dummyGrid}
         customText="TEST"
-        leftBlocks={sampleLeftBlocks}
-        rightBlocks={sampleRightBlocks}
-        enabledScreens={['left', 'right']}
+        centralBlocks={sampleCentralBlocks}
+        peripheralBlocks={samplePeripheralBlocks}
+        enabledScreens={['central', 'peripheral']}
         idleScreensEnabled={true}
       />
     );
@@ -184,9 +192,9 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
         symbolSlices={[]}
         fontGrid={dummyGrid}
         customText="TEST"
-        leftBlocks={sampleLeftBlocks}
-        rightBlocks={sampleRightBlocks}
-        enabledScreens={['left', 'right']}
+        centralBlocks={sampleCentralBlocks}
+        peripheralBlocks={samplePeripheralBlocks}
+        enabledScreens={['central', 'peripheral']}
         isRightSettingsOpen={true}
       />
     );
@@ -200,10 +208,9 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
         symbolSlices={[]}
         fontGrid={dummyGrid}
         customText="TEST"
-        leftBlocks={sampleLeftBlocks}
-        rightBlocks={sampleRightBlocks}
-        dongleBlocks={sampleDongleBlocks}
-        enabledScreens={['left', 'right', 'dongle']}
+        centralBlocks={sampleCentralBlocks}
+        peripheralBlocks={samplePeripheralBlocks}
+        enabledScreens={['central', 'peripheral', 'peripheral-2']}
         isRightSettingsOpen={true}
       />
     );
@@ -219,11 +226,11 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
         symbolSlices={[]}
         fontGrid={dummyGrid}
         customText="TEST"
-        leftBlocks={sampleLeftBlocks}
-        rightBlocks={sampleRightBlocks}
-        enabledScreens={['left', 'right']}
+        centralBlocks={sampleCentralBlocks}
+        peripheralBlocks={samplePeripheralBlocks}
+        enabledScreens={['central', 'peripheral']}
         idleScreensEnabled={true}
-        rightIdleScreensEnabled={false}
+        peripheralIdleScreensEnabled={false}
       />
     );
 
