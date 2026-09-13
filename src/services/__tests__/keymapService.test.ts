@@ -26,6 +26,9 @@ import {
   getCoordForPhysicalScanCode,
   getMatchingKeyCoords,
   formatLayerLabel,
+  detectShieldFromRepo,
+  getShieldDefaultResolution,
+  inferShieldFromRepo,
 } from '../keymapService';
 import type { GitHubRepoConfig } from '../githubService';
 
@@ -841,6 +844,45 @@ describe('User Repository Test Set (BrunoWB/zmk-config)', () => {
 
     it('trims whitespace and formats cleanly', () => {
       expect(formatLayerLabel(2, '  NUMPAD  ')).toBe('Layer 2 (NUMPAD)');
+    });
+  });
+
+  describe('Shield Detection & Default Resolution Inference', () => {
+    it('detects shield from repository name, keymap filename, or conf filename', () => {
+      expect(detectShieldFromRepo('zmk-config-lily58')).toBe('lily58');
+      expect(detectShieldFromRepo('', 'config/corne.keymap')).toBe('corne');
+      expect(detectShieldFromRepo('', undefined, ['config/sofle.conf'])).toBe('sofle');
+      expect(detectShieldFromRepo('my-keyboard', 'config/reviung41.keymap')).toBe('reviung41');
+      expect(detectShieldFromRepo('ferris-sweep-firmware')).toBe('ferris-sweep');
+      expect(detectShieldFromRepo('custom-board', 'config/unknown.keymap')).toBe('unknown');
+    });
+
+    it('getShieldDefaultResolution returns correct native dimensions for known and unknown shields', () => {
+      expect(getShieldDefaultResolution('lily58')).toEqual({ width: 128, height: 32 });
+      expect(getShieldDefaultResolution('sofle')).toEqual({ width: 128, height: 32 });
+      expect(getShieldDefaultResolution('reviung41')).toEqual({ width: 128, height: 32 });
+      expect(getShieldDefaultResolution('corne')).toEqual({ width: 32, height: 128 });
+      expect(getShieldDefaultResolution('ferris-sweep')).toEqual({ width: 32, height: 128 });
+      expect(getShieldDefaultResolution('kyria')).toEqual({ width: 128, height: 64 });
+      // Fallback for null or unknown
+      expect(getShieldDefaultResolution(null)).toEqual({ width: 32, height: 128 });
+    });
+
+    it('inferShieldFromRepo infers shield and resolution when recognized, or returns null for unknown', () => {
+      const lily = inferShieldFromRepo('my-zmk-config', 'config/lily58.keymap', ['config/lily58.conf']);
+      expect(lily).toEqual({
+        shieldId: 'lily58',
+        defaultResolution: { width: 128, height: 32 },
+      });
+
+      const corne = inferShieldFromRepo('corne-zmk', undefined, ['config/corne.conf']);
+      expect(corne).toEqual({
+        shieldId: 'corne',
+        defaultResolution: { width: 32, height: 128 },
+      });
+
+      const unknown = inferShieldFromRepo('generic-repo', 'config/custom.keymap');
+      expect(unknown).toBeNull();
     });
   });
 });

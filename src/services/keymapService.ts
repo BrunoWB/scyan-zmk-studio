@@ -1,5 +1,6 @@
 import { Octokit } from '@octokit/rest';
 import type { GitHubRepoConfig } from './githubService';
+import { getShieldDefinition, KNOWN_SHIELDS } from '../data/shieldsData';
 
 export interface LayerData {
   name: string;
@@ -878,6 +879,39 @@ export function detectShieldFromRepo(repoName: string, keymapFilename?: string, 
     if (base && base !== 'keymap') return base.toLowerCase();
   }
   return 'unknown';
+}
+
+/**
+ * Returns the default native display resolution for a shield ID.
+ * Defaults to 32x128 (Corne vertical OLED) if unknown.
+ */
+export function getShieldDefaultResolution(shieldId?: string | null): { width: number; height: number } {
+  const def = getShieldDefinition(shieldId);
+  return def?.displayConfig?.nativeResolution || { width: 32, height: 128 };
+}
+
+/**
+ * Tries to infer the keyboard shield and its default display resolution from repository context
+ * (repository name, keymap filename, and/or configuration filenames).
+ * Returns null if no known shield could be recognized.
+ */
+export function inferShieldFromRepo(
+  repoName: string,
+  keymapFilename?: string,
+  confFilenames?: string[]
+): { shieldId: string; defaultResolution: { width: number; height: number } } | null {
+  const shieldId = detectShieldFromRepo(repoName, keymapFilename, confFilenames);
+  if (!shieldId || shieldId === 'unknown') {
+    return null;
+  }
+  const isKnown = KNOWN_SHIELDS.some(
+    s => s.id === shieldId || s.id === shieldId.toLowerCase().replace(/_/g, '-')
+  );
+  if (!isKnown) {
+    return null;
+  }
+  const defaultResolution = getShieldDefaultResolution(shieldId);
+  return { shieldId, defaultResolution };
 }
 
 /**

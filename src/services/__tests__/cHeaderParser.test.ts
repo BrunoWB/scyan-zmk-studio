@@ -1,4 +1,4 @@
-import { parseCHeader, generateCHeader } from '../cHeaderParser';
+import { parseCHeader, generateCHeader, getDefaultAssets, type HeaderMetadata } from '../cHeaderParser';
 import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
 import type { SpriteSlice } from '../../types/zmk';
 import { describe, it, expect } from 'vitest';
@@ -749,6 +749,24 @@ static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
     expect(parsed.metadata?.enabledScreens).toEqual(['central', 'peripheral']);
     expect(parsed.metadata?.centralBlocks?.length).toBe(1);
     expect(parsed.metadata?.peripheralBlocks?.length).toBe(1);
+  });
+
+  it('generates correct physical hardware dimensions for horizontal/landscape displays (e.g. Lily58 128x32)', () => {
+    const assets = getDefaultAssets();
+    const metadata: HeaderMetadata = {
+      version: 1,
+      centralBlocks: [],
+      peripheralBlocks: [],
+      screenDimensions: { width: 128, height: 32 },
+      shieldId: 'lily58',
+    };
+    const cCode = generateCHeader(assets.symbolsGrid, assets.symbolSlices, assets.fontGrid, assets.fontMappings, metadata);
+
+    expect(cCode).toContain('#define DISPLAY_VIRTUAL_WIDTH  128');
+    expect(cCode).toContain('#define DISPLAY_VIRTUAL_HEIGHT 32');
+    expect(cCode).toContain('#define DISPLAY_HW_WIDTH       128');
+    expect(cCode).toContain('#define DISPLAY_HW_HEIGHT      32');
+    expect(cCode).toContain('"shieldId": "lily58"');
   });
 });
 

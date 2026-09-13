@@ -556,6 +556,7 @@ export interface RepoPrerequisites {
   hasKconfig: boolean;
   hasAssetsHeader: boolean;
   confPath?: string;
+  candidateConfFiles?: string[];
   westPath?: string;
   headerPath?: string;
   existingConfContent?: string;
@@ -710,6 +711,7 @@ export async function checkRepoPrerequisites(
     hasKconfig,
     hasAssetsHeader,
     confPath,
+    candidateConfFiles,
     westPath,
     headerPath,
     existingConfContent,

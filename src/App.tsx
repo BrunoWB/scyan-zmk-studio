@@ -28,6 +28,8 @@ import {
   DEFAULT_EMPTY_5X3_LAYOUT,
   fetchRepoKeymap,
   parseZmkKeymap,
+  inferShieldFromRepo,
+  getShieldDefaultResolution,
 } from './services/keymapService';
 import type {
   GitHubRepoConfig,
@@ -182,6 +184,26 @@ export function App() {
     const def = getDefaultAssets();
     return def.metadata?.screenDimensions || { width: 32, height: 128 };
   });
+
+  const [hasUserCustomizedDimensions, setHasUserCustomizedDimensions] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('zmk-customized-dimensions') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const hasUserCustomizedDimensionsRef = useRef(hasUserCustomizedDimensions);
+  useEffect(() => {
+    hasUserCustomizedDimensionsRef.current = hasUserCustomizedDimensions;
+  }, [hasUserCustomizedDimensions]);
+
+  const markDimensionsCustomized = useCallback(() => {
+    setHasUserCustomizedDimensions(true);
+    hasUserCustomizedDimensionsRef.current = true;
+    try {
+      localStorage.setItem('zmk-customized-dimensions', 'true');
+    } catch {}
+  }, []);
 
   const [idleScreensEnabled, setIdleScreensEnabled] = useState<boolean>(() => {
     try {
@@ -614,6 +636,7 @@ export function App() {
       }
       if (parsed.metadata.screenDimensions) {
         setScreenDimensions(parsed.metadata.screenDimensions);
+        markDimensionsCustomized();
       }
       if (parsed.metadata.widgetInstances) {
         const instMap = { ...parsed.metadata.widgetInstances };
@@ -704,12 +727,15 @@ export function App() {
       'zmk-widget-instances',
       'zmk-cleared-templates',
       'zmk_builder_cached_header',
+      'zmk-customized-dimensions',
     ];
     keysToRemove.forEach(k => {
       try {
         localStorage.removeItem(k);
       } catch {}
     });
+    setHasUserCustomizedDimensions(false);
+    hasUserCustomizedDimensionsRef.current = false;
     setPeripheralScreens({});
     applyParsedAssets(getDefaultAssets());
     setCustomText('BRUNOWB');
@@ -739,6 +765,32 @@ export function App() {
     applyDefaults();
     showToast('success', 'Workspace restored to base factory defaults.');
   }, [applyDefaults, showToast]);
+
+  // Helper to apply detected shield and update default screen dimensions if not already customized
+  const applyShieldDetectionIfUnset = useCallback(
+    (detectedShield: string, sourceDesc?: string) => {
+      if (!detectedShield || detectedShield === 'unknown') return;
+
+      setShieldId(detectedShield);
+      try {
+        localStorage.setItem('zmk-shield-id', detectedShield);
+      } catch {}
+
+      if (!hasUserCustomizedDimensionsRef.current) {
+        const defaultRes = getShieldDefaultResolution(detectedShield);
+        setScreenDimensions(defaultRes);
+        setPeripheralScreenDimensions(defaultRes);
+        try {
+          localStorage.setItem('zmk-screen-dimensions', JSON.stringify(defaultRes));
+          localStorage.setItem('zmk-peripheral-screen-dimensions', JSON.stringify(defaultRes));
+        } catch {}
+        if (sourceDesc) {
+          showToast('success', `Detected ${detectedShield} from ${sourceDesc}: aligned canvas to ${defaultRes.width}x${defaultRes.height} px`);
+        }
+      }
+    },
+    [showToast]
+  );
 
   // GitHub integration & Connection State
   const [config, setConfig] = useState<GitHubRepoConfig>(getStoredGitHubConfig());
@@ -788,6 +840,11 @@ export function App() {
           if (result && result.content) {
             const parsed = parseZmkKeymap(result.content, result.filename);
             setKeymapLayout(parsed);
+            if (parsed.shieldId && parsed.shieldId !== 'unknown') {
+              if (!repoPrereqs?.hasAssetsHeader) {
+                applyShieldDetectionIfUnset(parsed.shieldId, result.filename);
+              }
+            }
           }
         })
         .catch(err => {
@@ -798,7 +855,7 @@ export function App() {
         isMounted = false;
       };
     }
-  }, [config?.token, config?.owner, config?.repo, config?.branch, connection?.status, syncTrigger]);
+  }, [config?.token, config?.owner, config?.repo, config?.branch, connection?.status, syncTrigger, repoPrereqs?.hasAssetsHeader, applyShieldDetectionIfUnset]);
 
   // Check and verify GitHub connection on mount and config updates
   const testConnection = useCallback(async (cfg: GitHubRepoConfig) => {
@@ -910,6 +967,15 @@ export function App() {
             } else {
               applyDefaults();
               initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
+              try {
+                const confCandidates = prereqs.candidateConfFiles || (prereqs.confPath ? [prereqs.confPath] : undefined);
+                const inferred = inferShieldFromRepo(activeRepo, undefined, confCandidates);
+                if (inferred) {
+                  applyShieldDetectionIfUnset(inferred.shieldId, 'repository config');
+                }
+              } catch (detectErr) {
+                console.warn('Pre-install shield inference warning:', detectErr);
+              }
             }
           } catch {
             console.info('No scyan_assets.h in repo (first time setup). Loading defaults.');
@@ -1037,6 +1103,11 @@ export function App() {
     clearStoredGitHubToken();
     autoSyncedRepoRef.current = null;
     localStorage.removeItem('zmk_builder_cached_header');
+    setHasUserCustomizedDimensions(false);
+    hasUserCustomizedDimensionsRef.current = false;
+    try {
+      localStorage.removeItem('zmk-customized-dimensions');
+    } catch {}
     const newConfig = { ...config, token: '' };
     setConfig(newConfig);
     setConnection({
@@ -1093,6 +1164,15 @@ export function App() {
           showToast('success', `Synced display assets from ${config.owner}/${config.repo}!`);
         } else {
           showToast('success', `Synced repository from ${config.owner}/${config.repo}! (Display assets not installed yet)`);
+          try {
+            const confCandidates = prereqs.candidateConfFiles || (prereqs.confPath ? [prereqs.confPath] : undefined);
+            const inferred = inferShieldFromRepo(config.repo, undefined, confCandidates);
+            if (inferred) {
+              applyShieldDetectionIfUnset(inferred.shieldId, 'repository config');
+            }
+          } catch (inferErr) {
+            console.warn('Sync shield inference error:', inferErr);
+          }
         }
 
         // Also fetch and update keymap layout from repository
@@ -1101,6 +1181,9 @@ export function App() {
           if (keymapResult && keymapResult.content) {
             const parsedKm = parseZmkKeymap(keymapResult.content, keymapResult.filename);
             setKeymapLayout(parsedKm);
+            if (!prereqs.hasAssetsHeader && parsedKm.shieldId && parsedKm.shieldId !== 'unknown') {
+              applyShieldDetectionIfUnset(parsedKm.shieldId, keymapResult.filename);
+            }
           }
         } catch (kmErr) {
           console.warn('Failed to fetch keymap during repo sync:', kmErr);
@@ -1158,6 +1241,7 @@ export function App() {
       setCurrentSha(res.commitSha);
       setCurrentHeaderPath('config/scyan_assets.h');
       localStorage.setItem('zmk_builder_cached_header', defaultC);
+      markDimensionsCustomized();
 
       showToast('success', `Scyan Studio successfully installed in ${config.owner}/${config.repo}! Firmware build started in GitHub Actions.`);
       trackEvent('studio_installed', {
@@ -1380,6 +1464,7 @@ export function App() {
         setCentralBlocks(data.blocks);
         setIdleCentralBlocks(data.idleBlocks);
         setScreenDimensions(data.dimensions);
+        markDimensionsCustomized();
         setIdleScreensEnabled(data.idleScreensEnabled);
         setIdleTimeoutSec(data.idleTimeoutSec);
         setScreenOffTimeoutSec(data.screenOffTimeoutSec);
@@ -1387,6 +1472,7 @@ export function App() {
         setPeripheralBlocks(data.blocks);
         setIdlePeripheralBlocks(data.idleBlocks);
         setPeripheralScreenDimensions(data.dimensions);
+        markDimensionsCustomized();
         setPeripheralIdleScreensEnabled(data.idleScreensEnabled);
         setPeripheralIdleTimeoutSec(data.idleTimeoutSec);
         setPeripheralScreenOffTimeoutSec(data.screenOffTimeoutSec);
@@ -1704,7 +1790,10 @@ export function App() {
                 onIdleCentralBlocksChange={setIdleCentralBlocks}
                 onIdlePeripheralBlocksChange={setIdlePeripheralBlocks}
                 screenDimensions={screenDimensions}
-                onScreenDimensionsChange={setScreenDimensions}
+                onScreenDimensionsChange={(dims) => {
+                  setScreenDimensions(dims);
+                  markDimensionsCustomized();
+                }}
                 idleScreensEnabled={idleScreensEnabled}
                 onIdleScreensEnabledChange={setIdleScreensEnabled}
                 idleTimeoutSec={idleTimeoutSec}
@@ -1714,7 +1803,10 @@ export function App() {
                 symmetricSettings={symmetricSettings}
                 onSymmetricSettingsChange={setSymmetricSettings}
                 peripheralScreenDimensions={peripheralScreenDimensions}
-                onPeripheralScreenDimensionsChange={setPeripheralScreenDimensions}
+                onPeripheralScreenDimensionsChange={(dims) => {
+                  setPeripheralScreenDimensions(dims);
+                  markDimensionsCustomized();
+                }}
                 peripheralIdleScreensEnabled={peripheralIdleScreensEnabled}
                 onPeripheralIdleScreensEnabledChange={setPeripheralIdleScreensEnabled}
                 peripheralIdleTimeoutSec={peripheralIdleTimeoutSec}
@@ -1760,6 +1852,7 @@ export function App() {
                 onApplyDimensions={(dims, rightDims) => {
                   setScreenDimensions(dims);
                   if (rightDims) setPeripheralScreenDimensions(rightDims);
+                  markDimensionsCustomized();
                   setToast({
                     type: 'success',
                     message: `Applied shield resolution: ${dims.width}x${dims.height} px`,

@@ -946,15 +946,17 @@ export function generateCHeader(
 
   const virtWidth = metadata?.screenDimensions?.width ?? 32;
   const virtHeight = metadata?.screenDimensions?.height ?? 128;
-  const hwWidth = virtHeight;
-  const hwHeight = virtWidth;
+  const isPortrait = virtWidth < virtHeight;
+  const hwWidth = isPortrait ? virtHeight : virtWidth;
+  const hwHeight = isPortrait ? virtWidth : virtHeight;
 
   const isSymmetric = metadata?.symmetricSettings !== false;
   const peripheralDims = metadata?.peripheralScreenDimensions || (metadata as any)?.rightScreenDimensions;
   const peripheralVirtWidth = (!isSymmetric && peripheralDims?.width) ? peripheralDims.width : virtWidth;
   const peripheralVirtHeight = (!isSymmetric && peripheralDims?.height) ? peripheralDims.height : virtHeight;
-  const peripheralHwWidth = peripheralVirtHeight;
-  const peripheralHwHeight = peripheralVirtWidth;
+  const isPeripheralPortrait = peripheralVirtWidth < peripheralVirtHeight;
+  const peripheralHwWidth = isPeripheralPortrait ? peripheralVirtHeight : peripheralVirtWidth;
+  const peripheralHwHeight = isPeripheralPortrait ? peripheralVirtWidth : peripheralVirtHeight;
 
   const idleTimeoutMs = (metadata?.idleTimeoutSec ?? 30) * 1000;
   const screenOffTimeoutMs = (metadata?.screenOffTimeoutSec ?? 60) * 1000;
