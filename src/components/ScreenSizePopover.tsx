@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, X, Monitor, Moon, Clock, Power, Check, Plus, Minus, SlidersHorizontal, Crown, Trash2 } from 'lucide-react';
+import { Settings, X, Monitor, Moon, Clock, Power, Check, Plus, Minus, SlidersHorizontal, Crown, Trash2, ArrowRightLeft } from 'lucide-react';
 import { trackEvent } from '../services/analytics';
 
 export const PRESET_SCREEN_SIZES = [
-  { label: '32 × 128 (Corne / OLED Standard)', width: 32, height: 128 },
+  { label: '32 × 128 (Corne, Sweep, Tidbit)', width: 32, height: 128 },
+  { label: '128 × 32 (Lily58, Sofle, Reviung, Iris)', width: 128, height: 32 },
+  { label: '128 × 64 (Kyria)', width: 128, height: 64 },
   { label: '68 × 160 (nice!view)', width: 68, height: 160 },
-  { label: '128 × 64 (OLED Standard)', width: 128, height: 64 },
-  { label: '128 × 32 (Horizontal OLED)', width: 128, height: 32 },
   { label: 'Custom', width: 0, height: 0 },
 ];
 
@@ -246,6 +246,15 @@ const SideSettingsBlock: React.FC<SideSettingsBlockProps> = ({
   const matchedPreset = PRESET_SCREEN_SIZES.find(
     p => p.width === screenDimensions.width && p.height === screenDimensions.height
   );
+  const [isCustomMode, setIsCustomMode] = useState(!matchedPreset);
+
+  useEffect(() => {
+    if (!matchedPreset) {
+      setIsCustomMode(true);
+    } else {
+      setIsCustomMode(false);
+    }
+  }, [screenDimensions.width, screenDimensions.height, matchedPreset]);
 
   const handleIdleChange = (val: number) => {
     if (disabled) return;
@@ -273,7 +282,6 @@ const SideSettingsBlock: React.FC<SideSettingsBlockProps> = ({
   };
 
   const minSleep = idleScreensEnabled ? idleTimeoutSec + 5 : 10;
-  const idleWindowSec = idleScreensEnabled ? Math.max(0, screenOffTimeoutSec - idleTimeoutSec) : 0;
   const isPurple = themeColor === 'purple';
   const isAmber = themeColor === 'amber';
   const isVertical = layout === 'vertical';
@@ -335,10 +343,14 @@ const SideSettingsBlock: React.FC<SideSettingsBlockProps> = ({
                   Preset Resolution
                 </label>
                 <select
-                  value={matchedPreset ? `${matchedPreset.width}x${matchedPreset.height}` : 'custom'}
+                  value={isCustomMode ? 'custom' : (matchedPreset ? `${matchedPreset.width}x${matchedPreset.height}` : 'custom')}
                   onChange={e => {
                     const val = e.target.value;
-                    if (val === 'custom') return;
+                    if (val === 'custom') {
+                      setIsCustomMode(true);
+                      return;
+                    }
+                    setIsCustomMode(false);
                     trackEvent('screen_size_changed', {
                       size: val,
                       side: sideName || 'Left',
@@ -359,42 +371,39 @@ const SideSettingsBlock: React.FC<SideSettingsBlockProps> = ({
                 </select>
               </div>
 
-              <div>
-                <div className="text-[10px] font-mono uppercase text-[#64748b] mb-1 flex items-center justify-between">
-                  <span>Dimensions Pair [W, H]</span>
-                  <span className="text-[9px] text-[#475569]">Custom px</span>
+              {isCustomMode && (
+                <div>
+                  <div className="text-[10px] font-mono uppercase text-[#64748b] mb-1 flex items-center justify-between">
+                    <span>Dimensions Pair [W, H]</span>
+                    <span className="text-[9px] text-[#475569]">Custom px</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <StepperControl
+                      label="W"
+                      value={screenDimensions.width}
+                      onChange={w => onScreenDimensionsChange({ width: w, height: screenDimensions.height })}
+                      min={16}
+                      max={256}
+                      step={2}
+                      disabled={disabled}
+                      accentColor={themeColor}
+                      ariaLabel={`${sideName} Width`}
+                    />
+                    <StepperControl
+                      label="H"
+                      value={screenDimensions.height}
+                      onChange={h => onScreenDimensionsChange({ width: screenDimensions.width, height: h })}
+                      min={16}
+                      max={256}
+                      step={2}
+                      disabled={disabled}
+                      accentColor={themeColor}
+                      ariaLabel={`${sideName} Height`}
+                    />
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <StepperControl
-                    label="W"
-                    value={screenDimensions.width}
-                    onChange={w => onScreenDimensionsChange({ width: w, height: screenDimensions.height })}
-                    min={16}
-                    max={256}
-                    step={2}
-                    disabled={disabled}
-                    accentColor={themeColor}
-                    ariaLabel={`${sideName} Width`}
-                  />
-                  <StepperControl
-                    label="H"
-                    value={screenDimensions.height}
-                    onChange={h => onScreenDimensionsChange({ width: screenDimensions.width, height: h })}
-                    min={16}
-                    max={256}
-                    step={2}
-                    disabled={disabled}
-                    accentColor={themeColor}
-                    ariaLabel={`${sideName} Height`}
-                  />
-                </div>
-              </div>
+              )}
             </div>
-          </div>
-
-          <div className="mt-2.5 pt-2 border-t border-white/5 text-[10px] text-[#64748b] flex justify-between">
-            <span>Canvas Stride</span>
-            <span className="font-mono text-[#94a3b8]">{Math.ceil(screenDimensions.width / 8)} bytes/row</span>
           </div>
         </div>
 
@@ -420,17 +429,14 @@ const SideSettingsBlock: React.FC<SideSettingsBlockProps> = ({
             </div>
 
             {/* Toggle Switch */}
-            <div className="space-y-2">
+            <div className="pt-1">
               <div className="flex items-center justify-between p-2 px-3 rounded-xl bg-[#0b0d13] border border-[#1e2538]">
-                <div>
-                  <div className="text-xs font-medium text-white">Allow Idle Screens</div>
-                  <div className="text-[10px] text-[#64748b]">Show mascot / screensaver on inactivity</div>
-                </div>
+                <div className="text-xs font-medium text-white">Allow Idle Screensaver</div>
                 <button
                   type="button"
                   role="switch"
                   aria-checked={idleScreensEnabled}
-                  aria-label={`${sideName} Allow Idle Screens`}
+                  aria-label={`${sideName} Allow Idle Screensaver`}
                   disabled={disabled}
                   onClick={handleToggleIdle}
                   className={`w-9 h-5 rounded-full p-0.5 transition-colors cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
@@ -448,18 +454,7 @@ const SideSettingsBlock: React.FC<SideSettingsBlockProps> = ({
                   />
                 </button>
               </div>
-
-              <p className="text-[11px] text-[#94a3b8] leading-relaxed">
-                {idleScreensEnabled
-                  ? `${sideName} idle layouts will show custom mascots and animations during keyboard inactivity.`
-                  : `Display remains on active layout until the sleep timeout is reached.`}
-              </p>
             </div>
-          </div>
-
-          <div className="mt-2.5 pt-2 border-t border-white/5 text-[10px] text-[#64748b] flex justify-between">
-            <span>Layout Mode</span>
-            <span className="font-mono text-[#94a3b8]">{idleScreensEnabled ? 'Dual (Active + Idle)' : 'Active-Only'}</span>
           </div>
         </div>
 
@@ -569,18 +564,6 @@ const SideSettingsBlock: React.FC<SideSettingsBlockProps> = ({
                 </div>
               </div>
             </div>
-          </div>
-
-          <div className="mt-2.5 pt-2 border-t border-white/5 text-[10px] text-[#64748b] flex justify-between">
-            <span>Total Inactivity to Off</span>
-            <span className="font-mono text-[#fbbf24]">
-              {screenOffTimeoutSec}s
-              {idleScreensEnabled && (
-                <span className="text-[#94a3b8] text-[9px] ml-1">
-                  {`(${idleWindowSec}s screensaver)`}
-                </span>
-              )}
-            </span>
           </div>
         </div>
       </div>
@@ -783,7 +766,7 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
               {/* Block 1: Central Display & Power Settings */}
               <SideSettingsBlock
                 title="Central Display & Power Settings"
-                badge="Central (Master)"
+                badge="Central"
                 sideName="Central"
                 themeColor="cyan"
                 screenDimensions={screenDimensions}
@@ -845,10 +828,6 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
                     <span className="text-[9px] opacity-70">{screenOffTimeoutSec}s+</span>
                   </span>
                 </div>
-
-                <div className="text-[10px] text-[#64748b] font-mono shrink-0">
-                  {`#define ZMK_DISPLAY_SLEEP_TIMEOUT_MS ${screenOffTimeoutSec * 1000}`}
-                </div>
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -868,9 +847,6 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
                       Off: {screenOffTimeoutSec}s+
                     </span>
                   </div>
-                  <div className="text-[10px] text-[#64748b] font-mono shrink-0">
-                    {`#define SCYAN_SLEEP_TIMEOUT_MS ${screenOffTimeoutSec * 1000}`}
-                  </div>
                 </div>
 
                 {/* Right Timeline */}
@@ -888,9 +864,6 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
                     <span className="px-1.5 py-0.5 rounded bg-white/5 text-[#94a3b8] border border-white/10 shrink-0 text-[9px]">
                       Off: {effectiveRightScreenOffTimeout}s+
                     </span>
-                  </div>
-                  <div className="text-[10px] text-[#64748b] font-mono shrink-0">
-                    {`#define SCYAN_SLEEP_TIMEOUT_MS_RIGHT ${effectiveRightScreenOffTimeout * 1000}`}
                   </div>
                 </div>
               </div>
@@ -933,10 +906,13 @@ export interface SideSettingsPanelProps {
   rightScreenOffTimeoutSec?: number;
   onRightScreenOffTimeoutSecChange?: (sec: number) => void;
 
-  // Peripheral role actions
+  // Display role actions
   isPeripheral?: boolean;
   onMakeMaster?: () => void;
+  onMakeCentral?: () => void;
+  onMakePeripheral?: () => void;
   onDeleteDisplay?: () => void;
+  canDeleteDisplay?: boolean;
 
   /** When true (e.g. totalDisplays > 2), displays overlay directly over the screen instead of pushing horizontally */
   isOverlay?: boolean;
@@ -966,9 +942,12 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
   onRightIdleTimeoutSecChange,
   rightScreenOffTimeoutSec,
   onRightScreenOffTimeoutSecChange,
-  isPeripheral = false,
+  isPeripheral: _isPeripheral = false,
   onMakeMaster,
+  onMakeCentral,
+  onMakePeripheral,
   onDeleteDisplay,
+  canDeleteDisplay = true,
   isOverlay = false,
   className = '',
 }) => {
@@ -1048,7 +1027,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
 
   const isCentral = side === 'central' || side === 'left';
   const peripheralIndex = side.startsWith('peripheral-') ? side.replace('peripheral-', '') : null;
-  const sideTitle = isCentral ? 'Central (Master) Settings' : peripheralIndex ? `Peripheral ${peripheralIndex} Settings` : 'Peripheral Settings';
+  const sideTitle = isCentral ? 'Central Settings' : peripheralIndex ? `Peripheral ${peripheralIndex} Settings` : 'Peripheral Settings';
   const sideBadge = isCentral ? 'Central' : peripheralIndex ? `Peripheral ${peripheralIndex}` : 'Peripheral';
 
   return (
@@ -1062,7 +1041,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
       ].filter(Boolean).join(' ')}
       aria-hidden={!isOpen}
       role="region"
-      aria-label={`${isCentral ? 'Central (Master)' : `Peripheral ${peripheralIndex || ''}`} Display & Power Settings`}
+      aria-label={`${isCentral ? 'Central' : `Peripheral ${peripheralIndex || ''}`} Display & Power Settings`}
     >
       <div className="side-settings-panel-inner">
         {/* Header */}
@@ -1097,7 +1076,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
             onClick={onClose}
             className="text-[#94a3b8] hover:text-white hover:bg-white/5 transition-all p-1 rounded-md cursor-pointer flex items-center gap-1 text-xs"
             title="Close Settings (Esc)"
-            aria-label={`Close ${isCentral ? 'Master' : 'Peripheral'} Settings`}
+            aria-label={`Close ${isCentral ? 'Central' : 'Peripheral'} Settings`}
           >
             <X size={14} />
           </button>
@@ -1111,13 +1090,13 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
                 <div className="p-2 rounded-lg bg-[#00f0ff]/10 border border-[#00f0ff]/20 text-[11px] text-[#e2f1ff] flex items-center gap-1.5 shrink-0">
                   <Check size={12} className="text-[#00f0ff] shrink-0" />
                   <span className="text-[10px] text-[#94a3b8]">
-                    <strong className="text-[#00f0ff] font-medium">Symmetric Mode:</strong> Controls both Master &amp; Peripheral.
+                    <strong className="text-[#00f0ff] font-medium">Symmetric Mode:</strong> Controls both Central &amp; Peripheral.
                   </span>
                 </div>
               )}
 
               <SideSettingsBlock
-                sideName="Central (Master)"
+                sideName="Central"
                 themeColor="cyan"
                 screenDimensions={screenDimensions}
                 onScreenDimensionsChange={handleLeftDimensionsChange}
@@ -1129,10 +1108,6 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
                 onScreenOffTimeoutSecChange={handleLeftScreenOffTimeoutChange}
                 layout="vertical"
               />
-
-              <div className="pt-2 border-t border-white/10 text-[10px] text-[#64748b] font-mono shrink-0">
-                {`#define SCYAN_SLEEP_TIMEOUT_MS ${screenOffTimeoutSec * 1000}`}
-              </div>
             </>
           ) : (
             <>
@@ -1146,7 +1121,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
                     <SlidersHorizontal size={14} className={effectiveSymmetric ? 'text-[#00f0ff]' : 'text-[#a953f6]'} />
                     <div>
                       <div className="text-xs font-semibold text-white">Symmetric Settings</div>
-                      <div className="text-[10px] text-[#64748b]">Mirror Master display &amp; power</div>
+                      <div className="text-[10px] text-[#64748b]">Mirror Central display &amp; power</div>
                     </div>
                   </div>
                   <button
@@ -1179,7 +1154,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
                   <div className="p-2 rounded-lg bg-[#00f0ff]/10 border border-[#00f0ff]/20 text-[11px] text-[#e2f1ff] flex items-start gap-2">
                     <Check size={13} className="text-[#00f0ff] shrink-0 mt-0.5" />
                     <div className="text-[10px] text-[#94a3b8] leading-tight">
-                      <strong className="text-white font-medium block">Mirroring Central (Master)</strong>
+                      <strong className="text-white font-medium block">Mirroring Central</strong>
                       Peripheral settings are visually locked. Turn off symmetric settings to edit independently.
                     </div>
                   </div>
@@ -1211,47 +1186,66 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
                   disabled={effectiveSymmetric}
                   layout="vertical"
                 />
-
-                <div className="pt-2 border-t border-white/10 text-[10px] text-[#64748b] font-mono shrink-0">
-                  {effectiveSymmetric
-                    ? `#define SCYAN_SLEEP_TIMEOUT_MS ${screenOffTimeoutSec * 1000}`
-                    : `#define SCYAN_SLEEP_TIMEOUT_MS_${side.toUpperCase().replace(/[^A-Z0-9_]/g, '_')} ${effectiveRightScreenOffTimeout * 1000}`}
-                </div>
               </div>
             </>
           )}
 
-          {/* Peripheral Role Actions: Make Master and Delete */}
-          {isPeripheral && (onMakeMaster || onDeleteDisplay) && (
+          {/* Display Role Actions for Central and Peripheral */}
+          {((!isCentral && (onMakeCentral || onMakeMaster)) || (isCentral && onMakePeripheral) || onDeleteDisplay) && (
             <div className="bg-[#0e1118] border border-[#1e2538] rounded-xl p-3 space-y-2 shrink-0 mt-3">
               <div className="text-[11px] font-mono uppercase tracking-wider text-[#94a3b8] font-semibold">
-                Peripheral Actions
+                {isCentral ? 'Central Actions' : 'Peripheral Actions'}
               </div>
 
-              {onMakeMaster && (
+              {!isCentral && (onMakeCentral || onMakeMaster) && (
                 <button
                   type="button"
                   onClick={() => {
-                    onMakeMaster();
+                    (onMakeCentral || onMakeMaster)?.();
                     onClose();
                   }}
                   className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[#00f0ff]/10 hover:bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/30 text-xs font-semibold transition-all cursor-pointer shadow-sm hover:shadow-[0_0_12px_rgba(0,240,255,0.2)]"
-                  title="Promote this peripheral to Master display (places it on left of widgets and makes the left one peripheral)"
+                  title="Promote this peripheral to Central display"
                 >
                   <Crown size={14} />
-                  <span>Make Master Display</span>
+                  <span>Make Central Display</span>
+                </button>
+              )}
+
+              {isCentral && onMakePeripheral && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onMakePeripheral();
+                    onClose();
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[#a953f6]/10 hover:bg-[#a953f6]/20 text-[#a953f6] border border-[#a953f6]/30 text-xs font-semibold transition-all cursor-pointer shadow-sm hover:shadow-[0_0_12px_rgba(169,83,246,0.2)]"
+                  title="Convert Central display into a Peripheral display (leaves no Central display)"
+                >
+                  <ArrowRightLeft size={14} />
+                  <span>Make Peripheral Display</span>
                 </button>
               )}
 
               {onDeleteDisplay && (
                 <button
                   type="button"
+                  disabled={!canDeleteDisplay}
                   onClick={() => {
+                    if (!canDeleteDisplay) return;
                     onDeleteDisplay();
                     onClose();
                   }}
-                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-semibold transition-all cursor-pointer"
-                  title="Delete this peripheral display from the layout"
+                  className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                    canDeleteDisplay
+                      ? 'bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 cursor-pointer'
+                      : 'bg-white/5 text-[#64748b] border border-white/5 opacity-50 cursor-not-allowed'
+                  }`}
+                  title={
+                    canDeleteDisplay
+                      ? `Delete this ${isCentral ? 'central' : 'peripheral'} display from the layout`
+                      : 'Cannot delete display: at least one display is required'
+                  }
                 >
                   <Trash2 size={14} />
                   <span>Delete Display</span>

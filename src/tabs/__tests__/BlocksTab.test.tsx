@@ -89,13 +89,13 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
       />
     );
 
-    // Peripheral settings open contains Make Master and Delete
+    // Peripheral settings open contains Make Central and Delete
     expect(html).toContain('Peripheral Actions');
-    expect(html).toContain('Make Master Display');
+    expect(html).toContain('Make Central Display');
     expect(html).toContain('Delete Display');
   });
 
-  it('does not render Delete Display in Master settings panel', () => {
+  it('renders Central Actions with disabled Delete Display when only one screen exists', () => {
     const html = renderToString(
       <BlocksTab
         symbolsGrid={dummyGrid}
@@ -108,9 +108,12 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
       />
     );
 
-    // Master settings should NOT contain Delete Display or Make Master
-    expect(html).not.toContain('Delete Display');
-    expect(html).not.toContain('Make Master Display');
+    // Central settings contains Central Actions, Make Peripheral Display, and disabled Delete Display
+    expect(html).toContain('Central Actions');
+    expect(html).toContain('Make Peripheral Display');
+    expect(html).toContain('Delete Display');
+    expect(html).toContain('disabled=""');
+    expect(html).not.toContain('Make Central Display');
   });
 
   it('supports arbitrary/unlimited peripheral displays (4+ screens) without disabling Add Display', () => {

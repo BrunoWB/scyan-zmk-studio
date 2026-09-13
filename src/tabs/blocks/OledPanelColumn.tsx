@@ -723,7 +723,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
           onContextMenu={e => e.preventDefault()}
         >
           <div className="px-2.5 py-1 text-[10px] font-mono font-semibold uppercase tracking-wider text-[#64748b] truncate flex items-center justify-between">
-            <span className="truncate">{contextMenu.block ? contextMenu.block.name : (title || (side === 'left' ? 'Master' : side === 'dongle' ? 'Dongle Master' : 'Peripheral'))}</span>
+            <span className="truncate">{contextMenu.block ? contextMenu.block.name : (title || (side === 'left' ? 'Central' : side === 'dongle' ? 'Central' : 'Peripheral'))}</span>
             {contextMenu.block && (
               <span
                 className="size-2 rounded-full shrink-0 ml-1.5"

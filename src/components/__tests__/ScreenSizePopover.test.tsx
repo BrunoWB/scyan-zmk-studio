@@ -55,16 +55,15 @@ describe('BlockSettingsSection & ScreenSizePopover', () => {
     expect(html).toContain('Screen Dimensions');
     expect(html).toContain('32×128px');
     expect(html).toContain('Idle Screensaver');
-    expect(html).toContain('Allow Idle Screens');
+    expect(html).toContain('Allow Idle Screensaver');
     expect(html).toContain('Inactivity Timers');
     expect(html).toContain('TIME UNTIL IDLE');
     expect(html).toContain('TIME UNTIL SCREEN OFF');
     expect(html).toContain('Active (Typing)');
     expect(html).toContain('Idle Screensaver');
     expect(html).toContain('Display Off (Sleep)');
-    expect(html).toContain('Total Inactivity to Off');
-    expect(html).toContain('30s screensaver');
-    expect(html).toContain('#define ZMK_DISPLAY_SLEEP_TIMEOUT_MS 60000');
+    expect(html).not.toContain('Total Inactivity to Off');
+    expect(html).not.toContain('#define ZMK_DISPLAY_SLEEP_TIMEOUT_MS');
   });
 
   it('dims idle timer when idleScreensEnabled is false', () => {
@@ -99,16 +98,17 @@ describe('BlockSettingsSection & ScreenSizePopover', () => {
         min={16}
         max={256}
         step={2}
-        ariaLabel="Width"
+        unit="px"
+        disabled={false}
+        accentColor="cyan"
       />
     );
 
-    expect(html).toContain('aria-label="Decrease Width"');
-    expect(html).toContain('aria-label="Increase Width"');
-    expect(html).toContain('value="32"');
     expect(html).toContain('W:');
-    expect(html).toContain('bg-[#0b0d13]');
-    expect(html).toContain('rounded-xl');
+    expect(html).toContain('32');
+    expect(html).toContain('px');
+    expect(html).toContain('Decrease W');
+    expect(html).toContain('Increase W');
   });
 
   it('renders StepperControl in disabled state with disabled attributes and opacity', () => {
@@ -171,7 +171,7 @@ describe('BlockSettingsSection & ScreenSizePopover', () => {
 
     // Both independent side blocks are rendered
     expect(html).toContain('Central Display &amp; Power Settings');
-    expect(html).toContain('Central (Master)');
+    expect(html).toContain('Central');
     expect(html).toContain('Peripheral Display &amp; Power Settings');
     expect(html).toContain('Peripheral');
 
@@ -181,9 +181,8 @@ describe('BlockSettingsSection & ScreenSizePopover', () => {
 
     // Central and Peripheral timers in timeline footer
     expect(html).toContain('Central:');
-    expect(html).toContain('#define SCYAN_SLEEP_TIMEOUT_MS 60000');
     expect(html).toContain('Peripheral:');
-    expect(html).toContain('#define SCYAN_SLEEP_TIMEOUT_MS_RIGHT 120000');
+    expect(html).not.toContain('#define SCYAN_SLEEP_TIMEOUT_MS');
   });
 });
 
@@ -206,10 +205,10 @@ describe('SideSettingsPanel (Side-Docked Display & Power Panels)', () => {
     expect(html).not.toContain('side-settings-panel-container side-left open');
     expect(html).toContain('aria-hidden="true"');
     expect(html).toContain('role="region"');
-    expect(html).toContain('aria-label="Central (Master) Display &amp; Power Settings"');
+    expect(html).toContain('aria-label="Central Display &amp; Power Settings"');
   });
 
-  it('renders open state for Master (Left) with controls and defines', () => {
+  it('renders open state for Central (Left) with controls and no defines', () => {
     const html = renderToString(
       <SideSettingsPanel
         side="left"
@@ -225,14 +224,14 @@ describe('SideSettingsPanel (Side-Docked Display & Power Panels)', () => {
     );
 
     expect(html).toContain('side-settings-panel-container side-left open');
-    expect(html).toContain('Central (Master) Settings');
+    expect(html).toContain('Central Settings');
     expect(html).toContain('Central');
     expect(html).toContain('Symmetric Mode:');
     expect(html).toContain('Screen Dimensions');
     expect(html).toContain('32×128px');
     expect(html).toContain('Idle Screensaver');
     expect(html).toContain('Inactivity Timers');
-    expect(html).toContain('#define SCYAN_SLEEP_TIMEOUT_MS 60000');
+    expect(html).not.toContain('#define SCYAN_SLEEP_TIMEOUT_MS');
   });
 
   it('renders Peripheral (Right) panel with symmetric settings ON, visually disabling controls', () => {
@@ -263,15 +262,15 @@ describe('SideSettingsPanel (Side-Docked Display & Power Panels)', () => {
     expect(html).toContain('role="switch"');
     expect(html).toContain('aria-checked="true"');
 
-    // Mirroring Master indicator banner
-    expect(html).toContain('Mirroring Central (Master)');
+    // Mirroring Central indicator banner
+    expect(html).toContain('Mirroring Central');
 
     // Controls container is visually disabled with opacity-40 pointer-events-none select-none
     expect(html).toContain('opacity-40 pointer-events-none select-none');
 
-    // Displays mirrored Master values
+    // Displays mirrored Central values
     expect(html).toContain('32×128px');
-    expect(html).toContain('#define SCYAN_SLEEP_TIMEOUT_MS 60000');
+    expect(html).not.toContain('#define SCYAN_SLEEP_TIMEOUT_MS');
   });
 
   it('renders Peripheral (Right) panel with symmetric settings OFF, controls fully active and independent', () => {
@@ -310,7 +309,7 @@ describe('SideSettingsPanel (Side-Docked Display & Power Panels)', () => {
 
     // Displays independent Right values
     expect(html).toContain('68×160px');
-    expect(html).toContain('#define SCYAN_SLEEP_TIMEOUT_MS_RIGHT 120000');
+    expect(html).not.toContain('#define SCYAN_SLEEP_TIMEOUT_MS_RIGHT');
     // Themed purple preset buttons and select focus
     expect(html).toContain('focus:border-[#a953f6]');
     expect(html).toContain('bg-[#a953f6]/20 text-[#a953f6]');
@@ -334,6 +333,70 @@ describe('SideSettingsPanel (Side-Docked Display & Power Panels)', () => {
     expect(html).not.toContain('rounded-lg p-3 flex flex-col justify-between');
     expect(html).toContain('rounded-xl p-3 flex flex-col justify-between');
   });
+
+  it('hides W/H stepper inputs when matching a preset and shows them when custom is selected', () => {
+    // 32x128 matches preset: W/H stepper controls should NOT appear
+    const presetHtml = renderToString(
+      <SideSettingsPanel
+        side="left"
+        isOpen={true}
+        onClose={() => {}}
+        screenDimensions={{ width: 32, height: 128 }}
+        onScreenDimensionsChange={() => {}}
+      />
+    );
+    expect(presetHtml).not.toContain('Dimensions Pair [W, H]');
+
+    // 50x50 does not match any preset: custom inputs appear
+    const customHtml = renderToString(
+      <SideSettingsPanel
+        side="left"
+        isOpen={true}
+        onClose={() => {}}
+        screenDimensions={{ width: 50, height: 50 }}
+        onScreenDimensionsChange={() => {}}
+      />
+    );
+    expect(customHtml).toContain('Dimensions Pair [W, H]');
+  });
+
+  it('renders Central Actions with Make Peripheral Display and Delete Display', () => {
+    const html = renderToString(
+      <SideSettingsPanel
+        side="central"
+        isOpen={true}
+        onClose={() => {}}
+        screenDimensions={{ width: 32, height: 128 }}
+        onScreenDimensionsChange={() => {}}
+        onMakePeripheral={() => {}}
+        onDeleteDisplay={() => {}}
+        canDeleteDisplay={true}
+      />
+    );
+
+    expect(html).toContain('Central Actions');
+    expect(html).toContain('Make Peripheral Display');
+    expect(html).toContain('Delete Display');
+  });
+
+  it('renders Peripheral Actions with Make Central Display and disabled Delete Display when canDeleteDisplay is false', () => {
+    const html = renderToString(
+      <SideSettingsPanel
+        side="peripheral"
+        isOpen={true}
+        onClose={() => {}}
+        screenDimensions={{ width: 32, height: 128 }}
+        onScreenDimensionsChange={() => {}}
+        onMakeCentral={() => {}}
+        onDeleteDisplay={() => {}}
+        canDeleteDisplay={false}
+      />
+    );
+
+    expect(html).toContain('Peripheral Actions');
+    expect(html).toContain('Make Central Display');
+    expect(html).toContain('Delete Display');
+    expect(html).toContain('disabled=""');
+    expect(html).toContain('Cannot delete display: at least one display is required');
+  });
 });
-
-

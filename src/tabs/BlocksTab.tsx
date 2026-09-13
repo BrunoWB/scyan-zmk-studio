@@ -313,10 +313,44 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     }
   };
 
-  // Peripheral role actions: Make Master and Delete
-  const handleMakeMaster = useCallback(
+  // Display role actions: Central to Peripheral, Promotion to Central, and Deletion
+  const handleMakeCentral = useCallback(
     (peripheralSide: string) => {
-      if (peripheralSide === 'right' || peripheralSide === 'peripheral') {
+      const hasCentral = effectiveEnabledScreens.includes('central') || effectiveEnabledScreens.includes('left');
+      if (!hasCentral) {
+        // No central display exists: promote this peripheral to become Central
+        if (peripheralSide === 'right' || peripheralSide === 'peripheral') {
+          handleCentralBlocksChange?.(effectivePeripheralBlocks);
+          handleIdleCentralBlocksChange?.(effectiveIdlePeripheralBlocks);
+          onScreenDimensionsChange?.(effectivePeripheralScreenDimensions);
+          handleCentralIdleEnabledChange(effectivePeripheralIdleScreensEnabled);
+          handleCentralIdleTimeoutChange(effectivePeripheralIdleTimeoutSec);
+          handleCentralScreenOffTimeoutChange(effectivePeripheralScreenOffTimeoutSec);
+        } else {
+          const pData = effectivePeripheralScreens[peripheralSide] || {
+            blocks: [...DEFAULT_PERIPHERAL_LAYOUT_BLOCKS],
+            idleBlocks: [...DEFAULT_IDLE_PERIPHERAL_BLOCKS],
+            screenDimensions: { width: 32, height: 128 },
+            idleScreensEnabled: true,
+            idleTimeoutSec: 30,
+            screenOffTimeoutSec: 60,
+          };
+          handleCentralBlocksChange?.(pData.blocks || []);
+          handleIdleCentralBlocksChange?.(pData.idleBlocks || []);
+          onScreenDimensionsChange?.(pData.screenDimensions || { width: 32, height: 128 });
+          handleCentralIdleEnabledChange(pData.idleScreensEnabled ?? true);
+          handleCentralIdleTimeoutChange(pData.idleTimeoutSec ?? 30);
+          handleCentralScreenOffTimeoutChange(pData.screenOffTimeoutSec ?? 60);
+
+          const copy = { ...effectivePeripheralScreens };
+          delete copy[peripheralSide];
+          handlePeripheralScreensChange(copy);
+        }
+
+        const updatedScreens = effectiveEnabledScreens.filter((s) => s !== peripheralSide).concat('central');
+        handleEnabledScreensChange(updatedScreens);
+        trackEvent('promote_to_central', { from: peripheralSide });
+      } else if (peripheralSide === 'right' || peripheralSide === 'peripheral') {
         // 1. Swap active blocks
         const oldCentral = [...effectiveCentralBlocks];
         const oldPeripheral = [...effectivePeripheralBlocks];
@@ -394,6 +428,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       }
     },
     [
+      effectiveEnabledScreens,
       effectiveCentralBlocks,
       effectivePeripheralBlocks,
       effectiveIdleCentralBlocks,
@@ -420,11 +455,89 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       handleScreenOffTimeoutSecChange,
       handlePeripheralScreenOffTimeoutChange,
       handlePeripheralScreensChange,
+      handleEnabledScreensChange,
     ]
   );
 
+  const handleCentralToPeripheral = useCallback(() => {
+    let targetSide: string;
+    if (!effectiveEnabledScreens.includes('peripheral') && !effectiveEnabledScreens.includes('right')) {
+      targetSide = 'peripheral';
+    } else {
+      let idx = 2;
+      while (effectiveEnabledScreens.includes(`peripheral-${idx}`)) {
+        idx++;
+      }
+      targetSide = `peripheral-${idx}`;
+    }
+
+    if (targetSide === 'peripheral') {
+      handlePeripheralBlocksChange?.(effectiveCentralBlocks);
+      handleIdlePeripheralBlocksChange?.(effectiveIdleCentralBlocks);
+      handlePeripheralDimensionsChange(screenDimensions);
+      handlePeripheralIdleEnabledChange(effectiveIdleScreensEnabled);
+      handlePeripheralIdleTimeoutChange(effectiveIdleTimeoutSec);
+      handlePeripheralScreenOffTimeoutChange(effectiveScreenOffTimeoutSec);
+    } else {
+      const num = targetSide.replace('peripheral-', '');
+      handlePeripheralScreensChange({
+        ...effectivePeripheralScreens,
+        [targetSide]: {
+          name: `Peripheral ${num}`,
+          blocks: effectiveCentralBlocks,
+          idleBlocks: effectiveIdleCentralBlocks,
+          screenDimensions,
+          idleScreensEnabled: effectiveIdleScreensEnabled,
+          idleTimeoutSec: effectiveIdleTimeoutSec,
+          screenOffTimeoutSec: effectiveScreenOffTimeoutSec,
+        },
+      });
+    }
+
+    const updatedScreens = effectiveEnabledScreens
+      .filter((s) => s !== 'central' && s !== 'left')
+      .concat(targetSide);
+    handleEnabledScreensChange(updatedScreens);
+    closeCentralSettings();
+    trackEvent('central_to_peripheral', { targetSide });
+  }, [
+    effectiveEnabledScreens,
+    effectiveCentralBlocks,
+    effectiveIdleCentralBlocks,
+    screenDimensions,
+    effectiveIdleScreensEnabled,
+    effectiveIdleTimeoutSec,
+    effectiveScreenOffTimeoutSec,
+    effectivePeripheralScreens,
+    handlePeripheralBlocksChange,
+    handleIdlePeripheralBlocksChange,
+    handlePeripheralDimensionsChange,
+    handlePeripheralIdleEnabledChange,
+    handlePeripheralIdleTimeoutChange,
+    handlePeripheralScreenOffTimeoutChange,
+    handlePeripheralScreensChange,
+    handleEnabledScreensChange,
+    closeCentralSettings,
+  ]);
+
+  const handleDeleteCentral = useCallback(() => {
+    if (effectiveEnabledScreens.length <= 1) return;
+    const updatedScreens = effectiveEnabledScreens.filter((s) => s !== 'central' && s !== 'left');
+    handleEnabledScreensChange(updatedScreens);
+    closeCentralSettings();
+    trackEvent('delete_central_display');
+  }, [effectiveEnabledScreens, handleEnabledScreensChange, closeCentralSettings]);
+
+  const handleAddCentral = useCallback(() => {
+    if (!effectiveEnabledScreens.includes('central') && !effectiveEnabledScreens.includes('left')) {
+      handleEnabledScreensChange(['central', ...effectiveEnabledScreens]);
+      trackEvent('add_central_display');
+    }
+  }, [effectiveEnabledScreens, handleEnabledScreensChange]);
+
   const handleDeletePeripheral = useCallback(
     (peripheralSide: string) => {
+      if (effectiveEnabledScreens.length <= 1) return;
       const updatedScreens = effectiveEnabledScreens.filter((s) => s !== peripheralSide);
       handleEnabledScreensChange(updatedScreens);
       if (peripheralSide === 'right' || peripheralSide === 'peripheral') {
@@ -1038,6 +1151,8 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
 
   const totalDisplays = effectiveEnabledScreens.length;
   const isOverlaySettings = totalDisplays > 2;
+  const canDeleteDisplay = totalDisplays > 1;
+  const hasCentral = effectiveEnabledScreens.includes('central') || effectiveEnabledScreens.includes('left');
 
   const masterSettingsPanel = (isOverlay: boolean) => (
     <SideSettingsPanel
@@ -1064,6 +1179,9 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       rightScreenOffTimeoutSec={effectivePeripheralScreenOffTimeoutSec}
       onRightScreenOffTimeoutSecChange={handlePeripheralScreenOffTimeoutChange}
       isPeripheral={false}
+      onMakePeripheral={handleCentralToPeripheral}
+      onDeleteDisplay={handleDeleteCentral}
+      canDeleteDisplay={canDeleteDisplay}
     />
   );
 
@@ -1093,8 +1211,10 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         rightScreenOffTimeoutSec={cfg.screenOffTimeout}
         onRightScreenOffTimeoutSecChange={cfg.onScreenOffTimeoutChange}
         isPeripheral={true}
-        onMakeMaster={() => handleMakeMaster(side)}
+        onMakeMaster={() => handleMakeCentral(side)}
+        onMakeCentral={() => handleMakeCentral(side)}
         onDeleteDisplay={() => handleDeletePeripheral(side)}
+        canDeleteDisplay={canDeleteDisplay}
       />
     );
   };
@@ -1288,6 +1408,27 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     </div>
   );
 
+  const addCentralButtonNode = (
+    <div className="flex items-center justify-center self-stretch px-4 shrink-0">
+      <button
+        type="button"
+        onClick={handleAddCentral}
+        className="flex flex-col items-center justify-center w-28 h-64 border-2 border-dashed rounded-2xl transition-all duration-200 group border-[#1e2538] hover:border-[#00f0ff] bg-[#10141e]/50 hover:bg-[#00f0ff]/10 cursor-pointer shadow-sm hover:shadow-[0_0_16px_rgba(0,240,255,0.15)]"
+        title="Add a Central display to the left"
+      >
+        <div className="size-10 rounded-xl flex items-center justify-center transition-all mb-2 bg-[#1e2538] group-hover:bg-[#00f0ff] text-[#64748b] group-hover:text-black shadow-sm">
+          <Plus size={22} />
+        </div>
+        <span className="text-xs font-bold transition-colors text-[#94a3b8] group-hover:text-[#00f0ff]">
+          Add Display
+        </span>
+        <span className="text-[10px] font-mono text-[#64748b] mt-0.5">
+          (Central)
+        </span>
+      </button>
+    </div>
+  );
+
   const addButtonNode = (
     <div className="flex items-center justify-center self-stretch px-4 shrink-0">
       <button
@@ -1338,8 +1479,8 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
           />
         )}
 
-        {/* 1. Master Display always on the LEFT of widgets */}
-        {centralColumnNode}
+        {/* 1. Central Display on the LEFT of widgets (or Add Central Button if none) */}
+        {hasCentral ? centralColumnNode : addCentralButtonNode}
 
         {/* 2. Widgets Catalog in the CENTER */}
         {catalogColumnNode}

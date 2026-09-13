@@ -236,8 +236,8 @@ export const WidgetCatalogList: React.FC<WidgetCatalogListProps> = ({
                       T{widget.tier}
                     </span>
                     {widget.requiresMaster && (
-                      <span className="badge-master badge-master--nav" title="Requires Central (Master) half in ZMK split">
-                        M
+                      <span className="badge-master badge-master--nav" title="Requires Central half in ZMK split">
+                        C
                       </span>
                     )}
                   </div>

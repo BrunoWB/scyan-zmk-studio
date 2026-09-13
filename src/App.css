@@ -1541,14 +1541,16 @@
   right: auto;
 }
 
-.widget-nav-badges .badge-master--nav {
+.widget-nav-badges .badge-master--nav,
+.widget-nav-badges .badge-central--nav {
   position: static;
   top: auto;
   left: auto;
   right: auto;
 }
 
-.badge-master--nav {
+.badge-master--nav,
+.badge-central--nav {
   position: static;
   font-size: 7px;
   font-family: 'JetBrains Mono', monospace;
@@ -1883,7 +1885,8 @@
   border: 1px solid rgba(249, 115, 22, 0.35);
 }
 
-.badge-master {
+.badge-master,
+.badge-central {
   font-size: 8px;
   font-family: monospace;
   font-weight: 700;
@@ -2850,7 +2853,8 @@
 }
 
 .widget-tile-badges .tier-badge-pill,
-.widget-tile-badges .badge-master--nav {
+.widget-tile-badges .badge-master--nav,
+.widget-tile-badges .badge-central--nav {
   position: static;
   top: auto;
   left: auto;

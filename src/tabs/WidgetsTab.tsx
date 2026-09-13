@@ -362,7 +362,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                       <button key={widget.id} className={`widget-nav-item ${isActive ? 'active' : ''}`} onClick={() => setActiveWidgetId(widget.id)}>
                         <div className="widget-nav-badges">
                           {widget.requiresMaster && (
-                            <span className="badge-master badge-master--nav" title="Requires Central (Master) half in ZMK split">M</span>
+                            <span className="badge-master badge-master--nav" title="Requires Central half in ZMK split">C</span>
                           )}
                           {instanceCount > 0 && (
                             <span className="instance-count-badge">{instanceCount}</span>
@@ -405,7 +405,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
               Tier {activeWidget.tier} · {activeWidget.category}
             </span>
             {activeWidget.requiresMaster && (
-              <span className="badge-master" title="Requires Central (Master) half in ZMK split">MASTER</span>
+              <span className="badge-master" title="Requires Central half in ZMK split">CENTRAL</span>
             )}
           </div>
           <p className="text-sm text-muted">{activeWidget.description}</p>
