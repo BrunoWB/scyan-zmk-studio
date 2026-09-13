@@ -14,6 +14,14 @@
     ],
     "patches": [
       {
+        "patch": "1.0.11",
+        "date": "2026-09-13",
+        "commitHash": "02ce8f4",
+        "changes": [
+          "chore: incorporate v1.0.10 remote commits into nightly merge"
+        ]
+      },
+      {
         "patch": "1.0.10",
         "date": "2026-09-13",
         "commitHash": "93eb322",
