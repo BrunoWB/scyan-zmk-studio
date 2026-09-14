@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 # Only one concurrent production deployment
 concurrency:
@@ -16,7 +18,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    if: "github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip ci]')"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,7 +44,10 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Deploy to gh-pages root
+      - name: Ensure .nojekyll present
+        run: touch dist/.nojekyll
+
+      - name: Deploy to gh-pages root (backup branch)
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           branch: gh-pages
@@ -51,4 +56,20 @@ jobs:
           # clean=false preserves nightly/ and any other subfolders
           clean: false
           commit-message: "chore(deploy): ${{ github.sha }} [skip ci]"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 
