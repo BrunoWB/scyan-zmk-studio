@@ -7,9 +7,13 @@ export type SlotSourceType = 'symbol' | 'text';
 
 export type WidgetMode = 'symbol' | 'font';
 
+export type TextAlignment = 'left' | 'center' | 'right';
+
 export interface WidgetInstanceConfig {
   mode: WidgetMode;
   fontSize?: 'small' | 'big';     // Font size: 'small' (default) or 'big'
+  textAlign?: TextAlignment;       // Text alignment: 'left', 'center' (default), or 'right'
+  align?: TextAlignment;           // Alias for textAlign
   groupId?: string;               // For single group selection
   groupIds?: string[];            // For multi-group selection
   textEntries?: string[];         // Text values for 1, 2, 6, or N divisions

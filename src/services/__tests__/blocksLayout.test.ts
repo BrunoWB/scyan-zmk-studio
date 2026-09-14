@@ -387,11 +387,11 @@ describe('Blocks Tab Layout & Interaction Mechanics', () => {
         { id: 'b1', name: 'Center Block', x: 8, y: 32, width: 16, height: 16, enabled: true },
       ];
       // 32x128 -> 64x256 (doubling both dimensions)
-      // x: 8 / 32 = 25% -> 0.25 * 64 = 16
-      // y: 32 / 128 = 25% -> 0.25 * 256 = 64
+      // x: (32 - 16) / 2 = 8 -> centered horizontally -> (64 - 16) / 2 = 24
+      // y: 32 / (128 - 16) = 32 / 112 -> 32/112 * (256 - 16) = 68.57 -> 69
       const result = remapBlockCoordinates(blocks, { width: 32, height: 128 }, { width: 64, height: 256 });
-      expect(result[0].x).toBe(16);
-      expect(result[0].y).toBe(64);
+      expect(result[0].x).toBe(24);
+      expect(result[0].y).toBe(69);
     });
 
     it('scales coordinates proportionally when orientation is unchanged (horizontal -> horizontal)', () => {
@@ -399,39 +399,98 @@ describe('Blocks Tab Layout & Interaction Mechanics', () => {
         { id: 'b1', name: 'Wide Block', x: 32, y: 8, width: 24, height: 10, enabled: true },
       ];
       // 128x32 -> 128x64 (doubling height, keeping width)
-      // x: 32 / 128 = 25% -> 0.25 * 128 = 32
-      // y: 8 / 32 = 25% -> 0.25 * 64 = 16
+      // x: 32 / (128 - 24) = 32 / 104 -> 32 / 104 * (128 - 24) = 32
+      // y: 8 / (32 - 10) = 8 / 22 -> 8 / 22 * (64 - 10) = 19.63 -> 20
       const result = remapBlockCoordinates(blocks, { width: 128, height: 32 }, { width: 128, height: 64 });
       expect(result[0].x).toBe(32);
-      expect(result[0].y).toBe(16);
+      expect(result[0].y).toBe(20);
     });
 
     it('aligns height percentage to new width and width percentage to new height when orientation changes (vertical -> horizontal)', () => {
       const blocks: LayoutBlock[] = [
-        // Widget at 50% down vertical screen, 25% across width
+        // Widget at custom offset
         { id: 'mid', name: 'Middle', x: 8, y: 64, width: 20, height: 12, enabled: true },
       ];
       // 32x128 -> 128x32
-      // oldY = 64, oldH = 128 -> 50% height
-      // newX = 50% * 128 = 64
-      // oldX = 8, oldW = 32 -> 25% width
-      // newY = 25% * 32 = 8
+      // oldY = 64, oldH = 128, bh = 12 -> ratioY = 64 / (128 - 12) = 64 / 116
+      // newX = Math.round(64 / 116 * (128 - 20)) = Math.round(0.5517 * 108) = 60
+      // oldX = 8, oldW = 32, bw = 20 -> ratioX = 8 / (32 - 20) = 8 / 12
+      // newY = Math.round(8 / 12 * (32 - 12)) = Math.round(0.6667 * 20) = 13
       const result = remapBlockCoordinates(blocks, { width: 32, height: 128 }, { width: 128, height: 32 });
-      expect(result[0].x).toBe(64);
-      expect(result[0].y).toBe(8);
+      expect(result[0].x).toBe(60);
+      expect(result[0].y).toBe(13);
     });
 
     it('aligns height percentage to new width and width percentage to new height when orientation changes (horizontal -> vertical)', () => {
       const blocks: LayoutBlock[] = [
-        // Widget at 50% across horizontal screen (x=64), 25% down height (y=8)
         { id: 'mid', name: 'Middle', x: 64, y: 8, width: 20, height: 12, enabled: true },
       ];
       // 128x32 -> 32x128
-      // oldY = 8, oldH = 32 -> 25% height -> newX = 25% * 32 = 8
-      // oldX = 64, oldW = 128 -> 50% width -> newY = 50% * 128 = 64
+      // oldY = 8, oldH = 32, bh = 12 -> ratioY = 8 / (32 - 12) = 8 / 20 = 0.4
+      // newX = Math.round(0.4 * (32 - 20)) = Math.round(0.4 * 12) = 5
+      // oldX = 64, oldW = 128, bw = 20 -> ratioX = 64 / (128 - 20) = 64 / 108 = 0.5926
+      // newY = Math.round(0.5926 * (128 - 12)) = Math.round(0.5926 * 116) = 69
       const result = remapBlockCoordinates(blocks, { width: 128, height: 32 }, { width: 32, height: 128 });
-      expect(result[0].x).toBe(8);
-      expect(result[0].y).toBe(64);
+      expect(result[0].x).toBe(5);
+      expect(result[0].y).toBe(69);
+    });
+
+    it('preserves horizontal centering when switching vertical to horizontal orientation', () => {
+      const blocks: LayoutBlock[] = [
+        { id: 'battery', widgetType: 'battery', name: 'Battery', x: 7, y: 11, width: 17, height: 10, enabled: true },
+        { id: 'output', widgetType: 'connection', name: 'Output', x: 10, y: 0, width: 12, height: 10, enabled: true },
+        { id: 'layer', widgetType: 'layer-banner', name: 'Layer', x: 4, y: 22, width: 24, height: 12, enabled: true },
+        { id: 'art', widgetType: 'screensaver', name: 'Art', x: 3, y: 35, width: 26, height: 26, enabled: true },
+      ];
+      // 32x128 vertical -> 128x32 horizontal
+      // All four widgets were horizontally centered on 32 width:
+      // In 128x32, height is 32 -> their new Y coordinates MUST be vertically centered on the 32px height:
+      const result = remapBlockCoordinates(blocks, { width: 32, height: 128 }, { width: 128, height: 32 });
+
+      // Battery (height 10): (32 - 10) / 2 = 11
+      expect(result[0].y).toBe(11);
+      // Output (height 10): (32 - 10) / 2 = 11
+      expect(result[1].y).toBe(11);
+      // Output top Y=0 mapped to horizontal start X=0
+      expect(result[1].x).toBe(0);
+      // Layer (height 12): (32 - 12) / 2 = 10
+      expect(result[2].y).toBe(10);
+      // Art (height 26): (32 - 26) / 2 = 3
+      expect(result[3].y).toBe(3);
+    });
+
+    it('honors explicit textAlign properties on blocks', () => {
+      const blocks: LayoutBlock[] = [
+        { id: 'b_left', name: 'Left Block', x: 5, y: 10, width: 20, height: 10, enabled: true, textAlign: 'left' },
+        { id: 'b_center', name: 'Center Block', x: 5, y: 10, width: 20, height: 10, enabled: true, textAlign: 'center' },
+        { id: 'b_right', name: 'Right Block', x: 5, y: 10, width: 20, height: 10, enabled: true, textAlign: 'right' },
+      ];
+      const result = remapBlockCoordinates(blocks, { width: 128, height: 32 }, { width: 160, height: 68 });
+      // Width is 160, block width is 20
+      // Left: x = 0
+      expect(result[0].x).toBe(0);
+      // Center: x = (160 - 20) / 2 = 70
+      expect(result[1].x).toBe(70);
+      // Right: x = 160 - 20 = 140
+      expect(result[2].x).toBe(140);
+    });
+
+    it('honors instance configuration textAlign when instances map is provided', () => {
+      const blocks: LayoutBlock[] = [
+        { id: 'branding_block', widgetType: 'branding', instanceId: 'inst_brand', name: 'Brand', x: 0, y: 10, width: 30, height: 10, enabled: true },
+      ];
+      const instances = {
+        branding: [
+          {
+            id: 'inst_brand',
+            widgetTypeId: 'branding',
+            label: 'Custom Text',
+            config: { mode: 'font' as const, textAlign: 'right' as const },
+          },
+        ],
+      };
+      const result = remapBlockCoordinates(blocks, { width: 128, height: 32 }, { width: 160, height: 68 }, instances);
+      expect(result[0].x).toBe(160 - 30);
     });
 
     it('nudges widgets inside screen boundaries when projected coordinates exceed bounds', () => {
@@ -439,13 +498,6 @@ describe('Blocks Tab Layout & Interaction Mechanics', () => {
       const blocks: LayoutBlock[] = [
         { id: 'overflow', name: 'Overflowing', x: 20, y: 120, width: 20, height: 16, enabled: true },
       ];
-      // 32x128 -> 128x32
-      // oldY = 120 / 128 = 93.75% -> newX = Math.round(0.9375 * 128) = 120
-      // 120 + 20 = 140 > 128!
-      // Must nudge left to 128 - 20 = 108
-      // oldX = 20 / 32 = 62.5% -> newY = Math.round(0.625 * 32) = 20
-      // 20 + 16 = 36 > 32!
-      // Must nudge up to 32 - 16 = 16
       const result = remapBlockCoordinates(blocks, { width: 32, height: 128 }, { width: 128, height: 32 });
       expect(result[0].x).toBe(108);
       expect(result[0].x! + result[0].width!).toBe(128);
@@ -465,7 +517,7 @@ describe('Blocks Tab Layout & Interaction Mechanics', () => {
       expect(result[0].x).toBeGreaterThanOrEqual(0);
     });
 
-    it('successfully remaps DEFAULT_CENTRAL_LAYOUT_BLOCKS from vertical Corne 32x128 to horizontal Lily58 128x32 within bounds', () => {
+    it('successfully remaps DEFAULT_CENTRAL_LAYOUT_BLOCKS from vertical Corne 32x128 to horizontal Lily58 128x32 within bounds and with ZERO overlaps', () => {
       const result = remapBlockCoordinates(
         DEFAULT_LEFT_LAYOUT_BLOCKS,
         { width: 32, height: 128 },
@@ -479,6 +531,90 @@ describe('Blocks Tab Layout & Interaction Mechanics', () => {
         expect(block.x! + block.width!).toBeLessThanOrEqual(128);
         expect(block.y + block.height).toBeLessThanOrEqual(32);
       }
+
+      // Verify none of the central blocks overlap after remapping
+      for (let i = 0; i < result.length; i++) {
+        for (let j = i + 1; j < result.length; j++) {
+          const b1 = result[i];
+          const b2 = result[j];
+          const overlap =
+            b1.x! < b2.x! + b2.width! &&
+            b2.x! < b1.x! + b1.width! &&
+            b1.y < b2.y + b2.height &&
+            b2.y < b1.y + b1.height;
+          expect(overlap).toBe(false);
+        }
+      }
+    });
+
+    it('successfully remaps DEFAULT_PERIPHERAL_LAYOUT_BLOCKS from vertical Corne 32x128 to horizontal Lily58 128x32 with ZERO overlaps', () => {
+      const result = remapBlockCoordinates(
+        DEFAULT_RIGHT_LAYOUT_BLOCKS,
+        { width: 32, height: 128 },
+        { width: 128, height: 32 }
+      );
+
+      expect(result.length).toBe(DEFAULT_RIGHT_LAYOUT_BLOCKS.length);
+      for (const block of result) {
+        expect(block.x).toBeGreaterThanOrEqual(0);
+        expect(block.y).toBeGreaterThanOrEqual(0);
+        expect(block.x! + block.width!).toBeLessThanOrEqual(128);
+        expect(block.y + block.height).toBeLessThanOrEqual(32);
+      }
+
+      // Verify none of the peripheral blocks overlap after remapping
+      for (let i = 0; i < result.length; i++) {
+        for (let j = i + 1; j < result.length; j++) {
+          const b1 = result[i];
+          const b2 = result[j];
+          const overlap =
+            b1.x! < b2.x! + b2.width! &&
+            b2.x! < b1.x! + b1.width! &&
+            b1.y < b2.y + b2.height &&
+            b2.y < b1.y + b1.height;
+          expect(overlap).toBe(false);
+        }
+      }
+    });
+
+    it('supports round-trip remapping from vertical 32x128 to horizontal 128x32 and back without overlaps', () => {
+      const horizontal = remapBlockCoordinates(
+        DEFAULT_LEFT_LAYOUT_BLOCKS,
+        { width: 32, height: 128 },
+        { width: 128, height: 32 }
+      );
+
+      const verticalAgain = remapBlockCoordinates(
+        horizontal,
+        { width: 128, height: 32 },
+        { width: 32, height: 128 }
+      );
+
+      for (let i = 0; i < verticalAgain.length; i++) {
+        for (let j = i + 1; j < verticalAgain.length; j++) {
+          const b1 = verticalAgain[i];
+          const b2 = verticalAgain[j];
+          const overlap =
+            b1.x! < b2.x! + b2.width! &&
+            b2.x! < b1.x! + b1.width! &&
+            b1.y < b2.y + b2.height &&
+            b2.y < b1.y + b1.height;
+          expect(overlap).toBe(false);
+        }
+      }
+    });
+
+    it('does not separate widgets that are intentionally on different rows', () => {
+      const blocks: LayoutBlock[] = [
+        { id: 'row1', name: 'Row 1 Block', x: 0, y: 0, width: 30, height: 10, enabled: true },
+        { id: 'row2', name: 'Row 2 Block', x: 0, y: 16, width: 30, height: 10, enabled: true },
+      ];
+      // In 128x32, row 1 and row 2 share same X (0) but differ in Y (0 vs 16)
+      const result = remapBlockCoordinates(blocks, { width: 128, height: 32 }, { width: 160, height: 32 });
+      expect(result[0].x).toBe(0);
+      expect(result[1].x).toBe(0);
+      expect(result[0].y).toBe(0);
+      expect(result[1].y).toBe(16);
     });
   });
 });

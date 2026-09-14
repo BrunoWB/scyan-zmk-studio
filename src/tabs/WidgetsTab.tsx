@@ -18,7 +18,8 @@ import type {
 import {
   Activity, Battery, Wifi, Link2, Layers, Sparkles, Gauge, Type,
   Type as TypeIcon, Image as ImageIcon,
-  Plus, Trash2, Usb, Bluetooth, Cat, Repeat, Film
+  Plus, Trash2, Usb, Bluetooth, Cat, Repeat, Film,
+  AlignLeft, AlignCenter, AlignRight
 } from 'lucide-react';
 
 export interface WidgetsTabProps {
@@ -151,9 +152,9 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   const handleAddInstance = () => {
     if (!onInstancesChange) return;
     const newInstanceId = `${activeWidget.id}-${Date.now()}`;
-    let initialConfig: import('../types/widget').WidgetInstanceConfig = { mode: 'symbol', fontSize: 'small' };
+    let initialConfig: import('../types/widget').WidgetInstanceConfig = { mode: 'symbol', fontSize: 'small', textAlign: 'center', align: 'center' };
     if (activeWidget.id === 'branding') {
-      initialConfig = { mode: 'font', fontSize: 'small', textEntries: ['ZMK'] };
+      initialConfig = { mode: 'font', fontSize: 'small', textAlign: 'center', align: 'center', textEntries: ['ZMK'] };
     } else if (activeWidget.id === 'wpm-chart') {
       initialConfig = { mode: 'symbol', wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 } };
     } else if (activeWidget.id === 'connection') {
@@ -608,6 +609,45 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                           </button>
                         </div>
                       </div>
+
+                      <div>
+                        <label className="text-xs text-muted mb-1 block">Text Alignment</label>
+                        <div className="button-trio" role="radiogroup" aria-label="Text Alignment">
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={(inst.config?.textAlign || 'center') === 'left'}
+                            className={`btn-toggle ${(inst.config?.textAlign || 'center') === 'left' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, { textAlign: 'left', align: 'left' })}
+                            title="Left align"
+                          >
+                            <AlignLeft size={13} />
+                            <span>Left</span>
+                          </button>
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={(inst.config?.textAlign || 'center') === 'center'}
+                            className={`btn-toggle ${(inst.config?.textAlign || 'center') === 'center' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, { textAlign: 'center', align: 'center' })}
+                            title="Center align"
+                          >
+                            <AlignCenter size={13} />
+                            <span>Center</span>
+                          </button>
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={(inst.config?.textAlign || 'center') === 'right'}
+                            className={`btn-toggle ${(inst.config?.textAlign || 'center') === 'right' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, { textAlign: 'right', align: 'right' })}
+                            title="Right align"
+                          >
+                            <AlignRight size={13} />
+                            <span>Right</span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )}
                   
@@ -937,6 +977,45 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                         </div>
                       </div>
 
+                      <div>
+                        <label className="text-xs text-muted mb-1 block">Text Alignment</label>
+                        <div className="button-trio" role="radiogroup" aria-label="Text Alignment">
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={(inst.config?.textAlign || 'center') === 'left'}
+                            className={`btn-toggle ${(inst.config?.textAlign || 'center') === 'left' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, { textAlign: 'left', align: 'left' })}
+                            title="Left align"
+                          >
+                            <AlignLeft size={13} />
+                            <span>Left</span>
+                          </button>
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={(inst.config?.textAlign || 'center') === 'center'}
+                            className={`btn-toggle ${(inst.config?.textAlign || 'center') === 'center' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, { textAlign: 'center', align: 'center' })}
+                            title="Center align"
+                          >
+                            <AlignCenter size={13} />
+                            <span>Center</span>
+                          </button>
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={(inst.config?.textAlign || 'center') === 'right'}
+                            className={`btn-toggle ${(inst.config?.textAlign || 'center') === 'right' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, { textAlign: 'right', align: 'right' })}
+                            title="Right align"
+                          >
+                            <AlignRight size={13} />
+                            <span>Right</span>
+                          </button>
+                        </div>
+                      </div>
+
                       {activeWidget.id === 'battery' && (
                         <div>
                           <label className="text-xs text-muted mb-1 block">Divisions: {inst.config?.fontDivisionCount || 2}</label>
@@ -1193,6 +1272,8 @@ const InstancePreview: React.FC<InstancePreviewProps> = ({
       activeInstanceId: instance.id,
       bongoState: testBongoState,
       animationTimestamp: animTimestamp,
+      blockWidth: width,
+      blockHeight: height,
     });
 
     ctx.fillStyle = '#00d2ff';

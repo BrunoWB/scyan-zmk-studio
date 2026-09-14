@@ -234,7 +234,8 @@ export const PUNCTUATION_3X5: Record<string, number[]> = {
 };
 
 /**
- * Utility to blit a named slice from symbolsGrid into destGrid at (destX, destY)
+ * Utility to blit a named slice from symbolsGrid into destGrid at (destX, destY).
+ * When boxWidth and/or boxHeight are provided, centers the slice horizontally and/or vertically (middle) within the bounded box.
  */
 export function blitSlice(
   destGrid: BwpxGrid,
@@ -242,16 +243,26 @@ export function blitSlice(
   symbolSlices: SpriteSlice[],
   sliceId: string,
   destX: number,
-  destY: number
+  destY: number,
+  boxWidth?: number,
+  boxHeight?: number
 ): boolean {
   const slice = symbolSlices.find(s => s.id === sliceId);
   if (!slice) return false;
 
+  const targetStartX = (boxWidth !== undefined && boxWidth > slice.width)
+    ? destX + Math.floor((boxWidth - slice.width) / 2)
+    : destX;
+
+  const targetStartY = (boxHeight !== undefined && boxHeight > slice.height)
+    ? destY + Math.floor((boxHeight - slice.height) / 2)
+    : destY;
+
   for (let sy = 0; sy < slice.height; sy++) {
-    const targetY = destY + sy;
+    const targetY = targetStartY + sy;
     if (targetY < 0 || targetY >= destGrid.height) continue;
     for (let sx = 0; sx < slice.width; sx++) {
-      const targetX = destX + sx;
+      const targetX = targetStartX + sx;
       if (targetX < 0 || targetX >= destGrid.width) continue;
       if (symbolsGrid.get(slice.x + sx, slice.y + sy)) {
         destGrid.set(targetX, targetY, 1);
@@ -348,9 +359,17 @@ export function measureTextWidth(
   return maxX > 0 ? maxX : curX;
 }
 
+export interface DrawTextOptions {
+  align?: 'left' | 'center' | 'right';
+  boxWidth?: number;
+  boxHeight?: number;
+  verticalAlign?: 'top' | 'middle' | 'bottom';
+}
+
 /**
  * Utility to draw text using fontMappings or fontGlyphs into destGrid at (startX, startY).
  * Falls back to 3x5 punctuation bitmaps when punctuation symbols are missing from the font atlas.
+ * When options are provided, supports horizontal alignment (left / center / right) and vertical alignment (middle by default).
  */
 export function drawText(
   destGrid: BwpxGrid,
@@ -360,10 +379,38 @@ export function drawText(
   str: string,
   startX: number,
   startY: number,
-  size: 'small' | 'big' = 'small'
+  size: 'small' | 'big' = 'small',
+  options?: DrawTextOptions
 ): number {
   if (!str) return startX;
-  let curX = startX;
+
+  let originX = startX;
+  let originY = startY;
+
+  if (options) {
+    const textW = measureTextWidth(str, fontGlyphs, fontMappings, size);
+    const textH = size === 'big' ? 10 : 5;
+    const boxW = options.boxWidth ?? textW;
+    const boxH = options.boxHeight ?? textH;
+    const align = options.align ?? 'center';
+    const vAlign = options.verticalAlign ?? 'middle';
+
+    if (boxW > textW) {
+      if (align === 'center') {
+        originX = startX + Math.floor((boxW - textW) / 2);
+      } else if (align === 'right') {
+        originX = startX + (boxW - textW);
+      }
+    }
+
+    if (boxH > textH && vAlign === 'middle') {
+      originY = startY + Math.floor((boxH - textH) / 2);
+    } else if (boxH > textH && vAlign === 'bottom') {
+      originY = startY + (boxH - textH);
+    }
+  }
+
+  let curX = originX;
 
   for (let i = 0; i < str.length; i++) {
     const char = str[i];
@@ -383,7 +430,7 @@ export function drawText(
       const slot = m ? (size === 'big' ? (m.big || m.small) : (m.small || m.big)) : null;
       if (slot) {
         for (let gy = 0; gy < slot.height; gy++) {
-          const targetY = startY + gy;
+          const targetY = originY + gy;
           if (targetY < 0 || targetY >= destGrid.height) continue;
           for (let gx = 0; gx < slot.width; gx++) {
             const targetX = curX + gx;
@@ -406,7 +453,7 @@ export function drawText(
     const glyph = fontGlyphs?.find(g => g.codepoint === cpDirect || g.codepoint === cpUpper);
     if (glyph) {
       for (let gy = 0; gy < glyph.height; gy++) {
-        const targetY = startY + gy;
+        const targetY = originY + gy;
         if (targetY < 0 || targetY >= destGrid.height) continue;
         for (let gx = 0; gx < glyph.width; gx++) {
           const targetX = curX + gx;
@@ -431,7 +478,7 @@ export function drawText(
         for (let gx = 0; gx < 3; gx++) {
           if ((row >> (2 - gx)) & 1) {
             for (let sy = 0; sy < scale; sy++) {
-              const targetY = startY + gy * scale + sy;
+              const targetY = originY + gy * scale + sy;
               if (targetY < 0 || targetY >= destGrid.height) continue;
               for (let sx = 0; sx < scale; sx++) {
                 const targetX = curX + gx * scale + sx;
@@ -502,7 +549,7 @@ export function renderSlot(
   widgetId: string,
   slotId: string,
   context: WidgetRenderContext,
-  fallbackBounds?: { width: number; height: number },
+  fallbackBounds?: { width?: number; height?: number },
   fontSize: 'small' | 'big' = 'small'
 ): RenderSlotResult {
   const widget = getWidgetDefinition(widgetId);
@@ -527,8 +574,10 @@ export function renderSlot(
     const interpolated = interpolateTemplate(rawText, context);
     const maxLen = slotDef?.maxTextLength ?? 12;
     const finalText = interpolated.slice(0, maxLen);
+    const boxW = fallbackBounds?.width;
+    const boxH = fallbackBounds?.height;
 
-    drawText(destGrid, context.fontGrid, context.fontGlyphs, context.fontMappings, finalText, destX, destY, fontSize);
+    drawText(destGrid, context.fontGrid, context.fontGlyphs, context.fontMappings, finalText, destX, destY, fontSize, { align: 'center', boxWidth: boxW, boxHeight: boxH, verticalAlign: 'middle' });
     return { rendered: true, mode: 'text', text: finalText };
   }
 
@@ -537,14 +586,16 @@ export function renderSlot(
   const sliceExists = targetSymbolId ? context.symbolSlices.some(s => s.id === targetSymbolId) : false;
 
   if (sliceExists) {
-    blitSlice(destGrid, context.symbolsGrid, context.symbolSlices, targetSymbolId, destX, destY);
+    blitSlice(destGrid, context.symbolsGrid, context.symbolSlices, targetSymbolId, destX, destY, fallbackBounds?.width, fallbackBounds?.height);
     return { rendered: true, mode: 'symbol', symbolId: targetSymbolId };
   }
 
   // Symbol missing or deleted: graceful fallback
   if (slotDef?.fallbackText) {
     const fallbackText = interpolateTemplate(slotDef.fallbackText, context);
-    drawText(destGrid, context.fontGrid, context.fontGlyphs, context.fontMappings, fallbackText, destX, destY, fontSize);
+    const boxW = fallbackBounds?.width;
+    const boxH = fallbackBounds?.height;
+    drawText(destGrid, context.fontGrid, context.fontGlyphs, context.fontMappings, fallbackText, destX, destY, fontSize, { align: 'center', boxWidth: boxW, boxHeight: boxH, verticalAlign: 'middle' });
     return { rendered: true, mode: 'symbol', isMissingSymbol: true, text: fallbackText };
   }
 
@@ -609,8 +660,10 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     slots: [],
     render: (grid, destX, destY, ctx) => {
       const battery = ctx.battery ?? 80;
-      const inst = ctx.instances?.['battery']?.find(i => i.id === ctx.activeInstanceId);
+      const inst = resolveWidgetInstance(ctx.instances, 'battery', ctx.activeInstanceId);
       const mode = inst?.config?.mode || 'symbol';
+      const boxW = ctx.blockWidth;
+      const boxH = ctx.blockHeight;
       
       if (mode === 'symbol') {
         const groupId = inst?.config?.groupId;
@@ -618,10 +671,10 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
         if (groupMembers.length >= 2) {
           const idx = Math.min(groupMembers.length - 1, Math.floor((battery / 100) * groupMembers.length));
           const slice = groupMembers[idx];
-          blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY);
+          blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY, boxW, boxH);
         } else {
           // fallback
-          renderSlot(grid, destX, destY, 'battery', 'fallback', ctx, { width: 17, height: 10 });
+          renderSlot(grid, destX, destY, 'battery', 'fallback', ctx, { width: boxW, height: boxH });
         }
       } else {
         const divCount = inst?.config?.fontDivisionCount || 2;
@@ -629,7 +682,8 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
         const idx = Math.min(divCount - 1, Math.floor((battery / 100) * divCount));
         const text = entries[idx] || `${battery}%`;
         const fontSize = inst?.config?.fontSize || 'small';
-        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize);
+        const textAlign = inst?.config?.textAlign || 'center';
+        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize, { align: textAlign, boxWidth: boxW, boxHeight: boxH, verticalAlign: 'middle' });
       }
     },
   },
@@ -651,41 +705,44 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     defaultPlacement: { side: 'central', defaultX: 10, defaultY: 0 },
     slots: [],
     render: (grid, destX, destY, ctx) => {
-      const inst = ctx.instances?.['connection']?.find(i => i.id === ctx.activeInstanceId);
+      const inst = resolveWidgetInstance(ctx.instances, 'connection', ctx.activeInstanceId);
       const mode = inst?.config?.mode || 'symbol';
       const isBle = ctx.outputMode === 'ble';
+      const boxW = ctx.blockWidth;
+      const boxH = ctx.blockHeight;
       
       if (mode === 'symbol') {
         if (!isBle) {
           const groupId = inst?.config?.groupId;
           const slice = ctx.symbolSlices.find(s => (s.groupId === groupId && s.groupOrder === 1) || s.groupId === groupId || s.id === groupId);
           if (slice) {
-            blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY);
+            blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY, boxW, boxH);
           } else {
-            renderSlot(grid, destX, destY, 'connection', 'fallback', ctx, { width: 12, height: 10 });
+            renderSlot(grid, destX, destY, 'connection', 'fallback', ctx, { width: boxW, height: boxH });
           }
         } else {
           const profileIdx = ctx.bleProfileIndex ?? 1;
           const groupId = inst?.config?.groupIds?.[profileIdx] || inst?.config?.groupIds?.[1] || inst?.config?.groupId;
           const slice = ctx.symbolSlices.find(s => (s.groupId === groupId && s.groupOrder === 1) || s.groupId === groupId || s.id === groupId);
           if (slice) {
-            blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY);
+            blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY, boxW, boxH);
           } else {
-            renderSlot(grid, destX, destY, 'connection', 'fallback', ctx, { width: 14, height: 9 });
+            renderSlot(grid, destX, destY, 'connection', 'fallback', ctx, { width: boxW, height: boxH });
           }
         }
       } else {
         const fontSize = inst?.config?.fontSize || 'small';
+        const textAlign = inst?.config?.textAlign || 'center';
         if (!isBle) {
           const text = inst?.config?.textEntries?.[0] || 'USB';
-          drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize);
+          drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize, { align: textAlign, boxWidth: boxW, boxHeight: boxH, verticalAlign: 'middle' });
         } else {
           const profileIdx = ctx.bleProfileIndex ?? 1;
           const entries = inst?.config?.textEntries || ['USB', 'No conn', 'P1', 'P2', 'P3', 'P4', 'P5'];
           const text = profileIdx === 0
             ? (entries[1] || 'No conn')
             : (entries[profileIdx + 1] || entries[profileIdx] || `P${profileIdx}`);
-          drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize);
+          drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize, { align: textAlign, boxWidth: boxW, boxHeight: boxH, verticalAlign: 'middle' });
         }
       }
     },
@@ -707,24 +764,27 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     defaultPlacement: { side: 'both', defaultX: 9, defaultY: 114 },
     slots: [],
     render: (grid, destX, destY, ctx) => {
-      const inst = ctx.instances?.['split']?.find(i => i.id === ctx.activeInstanceId);
+      const inst = resolveWidgetInstance(ctx.instances, 'split', ctx.activeInstanceId);
       const mode = inst?.config?.mode || 'symbol';
       const isConnected = ctx.splitConnected ?? true;
+      const boxW = ctx.blockWidth;
+      const boxH = ctx.blockHeight;
       
       if (mode === 'symbol') {
         const groupId = inst?.config?.groupId;
         const groupMembers = ctx.symbolSlices.filter(s => s.groupId === groupId).sort((a, b) => a.groupOrder - b.groupOrder);
         const slice = groupMembers.length >= 2 ? (isConnected ? groupMembers[0] : groupMembers[1]) : null;
         if (slice) {
-          blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY);
+          blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY, boxW, boxH);
         } else {
-          renderSlot(grid, destX, destY, 'split', 'fallback', ctx, { width: 13, height: 9 });
+          renderSlot(grid, destX, destY, 'split', 'fallback', ctx, { width: boxW, height: boxH });
         }
       } else {
         const entries = inst?.config?.textEntries || ['Connected', 'Not connected'];
         const text = isConnected ? entries[0] : entries[1] || 'Not connected';
         const fontSize = inst?.config?.fontSize || 'small';
-        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize);
+        const textAlign = inst?.config?.textAlign || 'center';
+        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize, { align: textAlign, boxWidth: boxW, boxHeight: boxH, verticalAlign: 'middle' });
       }
     },
   },
@@ -746,24 +806,27 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     defaultPlacement: { side: 'central', defaultX: 9, defaultY: 14 },
     slots: [],
     render: (grid, destX, destY, ctx) => {
-      const inst = ctx.instances?.['caps-lock']?.find(i => i.id === ctx.activeInstanceId);
+      const inst = resolveWidgetInstance(ctx.instances, 'caps-lock', ctx.activeInstanceId);
       const mode = inst?.config?.mode || 'font';
       const isOn = ctx.capsLock ?? false;
+      const boxW = ctx.blockWidth;
+      const boxH = ctx.blockHeight;
       
       if (mode === 'symbol') {
         const groupId = inst?.config?.groupId;
         const groupMembers = ctx.symbolSlices.filter(s => s.groupId === groupId).sort((a, b) => a.groupOrder - b.groupOrder);
         const slice = groupMembers.length >= 2 ? (isOn ? groupMembers[0] : groupMembers[1]) : null;
         if (slice) {
-          blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY);
+          blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY, boxW, boxH);
         } else {
-          renderSlot(grid, destX, destY, 'caps-lock', 'fallback', ctx, { width: 14, height: 7 });
+          renderSlot(grid, destX, destY, 'caps-lock', 'fallback', ctx, { width: boxW, height: boxH });
         }
       } else {
         const entries = inst?.config?.textEntries || ['On', 'Off'];
         const text = isOn ? entries[0] : entries[1] || 'Off';
         const fontSize = inst?.config?.fontSize || 'small';
-        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize);
+        const textAlign = inst?.config?.textAlign || 'center';
+        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize, { align: textAlign, boxWidth: boxW, boxHeight: boxH, verticalAlign: 'middle' });
       }
     },
   },
@@ -785,17 +848,19 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     defaultPlacement: { side: 'both', defaultX: 4, defaultY: 22 },
     slots: [],
     render: (grid, destX, destY, ctx) => {
-      const inst = ctx.instances?.['layer-banner']?.find(i => i.id === ctx.activeInstanceId);
+      const inst = resolveWidgetInstance(ctx.instances, 'layer-banner', ctx.activeInstanceId);
       const mode = inst?.config?.mode || 'symbol';
       const layer = ctx.currentLayer ?? 0;
+      const boxW = ctx.blockWidth;
+      const boxH = ctx.blockHeight;
       
       if (mode === 'symbol') {
         const groupId = inst?.config?.groupIds?.[layer];
         const slice = ctx.symbolSlices.find(s => s.groupId === groupId && s.groupOrder === 1);
         if (slice) {
-          blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY);
+          blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY, boxW, boxH);
         } else {
-          renderSlot(grid, destX, destY, 'layer-banner', 'fallback', ctx, { width: 22, height: 12 });
+          renderSlot(grid, destX, destY, 'layer-banner', 'fallback', ctx, { width: boxW, height: boxH });
         }
       } else {
         const textFromEntries = inst?.config?.textEntries?.[layer];
@@ -803,9 +868,8 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
         const defaultLayers = ['DEFAULT', 'LOWER', 'RAISE', 'ADJUST'];
         const text = textFromEntries || textFromContext || defaultLayers[layer] || `L${layer}`;
         const fontSize = inst?.config?.fontSize || 'small';
-        const textW = measureTextWidth(text, ctx.fontGlyphs, ctx.fontMappings, fontSize);
-        const startX = destX + Math.max(0, Math.floor((24 - textW) / 2));
-        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, startX, destY + (fontSize === 'big' ? 1 : 3), fontSize);
+        const textAlign = inst?.config?.textAlign || 'center';
+        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize, { align: textAlign, boxWidth: boxW, boxHeight: boxH, verticalAlign: 'middle' });
       }
     },
   },
@@ -827,11 +891,13 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     defaultPlacement: { side: 'central', defaultX: 2, defaultY: 85 },
     slots: [],
     render: (grid, destX, destY, ctx) => {
-      const inst = ctx.instances?.['wpm']?.find(i => i.id === ctx.activeInstanceId);
+      const inst = resolveWidgetInstance(ctx.instances, 'wpm', ctx.activeInstanceId);
       const mode = inst?.config?.mode || 'symbol';
       const wpmVal = Math.min(999, Math.max(0, ctx.wpm ?? 65));
       const target = inst?.config?.targetValue || 100;
       const progress = Math.min(1, Math.max(0, wpmVal / target));
+      const boxW = ctx.blockWidth;
+      const boxH = ctx.blockHeight;
       
       if (mode === 'symbol') {
         const groupId = inst?.config?.groupId;
@@ -839,9 +905,9 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
         if (groupMembers.length >= 2) {
           const idx = Math.min(groupMembers.length - 1, Math.floor(progress * groupMembers.length));
           const slice = groupMembers[idx];
-          blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY);
+          blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY, boxW, boxH);
         } else {
-          renderSlot(grid, destX, destY, 'wpm', 'fallback', ctx, { width: 28, height: 18 });
+          renderSlot(grid, destX, destY, 'wpm', 'fallback', ctx, { width: boxW, height: boxH });
         }
       } else {
         const divCount = inst?.config?.fontDivisionCount || 2;
@@ -849,7 +915,8 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
         const idx = Math.min(divCount - 1, Math.floor(progress * divCount));
         const text = entries[idx] || `${wpmVal}`;
         const fontSize = inst?.config?.fontSize || 'small';
-        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize);
+        const textAlign = inst?.config?.textAlign || 'center';
+        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize, { align: textAlign, boxWidth: boxW, boxHeight: boxH, verticalAlign: 'middle' });
       }
     },
   },
@@ -870,14 +937,17 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     defaultPlacement: { side: 'both', defaultX: 0, defaultY: 73 },
     slots: [],
     render: (grid, destX, destY, ctx) => {
-      const inst = ctx.instances?.['branding']?.find(i => i.id === ctx.activeInstanceId) || ctx.instances?.['branding']?.[0];
+      const inst = resolveWidgetInstance(ctx.instances, 'branding', ctx.activeInstanceId) || ctx.instances?.['branding']?.[0];
       const customCfg = ctx.customizations?.['branding']?.['brand-text'];
       const rawText = inst?.config?.textEntries?.[0] !== undefined
         ? inst.config.textEntries[0]
         : (customCfg?.text !== undefined ? customCfg.text : (ctx.customText || 'ZMK'));
       const text = (interpolateTemplate(rawText, ctx) || 'ZMK').toUpperCase();
       const fontSize = inst?.config?.fontSize || 'small';
-      drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize);
+      const textAlign = inst?.config?.textAlign || 'center';
+      const boxW = ctx.blockWidth;
+      const boxH = ctx.blockHeight;
+      drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize, { align: textAlign, boxWidth: boxW, boxHeight: boxH, verticalAlign: 'middle' });
     },
   },
   {
@@ -1020,17 +1090,19 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     defaultPlacement: { side: 'both', defaultX: 3, defaultY: 35 },
     slots: [],
     render: (grid, destX, destY, ctx) => {
-      const inst = ctx.instances?.['screensaver']?.find(i => i.id === ctx.activeInstanceId) || ctx.instances?.['screensaver']?.[0];
+      const inst = resolveWidgetInstance(ctx.instances, 'screensaver', ctx.activeInstanceId) || ctx.instances?.['screensaver']?.[0];
+      const boxW = ctx.blockWidth;
+      const boxH = ctx.blockHeight;
       if (inst?.config?.groupId) {
         const slice = ctx.symbolSlices.find(s => s.groupId === inst.config?.groupId && s.groupOrder === 1)
           || ctx.symbolSlices.find(s => s.groupId === inst.config?.groupId)
           || ctx.symbolSlices.find(s => s.id === inst.config?.groupId);
         if (slice) {
-          blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY);
+          blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY, boxW, boxH);
           return;
         }
       }
-      renderSlot(grid, destX, destY, 'screensaver', 'mascot', ctx, { width: 26, height: 26 });
+      renderSlot(grid, destX, destY, 'screensaver', 'mascot', ctx, { width: boxW, height: boxH });
     },
   },
   {
@@ -1050,7 +1122,9 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     defaultPlacement: { side: 'both', defaultX: 0, defaultY: 35 },
     slots: [],
     render: (grid, destX, destY, ctx) => {
-      const inst = ctx.instances?.['bongo']?.find(i => i.id === ctx.activeInstanceId) || ctx.instances?.['bongo']?.[0];
+      const inst = resolveWidgetInstance(ctx.instances, 'bongo', ctx.activeInstanceId) || ctx.instances?.['bongo']?.[0];
+      const boxW = ctx.blockWidth;
+      const boxH = ctx.blockHeight;
       let groupId = inst?.config?.groupId;
       if (!groupId) {
         const bongoSlice = ctx.symbolSlices.find(s =>
@@ -1072,10 +1146,10 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
         if (groupMembers.length >= 3) {
           const stateIdx = ctx.bongoState ?? 0;
           const slice = groupMembers[stateIdx] || groupMembers[0];
-          blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY);
+          blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY, boxW, boxH);
           return;
         } else if (groupMembers.length > 0) {
-          blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, groupMembers[0].id, destX, destY);
+          blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, groupMembers[0].id, destX, destY, boxW, boxH);
           return;
         }
       }
@@ -1088,13 +1162,14 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
       if (directBongos.length > 0) {
         const stateIdx = ctx.bongoState ?? 0;
         const slice = directBongos[stateIdx] || directBongos[0];
-        blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY);
+        blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY, boxW, boxH);
         return;
       }
       // Text fallback mirroring firmware
       const customText = inst?.config?.textEntries?.[0] || '(=^.^=)';
       const fontSize = inst?.config?.fontSize || 'small';
-      drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, customText, destX, destY, fontSize);
+      const textAlign = inst?.config?.textAlign || 'center';
+      drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, customText, destX, destY, fontSize, { align: textAlign, boxWidth: boxW, boxHeight: boxH, verticalAlign: 'middle' });
     },
   },
   {
@@ -1114,10 +1189,12 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     defaultPlacement: { side: 'both', defaultX: 3, defaultY: 35 },
     slots: [],
     render: (grid, destX, destY, ctx) => {
-      const inst = ctx.instances?.['animation']?.find(i => i.id === ctx.activeInstanceId)
+      const inst = resolveWidgetInstance(ctx.instances, 'animation', ctx.activeInstanceId)
         || ctx.instances?.['animation']?.[0]
-        || ctx.instances?.['loop']?.find(i => i.id === ctx.activeInstanceId)
+        || resolveWidgetInstance(ctx.instances, 'loop', ctx.activeInstanceId)
         || ctx.instances?.['loop']?.[0];
+      const boxW = ctx.blockWidth;
+      const boxH = ctx.blockHeight;
       const targetGroupId = inst?.config?.groupId;
       let groupMembers: SpriteSlice[] = [];
       if (targetGroupId) {
@@ -1155,14 +1232,15 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
           frameIdx = Math.min(Math.floor(timestamp / speedMs), groupMembers.length - 1);
         }
         const slice = groupMembers[frameIdx] || groupMembers[0];
-        blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY);
+        blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY, boxW, boxH);
         return;
       }
 
       // Fallback text if no symbol group found
       const fallbackText = inst?.config?.textEntries?.[0] || 'ANIM';
       const fontSize = inst?.config?.fontSize || 'small';
-      drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, fallbackText, destX, destY, fontSize);
+      const textAlign = inst?.config?.textAlign || 'center';
+      drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, fallbackText, destX, destY, fontSize, { align: textAlign, boxWidth: boxW, boxHeight: boxH, verticalAlign: 'middle' });
     },
   }
 ];
@@ -1517,8 +1595,9 @@ export function renderBlocksToGrid(
     const activeInstance = resolveWidgetInstance(context.instances, normType, block.instanceId);
     const resolvedInstanceId = activeInstance?.id ?? block.instanceId;
     const naturalSize = def ? getWidgetNaturalSize(def, context.symbolSlices || [], activeInstance, context.fontGlyphs, context.fontMappings) : null;
-    const effectiveWidth = naturalSize ? naturalSize.width : block.width;
-    const effectiveHeight = naturalSize ? naturalSize.height : block.height;
+    const isChart = normType === 'wpm-chart';
+    const effectiveWidth = (isChart && naturalSize) ? naturalSize.width : (block.width ?? naturalSize?.width ?? def?.defaultWidth);
+    const effectiveHeight = (isChart && naturalSize) ? naturalSize.height : (block.height ?? naturalSize?.height ?? def?.defaultHeight);
     const activeContext = {
       ...context,
       activeInstanceId: resolvedInstanceId,

@@ -744,6 +744,12 @@
   gap: 8px;
 }
 
+.button-trio {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
 .btn-chip {
   display: flex;
   align-items: center;

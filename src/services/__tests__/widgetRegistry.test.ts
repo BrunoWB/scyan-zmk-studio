@@ -1329,5 +1329,145 @@ describe('Widget Registry - Single Source of Truth', () => {
       expect(size).toEqual({ width: 26, height: 26 });
     });
   });
+
+  describe('Widget Instance Alignment (Center Symbol & Left/Center/Right Text)', () => {
+    it('blitSlice centers slice within bounding box horizontally and vertically (middle)', () => {
+      const symbolsGrid = new BwpxGrid(64, 64);
+      symbolsGrid.set(2, 2, 1);
+      const testSlice: SpriteSlice = {
+        id: 'TEST_SLICE',
+        name: 'Test',
+        groupId: 'TEST_GROUP',
+        groupOrder: 1,
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 8,
+      };
+
+      const destGrid = new BwpxGrid(32, 20);
+      // Blit with bounding box of 32x20
+      blitSlice(destGrid, symbolsGrid, [testSlice], 'TEST_SLICE', 0, 0, 32, 20);
+
+      // Expected offsets:
+      // X: Math.floor((32 - 10) / 2) = 11 -> pixel at 11 + 2 = 13
+      // Y: Math.floor((20 - 8) / 2) = 6 -> pixel at 6 + 2 = 8
+      expect(destGrid.get(13, 8)).toBe(1);
+      expect(destGrid.get(2, 2)).toBe(0);
+    });
+
+    it('drawText aligns text horizontally (left, center, right) and middle vertically', () => {
+      const fontGrid = new BwpxGrid(128, 32);
+      // Put a 3x5 'I' at (0, 0)
+      for (let y = 0; y < 5; y++) fontGrid.set(1, y, 1);
+      const fontGlyphs = [{
+        char: 'I',
+        codepoint: 73,
+        x: 0,
+        y: 0,
+        width: 3,
+        height: 5,
+        advanceX: 4,
+      }];
+
+      const boxW = 20;
+      const boxH = 15;
+
+      // 1. Left alignment
+      const gridLeft = new BwpxGrid(32, 20);
+      drawText(gridLeft, fontGrid, fontGlyphs, [], 'I', 0, 0, 'small', {
+        align: 'left',
+        boxWidth: boxW,
+        boxHeight: boxH,
+        verticalAlign: 'middle',
+      });
+      // Vertically centered at Math.floor((15 - 5) / 2) = 5
+      // Left aligned at x = 0 + 1 (stroke is at x=1 of 3x5)
+      expect(gridLeft.get(1, 5)).toBe(1);
+      expect(gridLeft.get(1, 4)).toBe(0);
+
+      // 2. Center alignment
+      const gridCenter = new BwpxGrid(32, 20);
+      drawText(gridCenter, fontGrid, fontGlyphs, [], 'I', 0, 0, 'small', {
+        align: 'center',
+        boxWidth: boxW,
+        boxHeight: boxH,
+        verticalAlign: 'middle',
+      });
+      // Centered horizontally: textW=3, (20 - 3)/2 = 8 -> stroke at 8 + 1 = 9
+      expect(gridCenter.get(9, 5)).toBe(1);
+
+      // 3. Right alignment
+      const gridRight = new BwpxGrid(32, 20);
+      drawText(gridRight, fontGrid, fontGlyphs, [], 'I', 0, 0, 'small', {
+        align: 'right',
+        boxWidth: boxW,
+        boxHeight: boxH,
+        verticalAlign: 'middle',
+      });
+      // Right aligned: 20 - 3 = 17 -> stroke at 17 + 1 = 18
+      expect(gridRight.get(18, 5)).toBe(1);
+    });
+
+    it('branding widget renders left, center, and right based on instance config', () => {
+      const fontGrid = new BwpxGrid(128, 32);
+      for (let y = 0; y < 5; y++) fontGrid.set(0, y, 1);
+      const fontGlyphs = [{
+        char: 'Z',
+        codepoint: 90,
+        x: 0,
+        y: 0,
+        width: 4,
+        height: 5,
+        advanceX: 5,
+      }];
+
+      const brandingDef = getWidgetDefinition('branding')!;
+      expect(brandingDef).toBeDefined();
+
+      const makeContext = (align: 'left' | 'center' | 'right') => ({
+        symbolsGrid: new BwpxGrid(128, 32),
+        symbolSlices: [],
+        fontGrid,
+        fontGlyphs,
+        fontMappings: [],
+        blockWidth: 32,
+        blockHeight: 15,
+        activeInstanceId: `inst-brand-${align}`,
+        instances: {
+          branding: [{
+            id: `inst-brand-${align}`,
+            widgetTypeId: 'branding',
+            label: 'Branding',
+            config: {
+              mode: 'font' as const,
+              fontSize: 'small' as const,
+              textAlign: align,
+              textEntries: ['Z'],
+            },
+            slots: {},
+          }],
+        },
+      });
+
+      // Left
+      const gridLeft = new BwpxGrid(32, 15);
+      brandingDef.render(gridLeft, 0, 0, makeContext('left'));
+      // Text starts at x=0, middle at y=5
+      expect(gridLeft.get(0, 5)).toBe(1);
+
+      // Center
+      const gridCenter = new BwpxGrid(32, 15);
+      brandingDef.render(gridCenter, 0, 0, makeContext('center'));
+      // (32 - 4) / 2 = 14
+      expect(gridCenter.get(14, 5)).toBe(1);
+
+      // Right
+      const gridRight = new BwpxGrid(32, 15);
+      brandingDef.render(gridRight, 0, 0, makeContext('right'));
+      // 32 - 4 = 28
+      expect(gridRight.get(28, 5)).toBe(1);
+    });
+  });
 });
 

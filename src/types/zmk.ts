@@ -47,6 +47,7 @@ export interface LayoutBlock {
   enabled: boolean;
   description?: string;
   side?: 'central' | 'peripheral' | string;
+  textAlign?: 'left' | 'center' | 'right';
 }
 
 export interface DisplaySettings {

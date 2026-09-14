@@ -48,6 +48,8 @@ This document provides a detailed architectural breakdown of the 5 repositories 
 - **Components**:
   - **Atlas Editor (`BwpxGrid`, `BwpxEditor`)**: 1bpp drawing tools, slicing, and font glyph mapping.
   - **Layout & Widget Designer (`BlocksTab`, `WidgetsTab`)**: Drag-and-drop block positioning, configuration, and dimension constraints.
+    - **Symbol Centering Contract**: All symbol/icon widgets automatically align in the center/middle (both horizontally and vertically) within their layout block bounding box (`blockWidth`, `blockHeight`).
+    - **Text Alignment Contract**: Text widgets are automatically centered vertically (middle) and support configurable horizontal alignment (`left`, `center`, `right`, defaulting to `center`) via a 3-way toggle.
   - **Corne Simulator (`OledPreviewTab`)**: Client-side emulation of the MCU rendering pipeline, displaying real-time dual-OLED visuals.
   - **State Compiler (`cHeaderParser.ts`)**: Produces `scyan_assets.h` with embedded JSON metadata for lossless round-trips.
   - **GitHub Service (`githubService.ts`)**: Manages PAT authentication, branch verification, and direct-to-repository commits.

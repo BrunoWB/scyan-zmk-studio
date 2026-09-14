@@ -307,14 +307,16 @@ export function App() {
     return getShieldDefaultRotation('corne');
   });
 
+  const widgetInstancesRef = useRef<WidgetInstanceMap>({});
+
   const handleCentralDimensionsChange = useCallback(
     (newDims: { width: number; height: number }) => {
       setScreenDimensions((prevDims) => {
         if (prevDims.width === newDims.width && prevDims.height === newDims.height) {
           return prevDims;
         }
-        setCentralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims));
-        setIdleCentralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims));
+        setCentralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims, widgetInstancesRef.current));
+        setIdleCentralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims, widgetInstancesRef.current));
         return newDims;
       });
       markDimensionsCustomized();
@@ -328,8 +330,8 @@ export function App() {
         if (prevDims.width === newDims.width && prevDims.height === newDims.height) {
           return prevDims;
         }
-        setPeripheralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims));
-        setIdlePeripheralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims));
+        setPeripheralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims, widgetInstancesRef.current));
+        setIdlePeripheralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims, widgetInstancesRef.current));
         return newDims;
       });
       markDimensionsCustomized();
@@ -570,9 +572,9 @@ export function App() {
     WIDGET_REGISTRY.forEach(w => {
       const shouldAutoPopulate = w.id === 'wpm-chart' || w.id === 'animation' || w.id === 'loop' || (w.associatedSliceIds && w.associatedSliceIds.length > 0);
       if (!defaults[w.id] && !clearedSet.has(w.id) && shouldAutoPopulate) {
-        let initialConfig: import('./types/widget').WidgetInstanceConfig = { mode: 'symbol' };
+        let initialConfig: import('./types/widget').WidgetInstanceConfig = { mode: 'symbol', textAlign: 'center', align: 'center' };
         if (w.id === 'branding') {
-          initialConfig = { mode: 'font', fontSize: 'small', textEntries: ['ZMK'] };
+          initialConfig = { mode: 'font', fontSize: 'small', textAlign: 'center', align: 'center', textEntries: ['ZMK'] };
         } else if (w.id === 'wpm-chart') {
           initialConfig = { mode: 'symbol', wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100 } };
         } else if (w.id === 'connection') {
@@ -675,6 +677,10 @@ export function App() {
     }
     return defaults;
   });
+
+  useEffect(() => {
+    widgetInstancesRef.current = widgetInstances;
+  }, [widgetInstances]);
 
   const handleInstancesChange = useCallback((newInstances: WidgetInstanceMap) => {
     setWidgetInstances(prev => {
@@ -1575,8 +1581,8 @@ export function App() {
       }
     ) => {
       if (id === 'left' || id === 'central') {
-        const remappedBlocks = remapBlockCoordinates(data.blocks, screenDimensions, data.dimensions);
-        const remappedIdle = remapBlockCoordinates(data.idleBlocks, screenDimensions, data.dimensions);
+        const remappedBlocks = remapBlockCoordinates(data.blocks, screenDimensions, data.dimensions, widgetInstancesRef.current);
+        const remappedIdle = remapBlockCoordinates(data.idleBlocks, screenDimensions, data.dimensions, widgetInstancesRef.current);
         setCentralBlocks(remappedBlocks);
         setIdleCentralBlocks(remappedIdle);
         setScreenDimensions(data.dimensions);
@@ -1586,8 +1592,8 @@ export function App() {
         setIdleTimeoutSec(data.idleTimeoutSec);
         setScreenOffTimeoutSec(data.screenOffTimeoutSec);
       } else if (id === 'right' || id === 'peripheral') {
-        const remappedBlocks = remapBlockCoordinates(data.blocks, peripheralScreenDimensions, data.dimensions);
-        const remappedIdle = remapBlockCoordinates(data.idleBlocks, peripheralScreenDimensions, data.dimensions);
+        const remappedBlocks = remapBlockCoordinates(data.blocks, peripheralScreenDimensions, data.dimensions, widgetInstancesRef.current);
+        const remappedIdle = remapBlockCoordinates(data.idleBlocks, peripheralScreenDimensions, data.dimensions, widgetInstancesRef.current);
         setPeripheralBlocks(remappedBlocks);
         setIdlePeripheralBlocks(remappedIdle);
         setPeripheralScreenDimensions(data.dimensions);
@@ -1603,8 +1609,8 @@ export function App() {
             ...prev,
             [id]: {
               ...prev[id],
-              blocks: remapBlockCoordinates(data.blocks, oldDims, data.dimensions),
-              idleBlocks: remapBlockCoordinates(data.idleBlocks, oldDims, data.dimensions),
+              blocks: remapBlockCoordinates(data.blocks, oldDims, data.dimensions, widgetInstancesRef.current),
+              idleBlocks: remapBlockCoordinates(data.idleBlocks, oldDims, data.dimensions, widgetInstancesRef.current),
               screenDimensions: data.dimensions,
               rotation: data.rotation ?? prev[id]?.rotation,
               idleScreensEnabled: data.idleScreensEnabled,

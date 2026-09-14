@@ -815,8 +815,8 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         const currentIdleBlocks = pData.idleBlocks ?? DEFAULT_IDLE_PERIPHERAL_BLOCKS;
         updatePeripheral({
           screenDimensions: dims,
-          blocks: remapBlockCoordinates(currentBlocks, oldDims, dims),
-          idleBlocks: remapBlockCoordinates(currentIdleBlocks, oldDims, dims),
+          blocks: remapBlockCoordinates(currentBlocks, oldDims, dims, instances),
+          idleBlocks: remapBlockCoordinates(currentIdleBlocks, oldDims, dims, instances),
         });
       },
       idleEnabled: pData.idleScreensEnabled ?? true,
