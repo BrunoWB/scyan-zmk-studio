@@ -14,6 +14,14 @@
     ],
     "patches": [
       {
+        "patch": "1.0.16",
+        "date": "2026-09-17",
+        "commitHash": "fe08fcc",
+        "changes": [
+          "feat(editor): modularize state stores, decouple preview & settings, and align pixel editor zooming and panning"
+        ]
+      },
+      {
         "patch": "1.0.15",
         "date": "2026-09-17",
         "commitHash": "5c0f878",
