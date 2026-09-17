@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { BwpxGrid } from './bwpx/core/BwpxGrid';
 import type { EditorViewport } from './bwpx';
 import type {
@@ -32,6 +32,11 @@ import {
   getShieldDefaultResolution,
   getShieldDefaultRotation,
 } from './services/keymapService';
+import {
+  type LoadedShieldUnit,
+  getShieldUnitsForShield,
+  detectShieldUnitsFromRepo,
+} from './data/shieldsData';
 import { remapBlockCoordinates } from './services/blocksLayout';
 import type {
   GitHubRepoConfig,
@@ -393,6 +398,44 @@ export function App() {
     return def.metadata?.peripheralScreens || {};
   });
 
+  const [loadedShields, setLoadedShields] = useState<LoadedShieldUnit[]>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-loaded-shields');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return getShieldUnitsForShield(shieldId);
+  });
+
+  const [displayAssignments, setDisplayAssignments] = useState<Record<string, string | null>>(() => {
+    try {
+      const saved = localStorage.getItem('zmk-display-assignments');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const init: Record<string, string | null> = {};
+    const shields = getShieldUnitsForShield(shieldId);
+    const screens = enabledScreens;
+    shields.forEach((shield, idx) => {
+      if (idx === 0 && screens.includes('central')) init[shield.id] = 'central';
+      else if (idx === 1 && screens.includes('peripheral')) init[shield.id] = 'peripheral';
+      else if (idx < screens.length) init[shield.id] = screens[idx];
+      else init[shield.id] = null;
+    });
+    return init;
+  });
+
+  const loadedShieldsRef = useRef(loadedShields);
+  useEffect(() => {
+    loadedShieldsRef.current = loadedShields;
+  }, [loadedShields]);
+
+  const displayAssignmentsRef = useRef(displayAssignments);
+  useEffect(() => {
+    displayAssignmentsRef.current = displayAssignments;
+  }, [displayAssignments]);
+
   // Track last editor grid looking position in the session (viewport: zoom & pan)
   const [symbolsViewport, setSymbolsViewport] = useState<EditorViewport | undefined>(() => {
     try {
@@ -531,6 +574,50 @@ export function App() {
       localStorage.setItem('zmk-peripheral-screens', JSON.stringify(peripheralScreens));
     } catch {}
   }, [peripheralScreens]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-loaded-shields', JSON.stringify(loadedShields));
+    } catch {}
+  }, [loadedShields]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zmk-display-assignments', JSON.stringify(displayAssignments));
+    } catch {}
+  }, [displayAssignments]);
+
+  // Compute attached and unattached displays
+  const currentShieldIds = useMemo(() => new Set(loadedShields.map((s) => s.id)), [loadedShields]);
+
+  const attachedDisplayIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [shieldKey, dispId] of Object.entries(displayAssignments)) {
+      if (dispId && currentShieldIds.has(shieldKey)) {
+        ids.add(dispId);
+      }
+    }
+    return ids;
+  }, [displayAssignments, currentShieldIds]);
+
+  const unattachedScreens = useMemo(() => {
+    return enabledScreens.filter((s) => !attachedDisplayIds.has(s));
+  }, [enabledScreens, attachedDisplayIds]);
+
+  // Reconcile displayAssignments when enabledScreens changes (e.g. display deleted in layout)
+  useEffect(() => {
+    setDisplayAssignments((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [shieldKey, dispId] of Object.entries(next)) {
+        if (dispId && !enabledScreens.includes(dispId)) {
+          next[shieldKey] = null;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [enabledScreens]);
 
   const [customText, setCustomText] = useState<string>('BRUNOWB');
   const [_clearedTemplates, setClearedTemplates] = useState<string[]>(() => {
@@ -787,6 +874,9 @@ export function App() {
       if (parsed.metadata.shieldId) {
         setShieldId(parsed.metadata.shieldId);
       }
+      if (parsed.metadata.displayAssignments) {
+        setDisplayAssignments(parsed.metadata.displayAssignments);
+      }
       const rawEnabled = parsed.metadata.enabledScreens;
       const resolvedEnabledScreens = rawEnabled && rawEnabled.length > 0
         ? rawEnabled
@@ -837,6 +927,8 @@ export function App() {
       'zmk-cleared-templates',
       'zmk_builder_cached_header',
       'zmk-customized-dimensions',
+      'zmk-loaded-shields',
+      'zmk-display-assignments',
     ];
     keysToRemove.forEach(k => {
       try {
@@ -846,6 +938,11 @@ export function App() {
     setHasUserCustomizedDimensions(false);
     hasUserCustomizedDimensionsRef.current = false;
     setPeripheralScreens({});
+    setLoadedShields(getShieldUnitsForShield('corne'));
+    setDisplayAssignments({
+      'corne_left': 'central',
+      'corne_right': 'peripheral',
+    });
     setRotation(getShieldDefaultRotation('corne'));
     setPeripheralRotation(getShieldDefaultRotation('corne'));
     applyParsedAssets(getDefaultAssets());
@@ -853,14 +950,62 @@ export function App() {
   }, [applyParsedAssets]);
 
   // Notification Toast
-  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
 
-  const showToast = useCallback((type: 'success' | 'error', message: string) => {
+  const showToast = useCallback((type: 'success' | 'error' | 'warning', message: string) => {
     setToast({ type, message });
     setTimeout(() => {
       setToast(null);
     }, 4000);
   }, []);
+
+  // Gracefully handles shield detection & reconcile removed shields from repository
+  const reconcileDetectedShields = useCallback((
+    detectedUnits: LoadedShieldUnit[],
+    sourceDesc: string = 'repository config'
+  ) => {
+    if (!detectedUnits || detectedUnits.length === 0) return;
+
+    const detectedIds = new Set(detectedUnits.map((u) => u.id));
+    const prevShields = loadedShieldsRef.current;
+
+    // Detect removed shields from previous loaded shields as well as previously assigned display keys
+    const removedShieldIds = new Set<string>();
+    prevShields.forEach((s) => {
+      if (!detectedIds.has(s.id)) {
+        removedShieldIds.add(s.id);
+      }
+    });
+    Object.keys(displayAssignmentsRef.current).forEach((shId) => {
+      if (!detectedIds.has(shId)) {
+        removedShieldIds.add(shId);
+      }
+    });
+
+    setLoadedShields(detectedUnits);
+
+    if (removedShieldIds.size > 0) {
+      // Detach any displays that were on the removed shields
+      setDisplayAssignments((prevAssignments) => {
+        let changed = false;
+        const nextAssignments = { ...prevAssignments };
+        removedShieldIds.forEach((shId) => {
+          if (shId in nextAssignments) {
+            delete nextAssignments[shId];
+            changed = true;
+          }
+        });
+        return changed ? nextAssignments : prevAssignments;
+      });
+
+      // Show graceful warning for removed shields
+      const removedNames = Array.from(removedShieldIds).join(', ');
+      showToast(
+        'warning',
+        `Shield (${removedNames}) was removed from ${sourceDesc}. Any previously attached display is now unattached and won't be saved when committing.`
+      );
+    }
+  }, [showToast]);
 
   const handleRestoreInitialValues = useCallback(() => {
     if (initialAssetsRef.current) {
@@ -1087,6 +1232,19 @@ export function App() {
                 console.warn('Pre-install shield inference warning:', detectErr);
               }
             }
+
+            try {
+              const confCandidates = prereqs.candidateConfFiles || (prereqs.confPath ? [prereqs.confPath] : undefined);
+              const detected = detectShieldUnitsFromRepo(
+                shieldId,
+                confCandidates,
+                undefined,
+                prereqs.buildYamlContent
+              );
+              reconcileDetectedShields(detected, `${activeOwner}/${activeRepo}`);
+            } catch (shieldErr) {
+              console.warn('Shield detection warning:', shieldErr);
+            }
           } catch {
             console.info('No scyan_assets.h in repo (first time setup). Loading defaults.');
             applyDefaults();
@@ -1155,6 +1313,19 @@ export function App() {
         } else {
           applyDefaults();
           initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
+        }
+
+        try {
+          const confCandidates = prereqs.candidateConfFiles || (prereqs.confPath ? [prereqs.confPath] : undefined);
+          const detected = detectShieldUnitsFromRepo(
+            shieldId,
+            confCandidates,
+            undefined,
+            prereqs.buildYamlContent
+          );
+          reconcileDetectedShields(detected, `${config.owner}/${config.repo}`);
+        } catch (shieldErr) {
+          console.warn('Sync shield detection warning:', shieldErr);
         }
       } catch (err: any) {
         console.info('Repository does not contain scyan_assets.h yet. Keeping defaults.', err);
@@ -1285,6 +1456,19 @@ export function App() {
           }
         }
 
+        try {
+          const confCandidates = prereqs.candidateConfFiles || (prereqs.confPath ? [prereqs.confPath] : undefined);
+          const detected = detectShieldUnitsFromRepo(
+            shieldId,
+            confCandidates,
+            undefined,
+            prereqs.buildYamlContent
+          );
+          reconcileDetectedShields(detected, `${config.owner}/${config.repo}`);
+        } catch (shieldErr) {
+          console.warn('Sync shield detection warning:', shieldErr);
+        }
+
         // Also fetch and update keymap layout from repository
         try {
           const keymapResult = await fetchRepoKeymap(config);
@@ -1320,27 +1504,37 @@ export function App() {
 
     try {
       setIsInstallingStudio(true);
+      const effCentralShield = loadedShields.find((s) => s.isMaster || s.side === 'left') || loadedShields[0];
+      const effPeripheralShield = loadedShields.find((s) => s.id !== effCentralShield?.id);
+
+      const centralDispId = effCentralShield ? (displayAssignments[effCentralShield.id] ?? 'central') : 'central';
+      const peripheralDispId = effPeripheralShield ? (displayAssignments[effPeripheralShield.id] ?? 'peripheral') : 'peripheral';
+
+      const centralData = getScreenData(centralDispId || 'central');
+      const peripheralData = getScreenData(peripheralDispId || 'peripheral');
+
       const metadata: HeaderMetadata = {
         version: 1,
-        centralBlocks,
-        peripheralBlocks,
-        idleCentralBlocks,
-        idlePeripheralBlocks,
-        screenDimensions,
-        rotation,
+        centralBlocks: centralData.blocks,
+        peripheralBlocks: peripheralData.blocks,
+        idleCentralBlocks: centralData.idleBlocks,
+        idlePeripheralBlocks: peripheralData.idleBlocks,
+        screenDimensions: centralData.dimensions,
+        rotation: centralData.rotation,
         widgetInstances,
-        idleTimeoutSec,
-        screenOffTimeoutSec,
-        idleScreensEnabled,
+        idleTimeoutSec: centralData.idleTimeoutSec,
+        screenOffTimeoutSec: centralData.screenOffTimeoutSec,
+        idleScreensEnabled: centralData.idleScreensEnabled,
         symmetricSettings,
-        peripheralScreenDimensions: symmetricSettings ? undefined : peripheralScreenDimensions,
-        peripheralRotation: symmetricSettings ? undefined : peripheralRotation,
-        peripheralIdleScreensEnabled: symmetricSettings ? undefined : peripheralIdleScreensEnabled,
-        peripheralIdleTimeoutSec: symmetricSettings ? undefined : peripheralIdleTimeoutSec,
-        peripheralScreenOffTimeoutSec: symmetricSettings ? undefined : peripheralScreenOffTimeoutSec,
+        peripheralScreenDimensions: symmetricSettings ? undefined : peripheralData.dimensions,
+        peripheralRotation: symmetricSettings ? undefined : peripheralData.rotation,
+        peripheralIdleScreensEnabled: symmetricSettings ? undefined : peripheralData.idleScreensEnabled,
+        peripheralIdleTimeoutSec: symmetricSettings ? undefined : peripheralData.idleTimeoutSec,
+        peripheralScreenOffTimeoutSec: symmetricSettings ? undefined : peripheralData.screenOffTimeoutSec,
         shieldId,
         enabledScreens,
         peripheralScreens: Object.keys(peripheralScreens).length > 0 ? peripheralScreens : undefined,
+        displayAssignments,
         layerNames: keymapLayout.layerNames,
       };
 
@@ -1439,27 +1633,52 @@ export function App() {
 
     try {
       setIsSaving(true);
+      if (unattachedScreens.length > 0) {
+        showToast(
+          'warning',
+          `Warning: ${unattachedScreens.length} display(s) (${unattachedScreens.join(', ')}) are not attached and won't be saved when committing.`
+        );
+      }
+
+      const screensToCommit = enabledScreens.filter((s) => attachedDisplayIds.has(s));
+      const peripheralScreensToCommit: Record<string, PeripheralScreenData> = {};
+      Object.entries(peripheralScreens).forEach(([k, v]) => {
+        if (attachedDisplayIds.has(k)) {
+          peripheralScreensToCommit[k] = v;
+        }
+      });
+
+      const effCentralShield = loadedShields.find((s) => s.isMaster || s.side === 'left') || loadedShields[0];
+      const effPeripheralShield = loadedShields.find((s) => s.id !== effCentralShield?.id);
+
+      const centralDispId = effCentralShield ? (displayAssignments[effCentralShield.id] ?? 'central') : 'central';
+      const peripheralDispId = effPeripheralShield ? (displayAssignments[effPeripheralShield.id] ?? 'peripheral') : 'peripheral';
+
+      const centralData = getScreenData(centralDispId || 'central');
+      const peripheralData = getScreenData(peripheralDispId || 'peripheral');
+
       const metadata: HeaderMetadata = {
         version: 1,
-        centralBlocks,
-        peripheralBlocks,
-        idleCentralBlocks,
-        idlePeripheralBlocks,
-        screenDimensions,
-        rotation,
+        centralBlocks: centralData.blocks,
+        peripheralBlocks: peripheralData.blocks,
+        idleCentralBlocks: centralData.idleBlocks,
+        idlePeripheralBlocks: peripheralData.idleBlocks,
+        screenDimensions: centralData.dimensions,
+        rotation: centralData.rotation,
         widgetInstances,
-        idleTimeoutSec,
-        screenOffTimeoutSec,
-        idleScreensEnabled,
+        idleTimeoutSec: centralData.idleTimeoutSec,
+        screenOffTimeoutSec: centralData.screenOffTimeoutSec,
+        idleScreensEnabled: centralData.idleScreensEnabled,
         symmetricSettings,
-        peripheralScreenDimensions: symmetricSettings ? undefined : peripheralScreenDimensions,
-        peripheralRotation: symmetricSettings ? undefined : peripheralRotation,
-        peripheralIdleScreensEnabled: symmetricSettings ? undefined : peripheralIdleScreensEnabled,
-        peripheralIdleTimeoutSec: symmetricSettings ? undefined : peripheralIdleTimeoutSec,
-        peripheralScreenOffTimeoutSec: symmetricSettings ? undefined : peripheralScreenOffTimeoutSec,
+        peripheralScreenDimensions: symmetricSettings ? undefined : peripheralData.dimensions,
+        peripheralRotation: symmetricSettings ? undefined : peripheralData.rotation,
+        peripheralIdleScreensEnabled: symmetricSettings ? undefined : peripheralData.idleScreensEnabled,
+        peripheralIdleTimeoutSec: symmetricSettings ? undefined : peripheralData.idleTimeoutSec,
+        peripheralScreenOffTimeoutSec: symmetricSettings ? undefined : peripheralData.screenOffTimeoutSec,
         shieldId,
-        enabledScreens,
-        peripheralScreens: Object.keys(peripheralScreens).length > 0 ? peripheralScreens : undefined,
+        enabledScreens: screensToCommit.length > 0 ? screensToCommit : ['central'],
+        peripheralScreens: Object.keys(peripheralScreensToCommit).length > 0 ? peripheralScreensToCommit : undefined,
+        displayAssignments,
         layerNames: keymapLayout.layerNames,
       };
       const generatedC = generateCHeader(symbolsGrid, symbolSlices, fontGrid, fontMappings, metadata);
@@ -1671,6 +1890,7 @@ export function App() {
         onSearchClick={import.meta.env.DEV ? () => setIsCommandPaletteOpen(true) : undefined}
         onRestoreInitialValues={handleRestoreInitialValues}
         onRestoreDefaults={handleRestoreDefaults}
+        unattachedDisplaysCount={unattachedScreens.length}
       />
 
       {/* Main Tab Navigation Bar with Quick Navigation Scroll Bar */}
@@ -1860,6 +2080,10 @@ export function App() {
                 keymapLayout={keymapLayout}
                 onKeymapLayoutChange={setKeymapLayout}
                 onSwapDisplays={handleSwapDisplays}
+                loadedShields={loadedShields}
+                displayAssignments={displayAssignments}
+                onDisplayAssignmentsChange={setDisplayAssignments}
+                peripheralScreens={peripheralScreens}
               />
             )}
 
@@ -1955,6 +2179,10 @@ export function App() {
                 onInstancesChange={handleInstancesChange}
                 layoutBlocks={centralBlocks}
                 onLayoutBlocksChange={setCentralBlocks}
+                displayAssignments={displayAssignments}
+                onDisplayAssignmentsChange={setDisplayAssignments}
+                loadedShields={loadedShields}
+                shieldId={shieldId}
               />
             )}
 
@@ -2016,6 +2244,8 @@ export function App() {
                 peripheralScreenDimensions={peripheralScreenDimensions}
                 instances={widgetInstances}
                 customText={customText}
+                displayAssignments={displayAssignments}
+                onDisplayAssignmentsChange={setDisplayAssignments}
                 onSwapDisplays={handleSwapDisplays}
                 onMakeMaster={handleMakeMaster}
                 onNavigateToPreview={() => handleTabClick('preview')}
@@ -2032,16 +2262,22 @@ export function App() {
             className={`pointer-events-auto p-4 rounded-xl border shadow-2xl backdrop-blur-lg flex items-start gap-3 transition-all ${
               toast.type === 'success'
                 ? 'bg-[#0b0d13]/95 border-[#00f0ff]/50 text-white shadow-[0_0_24px_rgba(0,240,255,0.2)]'
+                : toast.type === 'warning'
+                ? 'bg-[#0b0d13]/95 border-amber-500/60 text-white shadow-[0_0_24px_rgba(245,158,11,0.2)]'
                 : 'bg-[#0b0d13]/95 border-[#f2741d]/50 text-white shadow-[0_0_24px_rgba(242,116,29,0.2)]'
             }`}
           >
             {toast.type === 'success' ? (
               <CheckCircle2 size={16} className="text-[#00f0ff] shrink-0 mt-0.5" />
+            ) : toast.type === 'warning' ? (
+              <AlertCircle size={16} className="text-amber-400 shrink-0 mt-0.5" />
             ) : (
               <AlertCircle size={16} className="text-[#f2741d] shrink-0 mt-0.5" />
             )}
             <div className="flex-1 min-w-0">
-              <h4 className="text-xs font-bold">{toast.type === 'success' ? 'Success' : 'Error'}</h4>
+              <h4 className="text-xs font-bold">
+                {toast.type === 'success' ? 'Success' : toast.type === 'warning' ? 'Warning' : 'Error'}
+              </h4>
               <p className="text-xs text-[#94a3b8] mt-0.5 leading-relaxed">{toast.message}</p>
             </div>
             <button

@@ -1069,7 +1069,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
   onRightIdleTimeoutSecChange,
   rightScreenOffTimeoutSec,
   onRightScreenOffTimeoutSecChange,
-  isPeripheral: _isPeripheral = false,
+  isPeripheral,
   onMakeMaster,
   onMakeCentral,
   onMakePeripheral,
@@ -1164,7 +1164,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
     }
   };
 
-  const isCentral = side === 'central' || side === 'left';
+  const isCentral = isPeripheral !== undefined ? !isPeripheral : (side === 'central' || side === 'left');
   const peripheralIndex = side.startsWith('peripheral-') ? side.replace('peripheral-', '') : null;
   const sideTitle = isCentral ? 'Central Settings' : peripheralIndex ? `Peripheral ${peripheralIndex} Settings` : 'Peripheral Settings';
   const sideBadge = isCentral ? 'Central' : peripheralIndex ? `Peripheral ${peripheralIndex}` : 'Peripheral';

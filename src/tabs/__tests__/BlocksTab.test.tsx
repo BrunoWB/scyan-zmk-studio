@@ -238,4 +238,75 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
     expect(html).toContain('Peripheral Active');
     expect(html).not.toContain('Peripheral Idle');
   });
+
+  it('renders the display attached to the central shield as the Center Display in BlocksTab', () => {
+    // Left shield has 'peripheral' display, Right shield has 'central' display
+    const html = renderToString(
+      <BlocksTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText="TEST"
+        centralBlocks={sampleCentralBlocks}
+        peripheralBlocks={samplePeripheralBlocks}
+        enabledScreens={['central', 'peripheral']}
+        displayAssignments={{
+          'corne_left': 'peripheral',
+          'corne_right': 'central',
+        }}
+        shieldId="corne"
+      />
+    );
+
+    // Layout tab should render both columns
+    expect(html).toContain('Central Active');
+    expect(html).toContain('Peripheral Active');
+
+    // In the DOM, the left column (before Widgets catalog) is the Central Display.
+    // It is labeled "Central Active" with role Central, but contains the swapped peripheralBlocks!
+    const centralIdx = html.indexOf('Central Active');
+    const catalogIdx = html.indexOf('blocks-column-catalog');
+    const peripheralIdx = html.indexOf('Peripheral Active');
+
+    expect(centralIdx).toBeGreaterThan(-1);
+    expect(catalogIdx).toBeGreaterThan(-1);
+    expect(peripheralIdx).toBeGreaterThan(-1);
+
+    // Central Active is on the LEFT of the catalog (in the central display position)
+    expect(centralIdx).toBeLessThan(catalogIdx);
+    // Peripheral Active is on the RIGHT of the catalog (in the peripheral display position)
+    expect(catalogIdx).toBeLessThan(peripheralIdx);
+
+    // Verify content swap: Central column has Battery (from samplePeripheralBlocks), Peripheral column has WPM (from sampleCentralBlocks)
+    const batteryIdx = html.indexOf('Battery Peripheral');
+    const wpmIdx = html.indexOf('WPM Central');
+    expect(batteryIdx).toBeLessThan(catalogIdx);
+    expect(catalogIdx).toBeLessThan(wpmIdx);
+  });
+
+  it('renders Add Display (Central) placeholder when central shield has no display attached', () => {
+    const html = renderToString(
+      <BlocksTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText="TEST"
+        centralBlocks={sampleCentralBlocks}
+        peripheralBlocks={samplePeripheralBlocks}
+        enabledScreens={['peripheral']}
+        displayAssignments={{
+          'corne_left': null,
+          'corne_right': 'peripheral',
+        }}
+        shieldId="corne"
+      />
+    );
+
+    // Central column should show Add Display (Central)
+    expect(html).toContain('Add Display');
+    expect(html).toContain('(Central)');
+
+    // Peripheral screen is still rendered on the right
+    expect(html).toContain('Peripheral Active');
+  });
 });

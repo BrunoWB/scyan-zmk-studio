@@ -11,7 +11,7 @@ import type {
   DisplayWidgetDefinition,
   WidgetCategory,
 } from '../../types/widget';
-import { Search } from 'lucide-react';
+import { Search, Cpu } from 'lucide-react';
 
 type FilterType = 'all' | 'tier-1' | 'tier-2' | 'tier-3' | WidgetCategory;
 
@@ -237,7 +237,7 @@ export const WidgetCatalogList: React.FC<WidgetCatalogListProps> = ({
                     </span>
                     {widget.requiresMaster && (
                       <span className="badge-master badge-master--nav" title="Requires Central half in ZMK split">
-                        C
+                        <Cpu size={9} className="shrink-0" />
                       </span>
                     )}
                   </div>

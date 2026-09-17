@@ -19,7 +19,7 @@ import {
   Activity, Battery, Wifi, Link2, Layers, Sparkles, Gauge, Type,
   Type as TypeIcon, Image as ImageIcon,
   Plus, Trash2, Usb, Bluetooth, Cat, Repeat, Film,
-  AlignLeft, AlignCenter, AlignRight
+  AlignLeft, AlignCenter, AlignRight, Cpu
 } from 'lucide-react';
 
 export interface WidgetsTabProps {
@@ -348,7 +348,9 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                       <button key={widget.id} className={`widget-nav-item ${isActive ? 'active' : ''}`} onClick={() => setActiveWidgetId(widget.id)}>
                         <div className="widget-nav-badges">
                           {widget.requiresMaster && (
-                            <span className="badge-master badge-master--nav" title="Requires Central half in ZMK split">C</span>
+                            <span className="badge-master badge-master--nav" title="Requires Central half in ZMK split">
+                              <Cpu size={9} className="shrink-0" />
+                            </span>
                           )}
                           {instanceCount > 0 && (
                             <span className="instance-count-badge">{instanceCount}</span>
@@ -391,7 +393,10 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
               Tier {activeWidget.tier} · {activeWidget.category}
             </span>
             {activeWidget.requiresMaster && (
-              <span className="badge-master" title="Requires Central half in ZMK split">CENTRAL</span>
+              <span className="badge-master" title="Requires Central half in ZMK split">
+                <Cpu size={10} className="shrink-0" />
+                CENTRAL
+              </span>
             )}
           </div>
           <p className="text-sm text-muted">{activeWidget.description}</p>

@@ -25,6 +25,8 @@ import {
 
 export interface OledPanelColumnProps {
   side: 'left' | 'right' | 'dongle' | string;
+  isCentral?: boolean;
+  roleLabel?: string;
   screenKind?: 'active' | 'idle';
   title?: string;
   subtitle?: string;
@@ -69,6 +71,8 @@ const BLOCK_COLORS: Record<string, string> = {
 
 export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
   side,
+  isCentral: propsIsCentral,
+  roleLabel: propsRoleLabel,
   screenKind = 'active',
   title,
   subtitle: _subtitle,
@@ -467,9 +471,9 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
     height: `${casingHeight}px`,
   };
 
-  const isCentral = side === 'central' || side === 'left';
+  const isCentral = propsIsCentral !== undefined ? propsIsCentral : (side === 'central' || side === 'left');
   const peripheralIndex = side.startsWith('peripheral-') ? side.replace('peripheral-', '') : null;
-  const roleLabel = isCentral ? 'Central' : (peripheralIndex ? `Peripheral ${peripheralIndex}` : 'Peripheral');
+  const roleLabel = propsRoleLabel || (isCentral ? 'Central' : (peripheralIndex ? `Peripheral ${peripheralIndex}` : 'Peripheral'));
   const displayRoleText = screenKind === 'idle' ? `${roleLabel} · Idle` : roleLabel;
 
   return (

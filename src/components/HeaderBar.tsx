@@ -22,6 +22,7 @@ import {
   Unplug,
   RotateCcw,
   Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import { Chip, Button, Kbd } from '@heroui/react';
 import type {
@@ -65,6 +66,7 @@ export interface HeaderBarProps {
   onRestoreInitialValues?: () => void;
   onRestoreDefaults?: () => void;
   initialWorkflowRun?: WorkflowRunInfo | null;
+  unattachedDisplaysCount?: number;
 }
 
 const GithubIcon = ({ size = 16, className = '' }: { size?: number; className?: string }) => (
@@ -133,6 +135,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onRestoreInitialValues,
   onRestoreDefaults,
   initialWorkflowRun,
+  unattachedDisplaysCount = 0,
 }) => {
   const [tempConfig, setTempConfig] = useState<GitHubRepoConfig>(config);
   const [workflowRun, setWorkflowRun] = useState<WorkflowRunInfo | null>(initialWorkflowRun ?? null);
@@ -821,7 +824,16 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             <span className="text-slate-300 hover:text-white">Buy me a coffee</span>
           </a>
 
-          <div className="relative z-10 bg-[#0b0d13] rounded-lg flex items-center">
+          <div className="relative z-10 bg-[#0b0d13] rounded-lg flex items-center gap-1.5">
+            {unattachedDisplaysCount > 0 && (
+              <span
+                className="flex items-center gap-1 text-[11px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-1 rounded-lg"
+                title={`${unattachedDisplaysCount} display is not attached to any shield and won't be saved when committing.`}
+              >
+                <AlertTriangle size={13} className="text-amber-400 shrink-0" />
+                <span className="hidden sm:inline font-semibold">{unattachedDisplaysCount} unattached</span>
+              </span>
+            )}
             <Button
               size="sm"
               onClick={onSave}

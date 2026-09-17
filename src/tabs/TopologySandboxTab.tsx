@@ -44,6 +44,8 @@ export interface TopologySandboxTabProps {
   rightScreenDimensions?: { width: number; height: number };
   instances?: WidgetInstanceMap;
   customText?: string;
+  displayAssignments?: Record<string, string | null>;
+  onDisplayAssignmentsChange?: (assignments: Record<string, string | null>) => void;
   onNavigateToPreview?: () => void;
   onSwapDisplays?: (displayIdA: string, displayIdB: string) => void;
   onMakeMaster?: (displayId: string) => void;
@@ -70,6 +72,8 @@ export const TopologySandboxTab: React.FC<TopologySandboxTabProps> = ({
   rightScreenDimensions,
   instances,
   customText = 'SCYAN',
+  displayAssignments: propDisplayAssignments,
+  onDisplayAssignmentsChange: propOnDisplayAssignmentsChange,
   onSwapDisplays,
   onMakeMaster,
 }) => {
@@ -93,7 +97,7 @@ export const TopologySandboxTab: React.FC<TopologySandboxTabProps> = ({
     return enabledScreens && enabledScreens.length > 0 ? enabledScreens : ['central', 'peripheral'];
   }, [enabledScreens]);
 
-  const [displayAssignments, setDisplayAssignments] = useState<Record<string, string | null>>(() => {
+  const [localDisplayAssignments, setLocalDisplayAssignments] = useState<Record<string, string | null>>(() => {
     const initial: Record<string, string | null> = {};
     const screens = enabledScreens && enabledScreens.length > 0 ? enabledScreens : ['central', 'peripheral'];
     if (screens.includes('central')) initial['0,0'] = 'central';
@@ -103,6 +107,37 @@ export const TopologySandboxTab: React.FC<TopologySandboxTabProps> = ({
     else if (screens.includes('right')) initial['1,0'] = 'right';
     return initial;
   });
+
+  // Map shield-unit-keyed propDisplayAssignments to coordinate-keyed assignments for TopologyGridCanvas
+  const canvasDisplayAssignments = useMemo(() => {
+    if (!propDisplayAssignments) {
+      return localDisplayAssignments;
+    }
+    const result: Record<string, string | null> = {};
+    for (const [cellKey, instance] of Object.entries(placedParts)) {
+      const partId = instance.part.id;
+      if (partId in propDisplayAssignments) {
+        result[cellKey] = propDisplayAssignments[partId];
+      } else {
+        result[cellKey] = null;
+      }
+    }
+    return result;
+  }, [placedParts, propDisplayAssignments, localDisplayAssignments]);
+
+  const handleCanvasDisplayAssignmentsChange = useCallback((newCellAssignments: Record<string, string | null>) => {
+    setLocalDisplayAssignments(newCellAssignments);
+    if (propOnDisplayAssignmentsChange && propDisplayAssignments) {
+      const nextShieldAssignments: Record<string, string | null> = { ...propDisplayAssignments };
+      for (const [cellKey, dispId] of Object.entries(newCellAssignments)) {
+        const instance = placedParts[cellKey];
+        if (instance) {
+          nextShieldAssignments[instance.part.id] = dispId;
+        }
+      }
+      propOnDisplayAssignmentsChange(nextShieldAssignments);
+    }
+  }, [placedParts, propDisplayAssignments, propOnDisplayAssignmentsChange]);
 
   const [typingWpm, setTypingWpm] = useState(48);
 
@@ -227,8 +262,8 @@ export const TopologySandboxTab: React.FC<TopologySandboxTabProps> = ({
         activeCentralBlocks={effectiveCentralBlocks}
         activePeripheralBlocks={effectivePeripheralBlocks}
         layoutDisplays={layoutDisplays}
-        displayAssignments={displayAssignments}
-        onDisplayAssignmentsChange={setDisplayAssignments}
+        displayAssignments={canvasDisplayAssignments}
+        onDisplayAssignmentsChange={handleCanvasDisplayAssignmentsChange}
         masterShieldKey={masterShieldKey}
         onSetMasterShield={setMasterShieldKey}
         onSwapDisplays={onSwapDisplays}

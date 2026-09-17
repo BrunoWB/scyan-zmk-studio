@@ -182,4 +182,30 @@ describe('TopologySandboxTab', () => {
     expect(html).not.toContain('Drop or attach part at (5, 5)');
     expect(html).not.toContain('Drop or attach part at (3, 0)');
   });
+
+  it('maps shield-unit-keyed displayAssignments from App to Topology canvas parts seamlessly', () => {
+    const html = renderToString(
+      <TopologySandboxTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        enabledScreens={['central', 'peripheral']}
+        displayAssignments={{
+          'corne_left': 'central',
+          'corne_right': 'peripheral',
+        }}
+      />
+    );
+
+    // Both Corne parts at (0,0) and (1,0) should receive their displays
+    expect(html).toContain('Master Display');
+    expect(html).toContain('Peripheral Display');
+
+    // Live OLED canvas should be rendered
+    expect(html).toContain('corne-oled-canvas');
+
+    // All displays should be mounted
+    expect(html).toContain('All Layout Displays Mounted on Shields');
+    expect(html).toContain('Layout Displays');
+  });
 });

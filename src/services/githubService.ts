@@ -561,6 +561,7 @@ export interface RepoPrerequisites {
   headerPath?: string;
   existingConfContent?: string;
   existingWestContent?: string;
+  buildYamlContent?: string;
 }
 
 /**
@@ -703,6 +704,21 @@ export async function checkRepoPrerequisites(
     }
   }
 
+  let buildYamlContent: string | undefined = undefined;
+  try {
+    const buildRes = await octokit.repos.getContent({
+      owner: config.owner,
+      repo: config.repo,
+      path: 'build.yaml',
+      ref: refToUse,
+    });
+    if ('content' in buildRes.data && typeof buildRes.data.content === 'string') {
+      buildYamlContent = atob(buildRes.data.content.replace(/\s/g, ''));
+    }
+  } catch {
+    // build.yaml is optional
+  }
+
   const isInstalled = hasWestModule && hasKconfig && hasAssetsHeader;
 
   return {
@@ -716,6 +732,7 @@ export async function checkRepoPrerequisites(
     headerPath,
     existingConfContent,
     existingWestContent,
+    buildYamlContent,
   };
 }
 

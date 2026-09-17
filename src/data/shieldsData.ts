@@ -783,3 +783,137 @@ export function getShieldParts(): ShieldPartItem[] {
 
   return parts;
 }
+
+export interface LoadedShieldUnit {
+  id: string;
+  shieldId: string;
+  name: string;
+  side: ShieldPartSide;
+  shield: ShieldDefinition;
+  keyCount?: number;
+  isMaster?: boolean;
+}
+
+export function getShieldUnitsForShield(shieldId?: string | null): LoadedShieldUnit[] {
+  const shield = getShieldDefinition(shieldId);
+  if (shield.layoutGeometry.type === 'split-pair' || shield.layoutGeometry.type === 'unknown') {
+    return [
+      {
+        id: `${shield.id}_left`,
+        shieldId: shield.id,
+        name: `${shield.name} (Central)`,
+        side: 'left',
+        shield,
+        isMaster: true,
+      },
+      {
+        id: `${shield.id}_right`,
+        shieldId: shield.id,
+        name: `${shield.name} (Peripheral)`,
+        side: 'right',
+        shield,
+        isMaster: false,
+      },
+    ];
+  } else if (shield.layoutGeometry.type === 'dongle') {
+    return [
+      {
+        id: shield.id,
+        shieldId: shield.id,
+        name: shield.name,
+        side: 'dongle',
+        shield,
+        isMaster: true,
+      },
+    ];
+  } else {
+    // Unibody or numpad
+    return [
+      {
+        id: shield.id,
+        shieldId: shield.id,
+        name: shield.name,
+        side: 'single',
+        shield,
+        isMaster: true,
+      },
+    ];
+  }
+}
+
+export function detectShieldUnitsFromRepo(
+  primaryShieldId: string = 'corne',
+  candidateConfFiles?: string[],
+  _keymapFilenames?: string[],
+  buildYamlContent?: string
+): LoadedShieldUnit[] {
+  const units: LoadedShieldUnit[] = [];
+  const seenIds = new Set<string>();
+  const seenShieldIds = new Set<string>();
+
+  // Check build.yaml content if provided
+  if (buildYamlContent) {
+    const matches = Array.from(buildYamlContent.matchAll(/shield:\s*([a-zA-Z0-9_\-]+)/g));
+    for (const match of matches) {
+      const rawName = match[1];
+      const sName = rawName.toLowerCase().replace(/_/g, '-');
+      if (sName === 'settings-reset') continue;
+      const baseName = sName.replace(/-(left|right)$/, '');
+      if (!seenShieldIds.has(baseName) && !seenIds.has(sName)) {
+        const knownDef = KNOWN_SHIELDS.find((s) => s.id === baseName || s.id === sName);
+        if (knownDef) {
+          const extraUnits = getShieldUnitsForShield(knownDef.id);
+          for (const u of extraUnits) {
+            if (!seenIds.has(u.id)) {
+              units.push(u);
+              seenIds.add(u.id);
+            }
+          }
+          seenShieldIds.add(knownDef.id);
+        } else {
+          const customUnit: LoadedShieldUnit = {
+            id: sName,
+            shieldId: sName,
+            name: `${rawName} (Shield)`,
+            side: sName.includes('dongle') ? 'dongle' : 'single',
+            shield: getShieldDefinition(sName),
+            isMaster: false,
+          };
+          units.push(customUnit);
+          seenIds.add(sName);
+          seenShieldIds.add(sName);
+          seenShieldIds.add(baseName);
+        }
+      }
+    }
+  }
+
+  // Check candidate conf files
+  if (candidateConfFiles) {
+    for (const conf of candidateConfFiles) {
+      const base = conf.replace(/^.*[/\\]/, '').replace(/\.conf$/, '');
+      const cleanBase = base.replace(/_(left|right)$/, '').toLowerCase().replace(/_/g, '-');
+      if (cleanBase && !seenShieldIds.has(cleanBase)) {
+        const knownDef = KNOWN_SHIELDS.find((s) => s.id === cleanBase);
+        if (knownDef) {
+          const extraUnits = getShieldUnitsForShield(knownDef.id);
+          for (const u of extraUnits) {
+            if (!seenIds.has(u.id)) {
+              units.push(u);
+              seenIds.add(u.id);
+            }
+          }
+          seenShieldIds.add(knownDef.id);
+        }
+      }
+    }
+  }
+
+  // If no shields were detected from build.yaml or conf files, fall back to primaryShieldId
+  if (units.length === 0) {
+    const baseUnits = getShieldUnitsForShield(primaryShieldId);
+    units.push(...baseUnits);
+  }
+
+  return units;
+}

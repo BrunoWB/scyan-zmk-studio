@@ -11,9 +11,12 @@ import {
   Sun,
   Sliders,
   Shuffle,
-  ArrowLeftRight,
+  AlertTriangle,
+  Monitor,
+  Cpu,
 } from 'lucide-react';
 import type { GitHubRepoConfig, GitHubConnectionState } from '../services/githubService';
+import type { PeripheralScreenData } from '../services/cHeaderParser';
 import {
   type ParsedKeymapLayout,
   DEFAULT_EMPTY_5X3_LAYOUT,
@@ -29,10 +32,6 @@ import {
 } from '../services/wpmSimulator';
 import {
   renderBlocksToGrid,
-  normalizeWidgetType,
-  getWidgetDefinition,
-  getWidgetNaturalSize,
-  resolveWidgetInstance,
 } from '../services/widgetRegistry';
 import {
   DEFAULT_CENTRAL_LAYOUT_BLOCKS,
@@ -40,23 +39,7 @@ import {
   DEFAULT_IDLE_CENTRAL_BLOCKS,
   DEFAULT_IDLE_PERIPHERAL_BLOCKS,
 } from '../types/zmk';
-import { getShieldDefinition } from '../data/shieldsData';
-
-const BLOCK_COLORS: Record<string, string> = {
-  'status-bar': '#38bdf8',
-  'battery': '#4ade80',
-  'connection': '#60a5fa',
-  'split': '#2dd4bf',
-  'layer-banner': '#c084fc',
-  'layer-art': '#34d399',
-  'wpm': '#fbbf24',
-  'branding': '#f472b6',
-  'screensaver': '#38bdf8',
-  'bongo': '#f472b6',
-  'caps-lock': '#fb7185',
-  'animation': '#a855f7',
-  'loop': '#a855f7',
-};
+import { getShieldDefinition, getShieldUnitsForShield, type LoadedShieldUnit } from '../data/shieldsData';
 
 function getOledDisplayDimensions(width: number, height: number): { displayW: number; displayH: number } {
   const w = width || 32;
@@ -110,6 +93,10 @@ export interface OledPreviewTabProps {
   enabledScreens?: ('central' | 'peripheral' | string)[];
   onEnabledScreensChange?: (screens: ('central' | 'peripheral' | string)[]) => void;
   onSwapDisplays?: (idA: string, idB: string) => void;
+  displayAssignments?: Record<string, string | null>;
+  onDisplayAssignmentsChange?: (assignments: Record<string, string | null>) => void;
+  loadedShields?: LoadedShieldUnit[];
+  peripheralScreens?: Record<string, PeripheralScreenData>;
   customText: string;
   onCustomTextChange: (text: string) => void;
   instances?: import('../types/widget').WidgetInstanceMap;
@@ -137,21 +124,21 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   fontMappings = [],
   centralBlocks,
   peripheralBlocks,
-  onCentralBlocksChange,
-  onPeripheralBlocksChange,
+  onCentralBlocksChange: _onCentralBlocksChange,
+  onPeripheralBlocksChange: _onPeripheralBlocksChange,
   idleCentralBlocks,
   idlePeripheralBlocks,
-  onIdleCentralBlocksChange,
-  onIdlePeripheralBlocksChange,
+  onIdleCentralBlocksChange: _onIdleCentralBlocksChange,
+  onIdlePeripheralBlocksChange: _onIdlePeripheralBlocksChange,
   leftBlocks,
   rightBlocks,
   layoutBlocks,
   idleLeftBlocks,
   idleRightBlocks,
-  onLeftBlocksChange,
-  onRightBlocksChange,
-  onIdleLeftBlocksChange,
-  onIdleRightBlocksChange,
+  onLeftBlocksChange: _onLeftBlocksChange,
+  onRightBlocksChange: _onRightBlocksChange,
+  onIdleLeftBlocksChange: _onIdleLeftBlocksChange,
+  onIdleRightBlocksChange: _onIdleRightBlocksChange,
   screenDimensions,
   peripheralScreenDimensions,
   rightScreenDimensions,
@@ -159,8 +146,12 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   shieldId = 'corne',
   onShieldIdChange: _onShieldIdChange,
   enabledScreens,
-  onEnabledScreensChange,
-  onSwapDisplays,
+  onEnabledScreensChange: _onEnabledScreensChange,
+  onSwapDisplays: _onSwapDisplays,
+  displayAssignments,
+  onDisplayAssignmentsChange,
+  loadedShields,
+  peripheralScreens,
   customText,
   onCustomTextChange: _onCustomTextChange,
   instances,
@@ -175,11 +166,6 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
 }) => {
   const activeCentralBlocks = centralBlocks ?? leftBlocks ?? layoutBlocks ?? DEFAULT_CENTRAL_LAYOUT_BLOCKS;
   const activePeripheralBlocks = peripheralBlocks ?? rightBlocks ?? DEFAULT_PERIPHERAL_LAYOUT_BLOCKS;
-
-  const handleCentralBlocksChange = onCentralBlocksChange || onLeftBlocksChange;
-  const handlePeripheralBlocksChange = onPeripheralBlocksChange || onRightBlocksChange;
-  const handleIdleCentralBlocksChange = onIdleCentralBlocksChange || onIdleLeftBlocksChange;
-  const handleIdlePeripheralBlocksChange = onIdlePeripheralBlocksChange || onIdleRightBlocksChange;
 
   const activeShield = useMemo(() => {
     return getShieldDefinition(shieldId);
@@ -203,82 +189,79 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     return list.length > 0 ? list : ['central', 'peripheral'];
   }, [effectiveEnabledScreens]);
 
-  const showRightKeyboard = orderedScreens.includes('peripheral');
+  const effectiveShields = useMemo<LoadedShieldUnit[]>(() => {
+    if (loadedShields && loadedShields.length > 0) {
+      return loadedShields;
+    }
+    return getShieldUnitsForShield(shieldId);
+  }, [loadedShields, shieldId]);
 
-  // Realign drag state (ONLY active & visible while dragging)
-  const [isRealigning, setIsRealigning] = useState<boolean>(false);
-  const [draggedUnitKey, setDraggedUnitKey] = useState<'central' | 'peripheral' | string | null>(null);
-  const [hoveredDropSlot, setHoveredDropSlot] = useState<string | null>(null);
-  const [hoveredSwapUnitKey, setHoveredSwapUnitKey] = useState<'central' | 'peripheral' | string | null>(null);
+  const [localDisplayAssignments, setLocalDisplayAssignments] = useState<Record<string, string | null>>(() => {
+    const init: Record<string, string | null> = {};
+    const shields = loadedShields && loadedShields.length > 0 ? loadedShields : getShieldUnitsForShield(shieldId);
+    const screens = enabledScreens && enabledScreens.length > 0 ? enabledScreens : ['central', 'peripheral'];
+    shields.forEach((shield, idx) => {
+      if (idx === 0 && screens.includes('central')) init[shield.id] = 'central';
+      else if (idx === 1 && screens.includes('peripheral')) init[shield.id] = 'peripheral';
+      else if (idx < screens.length) init[shield.id] = screens[idx];
+      else init[shield.id] = null;
+    });
+    return init;
+  });
 
-  const handleUnitDragStart = useCallback((e: React.DragEvent, screenKey: 'central' | 'peripheral' | string) => {
-    const target = e.target as HTMLElement | null;
-    if (target?.closest('.corne-keycap, .corne-thumb-key, .oled-block-overlay')) {
-      e.preventDefault();
+  const effectiveDisplayAssignments = displayAssignments !== undefined ? displayAssignments : localDisplayAssignments;
+  const updateDisplayAssignments = onDisplayAssignmentsChange || setLocalDisplayAssignments;
+
+  // Reconcile with effectiveEnabledScreens: if an assigned display is no longer enabled, treat as null (unassigned)
+  const reconciledAssignments = useMemo(() => {
+    const res: Record<string, string | null> = {};
+    effectiveShields.forEach((sh) => {
+      const assigned = effectiveDisplayAssignments[sh.id];
+      if (assigned && effectiveEnabledScreens.includes(assigned)) {
+        res[sh.id] = assigned;
+      } else {
+        res[sh.id] = null;
+      }
+    });
+    return res;
+  }, [effectiveShields, effectiveDisplayAssignments, effectiveEnabledScreens]);
+
+  const assignedDisplayIds = useMemo(() => {
+    return new Set(Object.values(reconciledAssignments).filter(Boolean) as string[]);
+  }, [reconciledAssignments]);
+
+  const unattachedDisplayIds = useMemo(() => {
+    return orderedScreens.filter((screenId) => !assignedDisplayIds.has(screenId));
+  }, [orderedScreens, assignedDisplayIds]);
+
+  const handleAssignDisplay = useCallback((shieldKey: string, newDisplayId: string | null) => {
+    const next = { ...reconciledAssignments };
+    if (newDisplayId === null) {
+      next[shieldKey] = null;
+      updateDisplayAssignments(next);
+      onShowToast?.('success', 'Detached display from shield');
       return;
     }
-    e.stopPropagation();
-    e.dataTransfer.setData('application/json', JSON.stringify({ type: 'preview-realign-unit', screenKey }));
-    e.dataTransfer.effectAllowed = 'move';
-    setIsRealigning(true);
-    setDraggedUnitKey(screenKey);
-  }, []);
 
-  const handleUnitDragEnd = useCallback(() => {
-    setIsRealigning(false);
-    setDraggedUnitKey(null);
-    setHoveredDropSlot(null);
-    setHoveredSwapUnitKey(null);
-  }, []);
+    // Check if newDisplayId is already on another shield
+    const otherShieldKey = Object.keys(next).find((k) => k !== shieldKey && next[k] === newDisplayId);
+    const prevDisplayOnCurrent = next[shieldKey];
 
-  const handleDropOnSlot = useCallback((e: React.DragEvent, targetIndex: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsRealigning(false);
-    setHoveredDropSlot(null);
-    setHoveredSwapUnitKey(null);
-
-    const sourceKey = draggedUnitKey;
-    setDraggedUnitKey(null);
-    if (!sourceKey) return;
-
-    const currentIndex = orderedScreens.indexOf(sourceKey);
-    if (currentIndex === -1) return;
-
-    const updated = [...orderedScreens];
-    updated.splice(currentIndex, 1);
-    const insertIdx = targetIndex > currentIndex ? targetIndex - 1 : targetIndex;
-    updated.splice(insertIdx, 0, sourceKey);
-
-    if (updated.join(',') !== orderedScreens.join(',')) {
-      onEnabledScreensChange?.(updated);
-      onShowToast?.('success', `Realigned layout order: ${updated.join(' → ')}`);
+    next[shieldKey] = newDisplayId;
+    if (otherShieldKey) {
+      next[otherShieldKey] = prevDisplayOnCurrent ?? null;
     }
-  }, [draggedUnitKey, orderedScreens, onEnabledScreensChange, onShowToast]);
+    updateDisplayAssignments(next);
+    if (otherShieldKey && prevDisplayOnCurrent) {
+      onShowToast?.('success', 'Swapped displays between shields');
+    } else {
+      onShowToast?.('success', `Assigned ${newDisplayId} to shield`);
+    }
+  }, [reconciledAssignments, updateDisplayAssignments, onShowToast]);
 
-  const handleDropOnUnit = useCallback((e: React.DragEvent, targetKey: 'central' | 'peripheral' | string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsRealigning(false);
-    setHoveredDropSlot(null);
-    setHoveredSwapUnitKey(null);
 
-    const sourceKey = draggedUnitKey;
-    setDraggedUnitKey(null);
-    if (!sourceKey || sourceKey === targetKey) return;
-
-    const idxA = orderedScreens.indexOf(sourceKey);
-    const idxB = orderedScreens.indexOf(targetKey);
-    if (idxA === -1 || idxB === -1) return;
-
-    const updated = [...orderedScreens];
-    updated[idxA] = targetKey;
-    updated[idxB] = sourceKey;
-
-    onEnabledScreensChange?.(updated);
-    onSwapDisplays?.(sourceKey, targetKey);
-    onShowToast?.('success', `Swapped positions: ${sourceKey} ↔ ${targetKey}`);
-  }, [draggedUnitKey, orderedScreens, onEnabledScreensChange, onSwapDisplays, onShowToast]);
+  // Shields maintain fixed hardware configuration order (dropping a display swaps displays, not shields)
+  const orderedShields = effectiveShields;
 
   // Virtual screen dimensions per side
   const leftVWidth = screenDimensions?.width || 32;
@@ -303,116 +286,126 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     ? (idlePeripheralBlocks && idlePeripheralBlocks.length > 0 ? idlePeripheralBlocks : (idleRightBlocks && idleRightBlocks.length > 0 ? idleRightBlocks : DEFAULT_IDLE_PERIPHERAL_BLOCKS))
     : activePeripheralBlocks;
 
-  // Direct widget manipulation state
-  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
-  const [internalDraggingBlockId, setInternalDraggingBlockId] = useState<string | null>(null);
-  const [hoveredSide, setHoveredSide] = useState<'central' | 'peripheral' | 'left' | 'right' | string | null>(null);
-  const dragStartXRef = useRef<number>(0);
-  const dragStartYRef = useRef<number>(0);
-  const blockInitialXRef = useRef<number>(0);
-  const blockInitialYRef = useRef<number>(0);
-  const draggingSideRef = useRef<'central' | 'peripheral' | 'left' | 'right' | string>('central');
-  const leftScreenContainerRef = useRef<HTMLDivElement | null>(null);
-  const rightScreenContainerRef = useRef<HTMLDivElement | null>(null);
+  // OLED Screen Drag & Drop state (drag screens between shields or to/from unattached drawer)
+  const [draggedDisplay, setDraggedDisplay] = useState<{ fromShieldId?: string; displayId: string } | null>(null);
+  const [hoveredDisplayDropTarget, setHoveredDisplayDropTarget] = useState<string | null>(null);
+  const [hoveredUnattachedDrawer, setHoveredUnattachedDrawer] = useState<boolean>(false);
 
-  const handleStartMoveBlock = (e: React.PointerEvent, block: LayoutBlock, side: 'central' | 'peripheral' | 'left' | 'right' | string) => {
+  const handleDisplayDragStart = useCallback((e: React.DragEvent, fromShieldId: string | undefined, displayId: string) => {
     e.stopPropagation();
-    setSelectedBlockId(block.id);
-    setInternalDraggingBlockId(block.id);
-    draggingSideRef.current = side;
-    dragStartXRef.current = e.clientX;
-    dragStartYRef.current = e.clientY;
-    const def = getWidgetDefinition(block.widgetType || block.id);
-    blockInitialXRef.current = block.x ?? def?.defaultPlacement.defaultX ?? 0;
-    blockInitialYRef.current = block.y;
-  };
+    setDraggedDisplay({ fromShieldId, displayId });
+    e.dataTransfer.setData(
+      'application/json',
+      JSON.stringify({
+        type: 'preview-oled-display',
+        fromShieldId,
+        displayId,
+      })
+    );
+    e.dataTransfer.effectAllowed = 'move';
+  }, []);
 
-  // Window listeners for moving widgets
-  useEffect(() => {
-    if (!internalDraggingBlockId) return;
+  const handleDisplayDragEnd = useCallback(() => {
+    setDraggedDisplay(null);
+    setHoveredDisplayDropTarget(null);
+    setHoveredUnattachedDrawer(false);
+  }, []);
 
-    const side = draggingSideRef.current;
-    const isLeft = side === 'central' || side === 'left';
-    const container = isLeft
-      ? leftScreenContainerRef.current
-      : rightScreenContainerRef.current;
-    if (!container) return;
+  const handleDisplayDragOver = useCallback((e: React.DragEvent, targetShieldId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    if (hoveredDisplayDropTarget !== targetShieldId) {
+      setHoveredDisplayDropTarget(targetShieldId);
+    }
+  }, [hoveredDisplayDropTarget]);
 
-    const rect = container.getBoundingClientRect();
-    const screenWidthPx = rect.width || 48;
-    const screenHeightPx = rect.height || 192;
-    const vWidth = isLeft ? leftVWidth : rightVWidth;
-    const vHeight = isLeft ? leftVHeight : rightVHeight;
-    const pxToGridX = vWidth / screenWidthPx;
-    const pxToGridY = vHeight / screenHeightPx;
+  const handleDisplayDragLeave = useCallback((e: React.DragEvent, shieldId: string) => {
+    const related = e.relatedTarget as HTMLElement | null;
+    if (related && (e.currentTarget as HTMLElement).contains(related)) {
+      return;
+    }
+    setHoveredDisplayDropTarget((curr) => (curr === shieldId ? null : curr));
+  }, []);
 
-    const handlePointerMove = (e: PointerEvent) => {
-      const deltaScreenX = e.clientX - dragStartXRef.current;
-      const deltaScreenY = e.clientY - dragStartYRef.current;
-      const deltaGridX = Math.round(deltaScreenX * pxToGridX);
-      const deltaGridY = Math.round(deltaScreenY * pxToGridY);
+  const handleDisplayDrop = useCallback((e: React.DragEvent, targetShieldId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setHoveredDisplayDropTarget(null);
 
-      const blockList = isLeft ? leftDisplayBlocks : rightDisplayBlocks;
-      const currentBlock = blockList.find(b => b.id === internalDraggingBlockId);
-      if (!currentBlock) return;
+    try {
+      let displayId: string = '';
+      let fromShieldId: string | undefined = undefined;
 
-      const normType = normalizeWidgetType(currentBlock.widgetType || currentBlock.id);
-      const def = getWidgetDefinition(normType);
-      const activeInstance = resolveWidgetInstance(instances, normType, currentBlock.instanceId);
-      const naturalSize = def ? getWidgetNaturalSize(def, symbolSlices, activeInstance, fontGlyphs, fontMappings) : null;
-      const blockW = naturalSize ? naturalSize.width : (currentBlock.width ?? def?.defaultWidth ?? vWidth);
-      const blockH = naturalSize ? naturalSize.height : currentBlock.height;
-
-      const newX = Math.max(0, Math.min(vWidth - blockW, blockInitialXRef.current + deltaGridX));
-      const newY = Math.max(0, Math.min(vHeight - blockH, blockInitialYRef.current + deltaGridY));
-
-      if (newX !== currentBlock.x || newY !== currentBlock.y) {
-        const updated = blockList.map(b => b.id === internalDraggingBlockId ? { ...b, x: newX, y: newY } : b);
-        if (isLeft) {
-          if (isIdle) {
-            handleIdleCentralBlocksChange?.(updated);
-          } else {
-            handleCentralBlocksChange?.(updated);
-          }
-        } else {
-          if (isIdle) {
-            handleIdlePeripheralBlocksChange?.(updated);
-          } else {
-            handlePeripheralBlocksChange?.(updated);
-          }
-        }
+      const raw = e.dataTransfer.getData('application/json');
+      if (raw) {
+        try {
+          const data = JSON.parse(raw);
+          displayId = data.displayId || data.screenId;
+          fromShieldId = data.fromShieldId;
+        } catch {}
       }
-    };
+      if (!displayId && draggedDisplay) {
+        displayId = draggedDisplay.displayId;
+        fromShieldId = draggedDisplay.fromShieldId;
+      }
 
-    const handlePointerUp = () => {
-      setInternalDraggingBlockId(null);
-    };
+      setDraggedDisplay(null);
 
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-    window.addEventListener('pointercancel', handlePointerUp);
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointercancel', handlePointerUp);
-    };
-  }, [
-    internalDraggingBlockId,
-    isIdle,
-    leftVWidth,
-    leftVHeight,
-    rightVWidth,
-    rightVHeight,
-    leftDisplayBlocks,
-    rightDisplayBlocks,
-    handleCentralBlocksChange,
-    handlePeripheralBlocksChange,
-    handleIdleCentralBlocksChange,
-    handleIdlePeripheralBlocksChange,
-    instances,
-    symbolSlices,
-    fontMappings,
-  ]);
+      if (!displayId) return;
+      if (fromShieldId === targetShieldId) return;
+
+      const next = { ...reconciledAssignments };
+      const currentTargetDisplay = next[targetShieldId] ?? null;
+
+      if (fromShieldId) {
+        // Swap or move displays between the two shields
+        next[fromShieldId] = currentTargetDisplay;
+        next[targetShieldId] = displayId;
+        updateDisplayAssignments(next);
+        if (currentTargetDisplay && displayId !== currentTargetDisplay) {
+          onShowToast?.('success', 'Swapped displays between shields');
+        } else {
+          onShowToast?.('success', 'Moved display to shield');
+        }
+      } else {
+        // Mount from unattached drawer
+        const otherShieldWithDisplay = Object.keys(next).find((k) => next[k] === displayId);
+        if (otherShieldWithDisplay) {
+          next[otherShieldWithDisplay] = currentTargetDisplay;
+        }
+        next[targetShieldId] = displayId;
+        updateDisplayAssignments(next);
+        onShowToast?.('success', `Mounted ${displayId} to shield`);
+      }
+    } catch (err) {
+      console.warn('Display drop error:', err);
+    }
+  }, [reconciledAssignments, draggedDisplay, updateDisplayAssignments, onShowToast]);
+
+  const handleDropOnUnattachedDrawer = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setHoveredUnattachedDrawer(false);
+    setDraggedDisplay(null);
+
+    try {
+      const raw = e.dataTransfer.getData('application/json');
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      const fromShieldId: string | undefined = data.fromShieldId || data.shieldKey;
+      const displayId: string = data.displayId || data.screenId;
+
+      if (fromShieldId) {
+        const next = { ...reconciledAssignments };
+        next[fromShieldId] = null;
+        updateDisplayAssignments(next);
+        onShowToast?.('success', `Detached ${displayId} from shield`);
+      }
+    } catch (err) {
+      console.warn('Drop on unattached drawer error:', err);
+    }
+  }, [reconciledAssignments, updateDisplayAssignments, onShowToast]);
   const [outputMode, setOutputMode] = useState<'usb' | 'ble'>('usb');
   const [bleProfileIndex, setBleProfileIndex] = useState<number>(1);
   const [battery, setBattery] = useState<number>(88);
@@ -489,6 +482,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
 
   const leftCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rightCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasRefs = useRef<Record<string, HTMLCanvasElement | null>>({});
   const keystrokeTimestampsRef = useRef<number[]>([]);
   const hadRecentKeystrokesRef = useRef<boolean>(false);
 
@@ -859,106 +853,124 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     return () => clearInterval(interval);
   }, [hasAnimationBlock]);
 
-  // Render both Left (Master) and Right (Peripheral) OLED displays
+  const getDisplayInfo = useCallback(
+    (displayId: string | null) => {
+      if (!displayId) return null;
+      const isMaster = displayId === 'central' || displayId === 'left';
+      const isPeripheral = displayId === 'peripheral' || displayId === 'right';
+
+      let blocks: LayoutBlock[] = [];
+      let width = 32;
+      let height = 128;
+      let name = isMaster ? 'Central Display' : 'Peripheral Display';
+
+      if (isMaster) {
+        blocks = leftDisplayBlocks;
+        width = leftVWidth;
+        height = leftVHeight;
+        name = 'Master Display (Central)';
+      } else if (isPeripheral) {
+        blocks = rightDisplayBlocks;
+        width = rightVWidth;
+        height = rightVHeight;
+        name = 'Peripheral Display';
+      } else if (peripheralScreens && peripheralScreens[displayId]) {
+        const ps = peripheralScreens[displayId];
+        blocks = isIdle ? (ps.idleBlocks || []) : (ps.blocks || []);
+        width = ps.screenDimensions?.width || 32;
+        height = ps.screenDimensions?.height || 128;
+        name = ps.name || `Peripheral ${displayId.replace('peripheral-', '')}`;
+      }
+
+      const displayDim = getOledDisplayDimensions(width, height);
+      return { blocks, width, height, name, isMaster, displayDim };
+    },
+    [
+      leftDisplayBlocks,
+      rightDisplayBlocks,
+      leftVWidth,
+      leftVHeight,
+      rightVWidth,
+      rightVHeight,
+      peripheralScreens,
+      isIdle,
+    ]
+  );
+
+  // Render Left (Master), Right (Peripheral), and any additional/unattached OLED displays
   useEffect(() => {
     const PIXEL_PITCH = 2; // Crisp dot simulation
     const DOT_SIZE = 1.6;
     const onColor = '#e2f1ff';
 
-    // 1. RENDER LEFT (MASTER) DISPLAY
-    const leftCanvas = leftCanvasRef.current;
-    if (leftCanvas) {
-      const ctx = leftCanvas.getContext('2d');
-      if (ctx) {
-        const vbuf = new BwpxGrid(leftVWidth, leftVHeight);
-        renderBlocksToGrid(leftDisplayBlocks, vbuf, {
-          symbolsGrid,
-          symbolSlices,
-          fontGrid,
-          fontGlyphs,
-          fontMappings,
-          battery,
-          outputMode,
-          bleProfileIndex,
-          currentLayer,
-          layerNames,
-          wpm,
-          wpmHistory,
-          splitConnected,
-          capsLock,
-          customText,
-          instances,
-          side: 'left',
-          isIdle,
-          customizations,
-          bongoState,
-          animationTimestamp: animTimestamp,
-        });
+    const renderToCanvas = (
+      canvas: HTMLCanvasElement | null,
+      blocks: LayoutBlock[],
+      vW: number,
+      vH: number,
+      side: string
+    ) => {
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const vbuf = new BwpxGrid(vW, vH);
+      renderBlocksToGrid(blocks, vbuf, {
+        symbolsGrid,
+        symbolSlices,
+        fontGrid,
+        fontGlyphs,
+        fontMappings,
+        battery,
+        outputMode,
+        bleProfileIndex,
+        currentLayer,
+        layerNames,
+        wpm,
+        wpmHistory,
+        splitConnected,
+        capsLock,
+        customText,
+        instances,
+        side,
+        isIdle,
+        customizations,
+        bongoState,
+        animationTimestamp: animTimestamp,
+      });
 
-        leftCanvas.width = leftVWidth * PIXEL_PITCH;
-        leftCanvas.height = leftVHeight * PIXEL_PITCH;
+      canvas.width = vW * PIXEL_PITCH;
+      canvas.height = vH * PIXEL_PITCH;
 
-        ctx.fillStyle = '#05070a';
-        ctx.fillRect(0, 0, leftCanvas.width, leftCanvas.height);
+      ctx.fillStyle = '#05070a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        ctx.fillStyle = onColor;
-        for (let y = 0; y < leftVHeight; y++) {
-          for (let x = 0; x < leftVWidth; x++) {
-            if (vbuf.get(x, y)) {
-              ctx.fillRect(x * PIXEL_PITCH, y * PIXEL_PITCH, DOT_SIZE, DOT_SIZE);
-            }
+      ctx.fillStyle = onColor;
+      for (let y = 0; y < vH; y++) {
+        for (let x = 0; x < vW; x++) {
+          if (vbuf.get(x, y)) {
+            ctx.fillRect(x * PIXEL_PITCH, y * PIXEL_PITCH, DOT_SIZE, DOT_SIZE);
           }
         }
       }
-    }
+    };
+
+    // 1. RENDER LEFT (MASTER) DISPLAY
+    renderToCanvas(leftCanvasRef.current, leftDisplayBlocks, leftVWidth, leftVHeight, 'left');
 
     // 2. RENDER RIGHT (PERIPHERAL) DISPLAY
-    const rightCanvas = rightCanvasRef.current;
-    if (rightCanvas) {
-      const ctx = rightCanvas.getContext('2d');
-      if (ctx) {
-        const vbuf = new BwpxGrid(rightVWidth, rightVHeight);
-        renderBlocksToGrid(rightDisplayBlocks, vbuf, {
-          symbolsGrid,
-          symbolSlices,
-          fontGrid,
-          fontGlyphs,
-          fontMappings,
-          battery,
-          outputMode,
-          bleProfileIndex,
-          currentLayer,
-          layerNames,
-          wpm,
-          wpmHistory,
-          splitConnected,
-          capsLock,
-          customText,
-          instances,
-          side: 'right',
-          isIdle,
-          customizations,
-          bongoState,
-          animationTimestamp: animTimestamp,
-        });
+    renderToCanvas(rightCanvasRef.current, rightDisplayBlocks, rightVWidth, rightVHeight, 'right');
 
-        rightCanvas.width = rightVWidth * PIXEL_PITCH;
-        rightCanvas.height = rightVHeight * PIXEL_PITCH;
-
-        ctx.fillStyle = '#05070a';
-        ctx.fillRect(0, 0, rightCanvas.width, rightCanvas.height);
-
-        ctx.fillStyle = onColor;
-        for (let y = 0; y < rightVHeight; y++) {
-          for (let x = 0; x < rightVWidth; x++) {
-            if (vbuf.get(x, y)) {
-              ctx.fillRect(x * PIXEL_PITCH, y * PIXEL_PITCH, DOT_SIZE, DOT_SIZE);
-            }
-          }
-        }
+    // 3. RENDER ANY DYNAMIC OR UNATTACHED CANVASES
+    Object.entries(canvasRefs.current).forEach(([screenKey, canvasEl]) => {
+      if (!canvasEl) return;
+      if (screenKey === 'central' || screenKey === 'left' || screenKey === 'peripheral' || screenKey === 'right') {
+        return;
       }
-    }
-
+      const info = getDisplayInfo(screenKey);
+      if (info) {
+        renderToCanvas(canvasEl, info.blocks, info.width, info.height, screenKey);
+      }
+    });
   }, [
     leftDisplayBlocks,
     rightDisplayBlocks,
@@ -985,64 +997,8 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     customizations,
     bongoState,
     animTimestamp,
+    getDisplayInfo,
   ]);
-
-  const renderBlockOverlay = (
-    block: LayoutBlock,
-    side: 'central' | 'peripheral' | 'left' | 'right' | string,
-    vWidth: number,
-    vHeight: number
-  ) => {
-    const normType = normalizeWidgetType(block.widgetType || block.id);
-    const def = getWidgetDefinition(normType);
-    const color = BLOCK_COLORS[normType] || '#00d2ff';
-    const isSelected = selectedBlockId === block.id;
-    const isDragging = internalDraggingBlockId === block.id;
-    const isScreenHovered = hoveredSide === side || internalDraggingBlockId !== null;
-    if (!block.enabled) return null;
-
-    const activeInstance = resolveWidgetInstance(instances, normType, block.instanceId);
-    const naturalSize = def ? getWidgetNaturalSize(def, symbolSlices, activeInstance, fontGlyphs, fontMappings) : null;
-
-    const blockX = block.x ?? def?.defaultPlacement.defaultX ?? 0;
-    const blockW = naturalSize ? naturalSize.width : (block.width ?? def?.defaultWidth ?? vWidth);
-    const blockH = naturalSize ? naturalSize.height : block.height;
-
-    const leftPct = (blockX / vWidth) * 100;
-    const topPct = (block.y / vHeight) * 100;
-    const widthPct = (blockW / vWidth) * 100;
-    const heightPct = (blockH / vHeight) * 100;
-
-    return (
-      <div
-        key={block.id}
-        className={`oled-block-overlay ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''}`}
-        style={{
-          position: 'absolute',
-          left: `${leftPct}%`,
-          top: `${topPct}%`,
-          width: `${widthPct}%`,
-          height: `${heightPct}%`,
-          '--block-color': color,
-          opacity: isScreenHovered ? 1 : 0,
-          pointerEvents: 'auto',
-          transition: 'opacity 0.15s ease',
-        } as React.CSSProperties}
-        onPointerDown={e => handleStartMoveBlock(e, block, side)}
-        onClick={e => {
-          e.stopPropagation();
-          setSelectedBlockId(block.id);
-        }}
-        title={`${block.name || def?.name || 'Widget'} — Drag to reposition (x:${blockX}, y:${block.y})`}
-      >
-        {isSelected && isScreenHovered && (
-          <span className="block-overlay-label" style={{ color }}>
-            {block.name || def?.name}
-          </span>
-        )}
-      </div>
-    );
-  };
 
   return (
     <div className="oled-preview-fullscreen">
@@ -1052,417 +1008,444 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
           ========================================================================= */}
       {activeShield.layoutGeometry.type === 'unknown' ? (
         <div className="flex items-center justify-center gap-8 my-6 relative">
-          {orderedScreens.map((screenKey, index) => (
-            <React.Fragment key={screenKey}>
-              {/* Realign insertion drop slot before unit (ONLY visible while dragging) */}
-              {isRealigning && (
-                <div
-                  className={`preview-realign-drop-slot ${hoveredDropSlot === `slot-${index}` ? 'hovered' : ''}`}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setHoveredDropSlot(`slot-${index}`);
-                  }}
-                  onDragLeave={() => setHoveredDropSlot((curr) => (curr === `slot-${index}` ? null : curr))}
-                  onDrop={(e) => handleDropOnSlot(e, index)}
-                  title="Drop to realign position"
-                >
-                  <ArrowLeftRight size={16} className="text-[#00f0ff] animate-pulse" />
-                </div>
-              )}
+          {orderedShields.map((shield) => {
+            const assignedDisplayId = reconciledAssignments[shield.id];
+            const dispInfo = getDisplayInfo(assignedDisplayId);
+            const isLeft = shield.side === 'left' || shield.isMaster;
 
-              {/* Realignable Unit Wrapper */}
+            return (
               <div
-                draggable
-                onDragStart={(e) => handleUnitDragStart(e, screenKey)}
-                onDragEnd={handleUnitDragEnd}
-                onDragOver={(e) => {
-                  if (isRealigning && draggedUnitKey !== screenKey) {
-                    e.preventDefault();
-                    setHoveredSwapUnitKey(screenKey);
-                  }
-                }}
-                onDragLeave={() => setHoveredSwapUnitKey((curr) => (curr === screenKey ? null : curr))}
-                onDrop={(e) => handleDropOnUnit(e, screenKey)}
-                className={`preview-realignable-unit ${isRealigning ? 'cursor-grab active:cursor-grabbing' : ''} ${
-                  draggedUnitKey === screenKey ? 'opacity-40 scale-95' : ''
+                key={shield.id}
+                className={`preview-shield-wrapper relative transition-all ${
+                  hoveredDisplayDropTarget === shield.id
+                    ? 'ring-2 ring-[#00f0ff] shadow-[0_0_24px_rgba(0,240,255,0.4)] rounded-2xl'
+                    : ''
                 }`}
+                onDragOver={(e) => handleDisplayDragOver(e, shield.id)}
+                onDragLeave={(e) => handleDisplayDragLeave(e, shield.id)}
+                onDrop={(e) => handleDisplayDrop(e, shield.id)}
               >
-                {screenKey === 'central' && (
-                  <div className="unknown-shield-unit-case">
-                    <div className="unknown-shield-body">
-                      <div className="unknown-shield-header-badge">
-                        <span className="live-dot" />
-                        <span>{showRightKeyboard ? `${activeShield.name} (Central)` : activeShield.name}</span>
-                      </div>
+                <div className="unknown-shield-unit-case">
+                  <div className="unknown-shield-body relative">
+                    <div className="unknown-shield-header-badge">
+                      <span className="live-dot" />
+                      <span>{shield.name}</span>
+                    </div>
+
+                    {/* Central Shield Badge with tooltip */}
+                    {isLeft && (
                       <div
-                        className="oled-glass-housing"
+                        className="central-shield-badge"
+                        title="Central Shield"
+                        data-testid="central-shield-badge"
+                      >
+                        <div className="central-shield-badge-dot">
+                          <Cpu size={10} className="shrink-0" />
+                        </div>
+                        <div className="central-shield-tooltip">
+                          Central Shield
+                        </div>
+                      </div>
+                    )}
+
+                    {assignedDisplayId && dispInfo ? (
+                      <div
+                        className={`oled-glass-housing relative group/display cursor-grab active:cursor-grabbing rounded-xl transition-all ${
+                          hoveredDisplayDropTarget === shield.id
+                            ? 'ring-2 ring-[#00f0ff] shadow-[0_0_20px_rgba(0,240,255,0.6)] scale-102'
+                            : 'hover:ring-1 hover:ring-[#00f0ff]/50'
+                        }`}
+                        style={{
+                          width: `${dispInfo.displayDim.displayW + OLED_BORDER_UNITS * 2}px`,
+                          height: `${dispInfo.displayDim.displayH + OLED_BORDER_UNITS * 2}px`,
+                        }}
+                        draggable={true}
+                        onDragStart={(e) => handleDisplayDragStart(e, shield.id, assignedDisplayId)}
+                        onDragEnd={handleDisplayDragEnd}
+                        onDragOver={(e) => handleDisplayDragOver(e, shield.id)}
+                        onDragLeave={(e) => handleDisplayDragLeave(e, shield.id)}
+                        onDrop={(e) => handleDisplayDrop(e, shield.id)}
+                        title={`${dispInfo.name} (Drag to swap or move to another shield)`}
+                      >
+                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 opacity-0 group-hover/display:opacity-100 transition-opacity z-20 pointer-events-none bg-[#0a0d14]/95 border border-[#00f0ff]/40 text-[#00f0ff] text-[8px] font-mono font-bold px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap select-none">
+                          Drag Display
+                        </div>
+                        <div
+                          style={{
+                            position: 'relative',
+                            width: `${dispInfo.displayDim.displayW}px`,
+                            height: `${dispInfo.displayDim.displayH}px`,
+                          }}
+                        >
+                          <canvas
+                            ref={(el) => {
+                              if (assignedDisplayId === 'central') leftCanvasRef.current = el;
+                              else if (assignedDisplayId === 'peripheral') rightCanvasRef.current = el;
+                              canvasRefs.current[assignedDisplayId] = el;
+                            }}
+                            className="corne-oled-canvas"
+                            style={{
+                              width: `${dispInfo.displayDim.displayW}px`,
+                              height: `${dispInfo.displayDim.displayH}px`,
+                              display: 'block',
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        className={`preview-oled-empty-bay transition-all ${
+                          hoveredDisplayDropTarget === shield.id
+                            ? 'border-[#00f0ff] bg-[#00f0ff]/15 ring-2 ring-[#00f0ff] shadow-[0_0_20px_rgba(0,240,255,0.4)] scale-102'
+                            : ''
+                        }`}
+                        onDragOver={(e) => handleDisplayDragOver(e, shield.id)}
+                        onDragLeave={(e) => handleDisplayDragLeave(e, shield.id)}
+                        onDrop={(e) => handleDisplayDrop(e, shield.id)}
                         style={{
                           width: `${leftDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
-                          height: `${leftDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
-                          borderColor: 'rgba(169, 83, 246, 0.4)',
-                          boxShadow: '0 0 12px rgba(169, 83, 246, 0.15)',
+                          minHeight: `${leftDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
                         }}
-                        onMouseEnter={() => setHoveredSide('central')}
-                        onMouseLeave={() => setHoveredSide(null)}
-                        onClick={() => setSelectedBlockId(null)}
+                        title="Empty OLED Bay — Drag a display here to mount"
                       >
-                        <div
-                          ref={leftScreenContainerRef}
-                          style={{
-                            position: 'relative',
-                            width: `${leftDisplayDim.displayW}px`,
-                            height: `${leftDisplayDim.displayH}px`,
-                          }}
-                        >
-                          <canvas
-                            ref={leftCanvasRef}
-                            className="corne-oled-canvas"
-                            style={{
-                              width: `${leftDisplayDim.displayW}px`,
-                              height: `${leftDisplayDim.displayH}px`,
-                              display: 'block',
-                            }}
-                          />
-                          <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
-                            {leftDisplayBlocks.map((block) =>
-                              renderBlockOverlay(block, 'central', leftVWidth, leftVHeight)
-                            )}
-                          </div>
-                        </div>
+                        <Monitor size={20} className="text-muted/60" />
+                        <span className="text-[11px] text-muted font-mono font-medium">Empty OLED Bay</span>
+                        <span className="text-[10px] text-muted/50 font-mono">No display attached</span>
                       </div>
-                    </div>
+                    )}
                   </div>
-                )}
-
-                {screenKey === 'peripheral' && (
-                  <div className="unknown-shield-unit-case">
-                    <div className="unknown-shield-body">
-                      <div className="unknown-shield-header-badge">
-                        <span className="live-dot" />
-                        <span>{`${activeShield.name} (Peripheral)`}</span>
-                      </div>
-                      <div
-                        className="oled-glass-housing"
-                        style={{
-                          width: `${rightDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
-                          height: `${rightDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
-                          borderColor: 'rgba(169, 83, 246, 0.4)',
-                          boxShadow: '0 0 12px rgba(169, 83, 246, 0.15)',
-                        }}
-                        onMouseEnter={() => setHoveredSide('right')}
-                        onMouseLeave={() => setHoveredSide(null)}
-                        onClick={() => setSelectedBlockId(null)}
-                      >
-                        <div
-                          ref={rightScreenContainerRef}
-                          style={{
-                            position: 'relative',
-                            width: `${rightDisplayDim.displayW}px`,
-                            height: `${rightDisplayDim.displayH}px`,
-                          }}
-                        >
-                          <canvas
-                            ref={rightCanvasRef}
-                            className="corne-oled-canvas"
-                            style={{
-                              width: `${rightDisplayDim.displayW}px`,
-                              height: `${rightDisplayDim.displayH}px`,
-                              display: 'block',
-                            }}
-                          />
-                          <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
-                            {rightDisplayBlocks.map((block) =>
-                              renderBlockOverlay(block, 'right', rightVWidth, rightVHeight)
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Swap Drop Overlay (ONLY visible while dragging over this target) */}
-                {isRealigning && draggedUnitKey !== screenKey && hoveredSwapUnitKey === screenKey && (
-                  <div className="preview-unit-swap-overlay">
-                    <ArrowLeftRight size={24} className="text-[#00f0ff] animate-bounce" />
-                    <span className="text-xs font-mono font-bold text-[#00f0ff] mt-1.5">Swap Position</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Trailing insertion drop slot after last unit */}
-              {isRealigning && index === orderedScreens.length - 1 && (
-                <div
-                  className={`preview-realign-drop-slot ${hoveredDropSlot === `slot-${index + 1}` ? 'hovered' : ''}`}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setHoveredDropSlot(`slot-${index + 1}`);
-                  }}
-                  onDragLeave={() => setHoveredDropSlot((curr) => (curr === `slot-${index + 1}` ? null : curr))}
-                  onDrop={(e) => handleDropOnSlot(e, index + 1)}
-                  title="Drop to realign to end"
-                >
-                  <ArrowLeftRight size={16} className="text-[#00f0ff] animate-pulse" />
                 </div>
-              )}
-            </React.Fragment>
-          ))}
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div className="corne-keyboard-split">
-          {orderedScreens.map((screenKey, index) => (
-            <React.Fragment key={screenKey}>
-              {/* Realign insertion drop slot before unit (ONLY visible while dragging) */}
-              {isRealigning && (
-                <div
-                  className={`preview-realign-drop-slot ${hoveredDropSlot === `slot-${index}` ? 'hovered' : ''}`}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setHoveredDropSlot(`slot-${index}`);
-                  }}
-                  onDragLeave={() => setHoveredDropSlot((curr) => (curr === `slot-${index}` ? null : curr))}
-                  onDrop={(e) => handleDropOnSlot(e, index)}
-                  title="Drop to realign position"
-                >
-                  <ArrowLeftRight size={16} className="text-[#00f0ff] animate-pulse" />
-                </div>
-              )}
+          {orderedShields.map((shield) => {
+            const assignedDisplayId = reconciledAssignments[shield.id];
+            const dispInfo = getDisplayInfo(assignedDisplayId);
+            const isLeft = shield.side === 'left' || shield.isMaster;
+            const fallbackDisplayDim = isLeft ? leftDisplayDim : rightDisplayDim;
 
-              {/* Realignable Unit Wrapper */}
+            return (
               <div
-                draggable
-                onDragStart={(e) => handleUnitDragStart(e, screenKey)}
-                onDragEnd={handleUnitDragEnd}
-                onDragOver={(e) => {
-                  if (isRealigning && draggedUnitKey !== screenKey) {
-                    e.preventDefault();
-                    setHoveredSwapUnitKey(screenKey);
-                  }
-                }}
-                onDragLeave={() => setHoveredSwapUnitKey((curr) => (curr === screenKey ? null : curr))}
-                onDrop={(e) => handleDropOnUnit(e, screenKey)}
-                className={`preview-realignable-unit ${isRealigning ? 'cursor-grab active:cursor-grabbing' : ''} ${
-                  draggedUnitKey === screenKey ? 'opacity-40 scale-95' : ''
+                key={shield.id}
+                className={`preview-shield-wrapper relative transition-all ${
+                  hoveredDisplayDropTarget === shield.id
+                    ? 'ring-2 ring-[#00f0ff] shadow-[0_0_24px_rgba(0,240,255,0.4)] rounded-2xl'
+                    : ''
                 }`}
+                onDragOver={(e) => handleDisplayDragOver(e, shield.id)}
+                onDragLeave={(e) => handleDisplayDragLeave(e, shield.id)}
+                onDrop={(e) => handleDisplayDrop(e, shield.id)}
               >
-                {screenKey === 'central' && (
-                  <div className="corne-half-case left-half">
-                    <div className="half-inner-layout">
-                      {/* Keys Cluster (Matrix + Thumbs tight underneath) */}
-                      <div className="corne-keys-cluster">
-                        {/* Dynamic Columns Matrix */}
-                        <div className="corne-matrix">
-                          {Array.from({ length: keymapLayout.columns }, (_, colIdx) => (
-                            <div
-                              key={colIdx}
-                              className="corne-col"
-                              style={{ transform: `translateY(${getColStagger(colIdx, keymapLayout.columns, false)}px)` }}
-                            >
-                              {Array.from({ length: keymapLayout.rows }, (_, rowIdx) => {
-                                const keyLabel = currentLeftMatrix[rowIdx]?.[colIdx] || '';
-                                const coordId = `L_${rowIdx}_${colIdx}`;
-                                const isPressed = pressedKeys.has(coordId);
-                                const isEmpty = !keyLabel;
-                                return (
-                                  <div
-                                    key={rowIdx}
-                                    className={`corne-keycap ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
-                                    onClick={() => triggerKeyPress(coordId)}
-                                    title={keyLabel ? `Left [${rowIdx},${colIdx}]: ${keyLabel}` : `Left [${rowIdx},${colIdx}]`}
-                                  >
-                                    {keyLabel ? <span className="keycap-legend">{keyLabel}</span> : null}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ))}
+                <div className={`corne-half-case ${isLeft ? 'left-half' : 'right-half'}`}>
+                    {/* Central Shield Badge with tooltip */}
+                    {isLeft && (
+                      <div
+                        className="central-shield-badge"
+                        title="Central Shield"
+                        data-testid="central-shield-badge"
+                      >
+                        <div className="central-shield-badge-dot">
+                          <Cpu size={10} className="shrink-0" />
                         </div>
-
-                        {/* Thumb Keys Cluster */}
-                        <div className="corne-thumbs left-thumbs">
-                          {currentLeftThumbs.map((t, idx) => {
-                            const coordId = `LT_${idx}`;
-                            const isPressed = pressedKeys.has(coordId);
-                            const isEmpty = !t;
-                            return (
-                              <div
-                                key={idx}
-                                className={`corne-thumb-key thumb-${idx} ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
-                                onClick={() => triggerKeyPress(coordId)}
-                                title={t ? `Left Thumb [${idx}]: ${t}` : `Left Thumb [${idx}]`}
-                              >
-                                {t ? <span className="thumb-legend">{t}</span> : null}
-                              </div>
-                            );
-                          })}
+                        <div className="central-shield-tooltip">
+                          Central Shield
                         </div>
                       </div>
+                    )}
 
-                      {/* OLED Display (Inner Side) */}
-                      <div className="corne-mcu-bay">
-                        <div className="mcu-pcb-socket">
-                          <div
-                            className="oled-glass-housing"
-                            style={{
-                              width: `${leftDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
-                              height: `${leftDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
-                            }}
-                            onMouseEnter={() => setHoveredSide('left')}
-                            onMouseLeave={() => setHoveredSide(null)}
-                            onClick={() => setSelectedBlockId(null)}
-                          >
-                            <div
-                              ref={leftScreenContainerRef}
-                              style={{
-                                position: 'relative',
-                                width: `${leftDisplayDim.displayW}px`,
-                                height: `${leftDisplayDim.displayH}px`,
-                              }}
-                            >
-                              <canvas
-                                ref={leftCanvasRef}
-                                className="corne-oled-canvas"
-                                style={{
-                                  width: `${leftDisplayDim.displayW}px`,
-                                  height: `${leftDisplayDim.displayH}px`,
-                                  display: 'block',
-                                }}
-                              />
-                              <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
-                                {leftDisplayBlocks.map((block) =>
-                                  renderBlockOverlay(block, 'left', leftVWidth, leftVHeight)
-                                )}
+                    <div className={`half-inner-layout ${!isLeft ? 'mirrored' : ''}`}>
+                      {/* Left: Keys Cluster first */}
+                      {isLeft && (
+                        <div className="corne-keys-cluster">
+                          <div className="corne-matrix">
+                            {Array.from({ length: keymapLayout.columns }, (_, colIdx) => (
+                              <div
+                                key={colIdx}
+                                className="corne-col"
+                                style={{ transform: `translateY(${getColStagger(colIdx, keymapLayout.columns, false)}px)` }}
+                              >
+                                {Array.from({ length: keymapLayout.rows }, (_, rowIdx) => {
+                                  const keyLabel = currentLeftMatrix[rowIdx]?.[colIdx] || '';
+                                  const coordId = `L_${rowIdx}_${colIdx}`;
+                                  const isPressed = pressedKeys.has(coordId);
+                                  const isEmpty = !keyLabel;
+                                  return (
+                                    <div
+                                      key={rowIdx}
+                                      className={`corne-keycap ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
+                                      onClick={() => triggerKeyPress(coordId)}
+                                      title={keyLabel ? `Left [${rowIdx},${colIdx}]: ${keyLabel}` : `Left [${rowIdx},${colIdx}]`}
+                                    >
+                                      {keyLabel ? <span className="keycap-legend">{keyLabel}</span> : null}
+                                    </div>
+                                  );
+                                })}
                               </div>
-                            </div>
+                            ))}
+                          </div>
+
+                          <div className="corne-thumbs left-thumbs">
+                            {currentLeftThumbs.map((t, idx) => {
+                              const coordId = `LT_${idx}`;
+                              const isPressed = pressedKeys.has(coordId);
+                              const isEmpty = !t;
+                              return (
+                                <div
+                                  key={idx}
+                                  className={`corne-thumb-key thumb-${idx} ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
+                                  onClick={() => triggerKeyPress(coordId)}
+                                  title={t ? `Left Thumb [${idx}]: ${t}` : `Left Thumb [${idx}]`}
+                                >
+                                  {t ? <span className="thumb-legend">{t}</span> : null}
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                      )}
 
-                {screenKey === 'peripheral' && (
-                  <div className="corne-half-case right-half">
-                    <div className="half-inner-layout mirrored">
-                      {/* OLED Display (Inner Side) */}
+                      {/* OLED Display Bay (Inner Side) */}
                       <div className="corne-mcu-bay">
                         <div className="mcu-pcb-socket">
-                          <div
-                            className="oled-glass-housing"
-                            style={{
-                              width: `${rightDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
-                              height: `${rightDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
-                            }}
-                            onMouseEnter={() => setHoveredSide('right')}
-                            onMouseLeave={() => setHoveredSide(null)}
-                            onClick={() => setSelectedBlockId(null)}
-                          >
+                          {assignedDisplayId && dispInfo ? (
                             <div
-                              ref={rightScreenContainerRef}
+                              className={`oled-glass-housing relative group/display cursor-grab active:cursor-grabbing rounded-xl transition-all ${
+                                hoveredDisplayDropTarget === shield.id
+                                  ? 'ring-2 ring-[#00f0ff] shadow-[0_0_20px_rgba(0,240,255,0.6)] scale-102'
+                                  : 'hover:ring-1 hover:ring-[#00f0ff]/50'
+                              }`}
                               style={{
-                                position: 'relative',
-                                width: `${rightDisplayDim.displayW}px`,
-                                height: `${rightDisplayDim.displayH}px`,
+                                width: `${dispInfo.displayDim.displayW + OLED_BORDER_UNITS * 2}px`,
+                                height: `${dispInfo.displayDim.displayH + OLED_BORDER_UNITS * 2}px`,
                               }}
+                              draggable={true}
+                              onDragStart={(e) => handleDisplayDragStart(e, shield.id, assignedDisplayId)}
+                              onDragEnd={handleDisplayDragEnd}
+                              onDragOver={(e) => handleDisplayDragOver(e, shield.id)}
+                              onDragLeave={(e) => handleDisplayDragLeave(e, shield.id)}
+                              onDrop={(e) => handleDisplayDrop(e, shield.id)}
+                              title={`${dispInfo.name} (Drag to swap or move to another shield)`}
                             >
-                              <canvas
-                                ref={rightCanvasRef}
-                                className="corne-oled-canvas"
+                              <div className="absolute -top-3 left-1/2 -translate-x-1/2 opacity-0 group-hover/display:opacity-100 transition-opacity z-20 pointer-events-none bg-[#0a0d14]/95 border border-[#00f0ff]/40 text-[#00f0ff] text-[8px] font-mono font-bold px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap select-none">
+                                Drag Display
+                              </div>
+                              <div
                                 style={{
-                                  width: `${rightDisplayDim.displayW}px`,
-                                  height: `${rightDisplayDim.displayH}px`,
-                                  display: 'block',
+                                  position: 'relative',
+                                  width: `${dispInfo.displayDim.displayW}px`,
+                                  height: `${dispInfo.displayDim.displayH}px`,
                                 }}
-                              />
-                              <div className={`oled-block-overlays-container oled-preview-overlays ${internalDraggingBlockId ? 'is-dragging' : ''}`}>
-                                {rightDisplayBlocks.map((block) =>
-                                  renderBlockOverlay(block, 'right', rightVWidth, rightVHeight)
-                                )}
+                              >
+                                <canvas
+                                  ref={(el) => {
+                                    if (assignedDisplayId === 'central') leftCanvasRef.current = el;
+                                    else if (assignedDisplayId === 'peripheral') rightCanvasRef.current = el;
+                                    canvasRefs.current[assignedDisplayId] = el;
+                                  }}
+                                  className="corne-oled-canvas"
+                                  style={{
+                                    width: `${dispInfo.displayDim.displayW}px`,
+                                    height: `${dispInfo.displayDim.displayH}px`,
+                                    display: 'block',
+                                  }}
+                                />
                               </div>
                             </div>
+                          ) : (
+                            <div
+                              className={`preview-oled-empty-bay transition-all ${
+                                hoveredDisplayDropTarget === shield.id
+                                  ? 'border-[#00f0ff] bg-[#00f0ff]/15 ring-2 ring-[#00f0ff] shadow-[0_0_20px_rgba(0,240,255,0.4)] scale-102'
+                                  : ''
+                              }`}
+                              onDragOver={(e) => handleDisplayDragOver(e, shield.id)}
+                              onDragLeave={(e) => handleDisplayDragLeave(e, shield.id)}
+                              onDrop={(e) => handleDisplayDrop(e, shield.id)}
+                              style={{
+                                width: `${fallbackDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
+                                minHeight: `${fallbackDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
+                              }}
+                              title="Empty OLED Bay — Drag a display here to mount"
+                            >
+                              <Monitor size={18} className="text-muted/60" />
+                              <span className="text-[10px] text-muted font-mono font-medium">Empty OLED Bay</span>
+                              <span className="text-[9px] text-muted/50 font-mono">No display attached</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Right: Keys Cluster second */}
+                      {!isLeft && (
+                        <div className="corne-keys-cluster">
+                          <div className="corne-matrix">
+                            {Array.from({ length: keymapLayout.columns }, (_, colIdx) => (
+                              <div
+                                key={colIdx}
+                                className="corne-col"
+                                style={{ transform: `translateY(${getColStagger(colIdx, keymapLayout.columns, true)}px)` }}
+                              >
+                                {Array.from({ length: keymapLayout.rows }, (_, rowIdx) => {
+                                  const keyLabel = currentRightMatrix[rowIdx]?.[colIdx] || '';
+                                  const coordId = `R_${rowIdx}_${colIdx}`;
+                                  const isPressed = pressedKeys.has(coordId);
+                                  const isEmpty = !keyLabel;
+                                  return (
+                                    <div
+                                      key={rowIdx}
+                                      className={`corne-keycap ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
+                                      onClick={() => triggerKeyPress(coordId)}
+                                      title={keyLabel ? `Right [${rowIdx},${colIdx}]: ${keyLabel}` : `Right [${rowIdx},${colIdx}]`}
+                                    >
+                                      {keyLabel ? <span className="keycap-legend">{keyLabel}</span> : null}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="corne-thumbs right-thumbs">
+                            {currentRightThumbs.map((t, idx) => {
+                              const coordId = `RT_${idx}`;
+                              const isPressed = pressedKeys.has(coordId);
+                              const isEmpty = !t;
+                              return (
+                                <div
+                                  key={idx}
+                                  className={`corne-thumb-key thumb-${idx} ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
+                                  onClick={() => triggerKeyPress(coordId)}
+                                  title={t ? `Right Thumb [${idx}]: ${t}` : `Right Thumb [${idx}]`}
+                                >
+                                  {t ? <span className="thumb-legend">{t}</span> : null}
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
-                      </div>
-
-                      {/* Keys Cluster (Matrix + Thumbs tight underneath) */}
-                      <div className="corne-keys-cluster">
-                        {/* Dynamic Columns Matrix */}
-                        <div className="corne-matrix">
-                          {Array.from({ length: keymapLayout.columns }, (_, colIdx) => (
-                            <div
-                              key={colIdx}
-                              className="corne-col"
-                              style={{ transform: `translateY(${getColStagger(colIdx, keymapLayout.columns, true)}px)` }}
-                            >
-                              {Array.from({ length: keymapLayout.rows }, (_, rowIdx) => {
-                                const keyLabel = currentRightMatrix[rowIdx]?.[colIdx] || '';
-                                const coordId = `R_${rowIdx}_${colIdx}`;
-                                const isPressed = pressedKeys.has(coordId);
-                                const isEmpty = !keyLabel;
-                                return (
-                                  <div
-                                    key={rowIdx}
-                                    className={`corne-keycap ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
-                                    onClick={() => triggerKeyPress(coordId)}
-                                    title={keyLabel ? `Right [${rowIdx},${colIdx}]: ${keyLabel}` : `Right [${rowIdx},${colIdx}]`}
-                                  >
-                                    {keyLabel ? <span className="keycap-legend">{keyLabel}</span> : null}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* Thumb Keys Cluster */}
-                        <div className="corne-thumbs right-thumbs">
-                          {currentRightThumbs.map((t, idx) => {
-                            const coordId = `RT_${idx}`;
-                            const isPressed = pressedKeys.has(coordId);
-                            const isEmpty = !t;
-                            return (
-                              <div
-                                key={idx}
-                                className={`corne-thumb-key thumb-${idx} ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
-                                onClick={() => triggerKeyPress(coordId)}
-                                title={t ? `Right Thumb [${idx}]: ${t}` : `Right Thumb [${idx}]`}
-                              >
-                                {t ? <span className="thumb-legend">{t}</span> : null}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
+                      )}
                     </div>
-                  </div>
-                )}
-
-                {/* Swap Drop Overlay (ONLY visible while dragging over this target) */}
-                {isRealigning && draggedUnitKey !== screenKey && hoveredSwapUnitKey === screenKey && (
-                  <div className="preview-unit-swap-overlay">
-                    <ArrowLeftRight size={24} className="text-[#00f0ff] animate-bounce" />
-                    <span className="text-xs font-mono font-bold text-[#00f0ff] mt-1.5">Swap Position</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Trailing insertion drop slot after last unit */}
-              {isRealigning && index === orderedScreens.length - 1 && (
-                <div
-                  className={`preview-realign-drop-slot ${hoveredDropSlot === `slot-${index + 1}` ? 'hovered' : ''}`}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setHoveredDropSlot(`slot-${index + 1}`);
-                  }}
-                  onDragLeave={() => setHoveredDropSlot((curr) => (curr === `slot-${index + 1}` ? null : curr))}
-                  onDrop={(e) => handleDropOnSlot(e, index + 1)}
-                  title="Drop to realign to end"
-                >
-                  <ArrowLeftRight size={16} className="text-[#00f0ff] animate-pulse" />
                 </div>
-              )}
-            </React.Fragment>
-          ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* =========================================================================
+          UNATTACHED DISPLAYS SECTION
+          Renders any display configured in layout that is NOT mounted to a shield.
+          Displays explicit warning that it won't be saved when committing.
+          ========================================================================= */}
+      {unattachedDisplayIds.length > 0 && (
+        <div
+          className={`unattached-displays-section transition-all ${
+            hoveredUnattachedDrawer && draggedDisplay?.fromShieldId
+              ? 'ring-2 ring-amber-400 bg-amber-500/10 shadow-[0_0_24px_rgba(245,158,11,0.3)]'
+              : ''
+          }`}
+          data-testid="unattached-displays-section"
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = 'move';
+            if (!hoveredUnattachedDrawer) setHoveredUnattachedDrawer(true);
+          }}
+          onDragLeave={() => setHoveredUnattachedDrawer(false)}
+          onDrop={handleDropOnUnattachedDrawer}
+        >
+          <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+            <div className="flex items-center gap-2 text-amber-400">
+              <AlertTriangle size={18} />
+              <span className="font-mono font-semibold text-sm">
+                {`Unattached Displays (${unattachedDisplayIds.length})`}
+              </span>
+            </div>
+            <span className="text-xs text-amber-400/90 font-mono">
+              Display is not attached and won't be saved when committing. Drop here to detach from shield.
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-6">
+            {unattachedDisplayIds.map((screenId) => {
+              const info = getDisplayInfo(screenId);
+              if (!info) return null;
+              return (
+                <div
+                  key={screenId}
+                  className="unattached-display-card cursor-grab active:cursor-grabbing"
+                  data-testid={`unattached-card-${screenId}`}
+                  draggable
+                  onDragStart={(e) => handleDisplayDragStart(e, undefined, screenId)}
+                  onDragEnd={handleDisplayDragEnd}
+                  title="Drag display to any shield bay to attach"
+                >
+                  <div className="flex items-center justify-between w-full gap-2 border-b border-amber-500/20 pb-1.5">
+                    <span className="font-mono text-xs font-semibold text-[#e2f1ff]">{info.name}</span>
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-[10px] text-muted font-mono">Attach to:</label>
+                      <select
+                        className="preview-display-select"
+                        value=""
+                        onChange={(e) => {
+                          const shieldKey = e.target.value;
+                          if (shieldKey) handleAssignDisplay(shieldKey, screenId);
+                        }}
+                        aria-label={`Attach ${info.name} to shield`}
+                      >
+                        <option value="" disabled>Select shield...</option>
+                        {orderedShields.map((sh) => (
+                          <option key={sh.id} value={sh.id}>
+                            {sh.name} {reconciledAssignments[sh.id] ? `(Replaces ${reconciledAssignments[sh.id]})` : '(Empty)'}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div
+                    className="oled-glass-housing"
+                    style={{
+                      width: `${info.displayDim.displayW + OLED_BORDER_UNITS * 2}px`,
+                      height: `${info.displayDim.displayH + OLED_BORDER_UNITS * 2}px`,
+                      borderColor: 'rgba(245, 158, 11, 0.4)',
+                      boxShadow: '0 0 12px rgba(245, 158, 11, 0.15)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: 'relative',
+                        width: `${info.displayDim.displayW}px`,
+                        height: `${info.displayDim.displayH}px`,
+                      }}
+                    >
+                      <canvas
+                        ref={(el) => {
+                          if (screenId === 'central') leftCanvasRef.current = el;
+                          else if (screenId === 'peripheral') rightCanvasRef.current = el;
+                          canvasRefs.current[screenId] = el;
+                        }}
+                        className="corne-oled-canvas"
+                        style={{
+                          width: `${info.displayDim.displayW}px`,
+                          height: `${info.displayDim.displayH}px`,
+                          display: 'block',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 text-[10px] text-amber-400/80 font-mono mt-1 text-center">
+                    <AlertTriangle size={11} />
+                    <span>Display is not attached and won't be saved when committing.</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { BwpxGrid } from '../bwpx/core/BwpxGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../types/zmk';
 import {
@@ -17,6 +17,7 @@ import { SideSettingsPanel } from '../components/ScreenSizePopover';
 import { trackEvent } from '../services/analytics';
 import { remapBlockCoordinates } from '../services/blocksLayout';
 import type { PeripheralScreenData } from '../services/cHeaderParser';
+import { getShieldUnitsForShield, type LoadedShieldUnit } from '../data/shieldsData';
 import { Plus } from 'lucide-react';
 
 export interface BlocksTabProps {
@@ -101,6 +102,10 @@ export interface BlocksTabProps {
   layoutBlocks?: LayoutBlock[];
   onLayoutBlocksChange?: (blocks: LayoutBlock[]) => void;
   layerNames?: string[];
+  displayAssignments?: Record<string, string | null>;
+  onDisplayAssignmentsChange?: (assignments: Record<string, string | null>) => void;
+  loadedShields?: LoadedShieldUnit[];
+  shieldId?: string;
 }
 
 export const BlocksTab: React.FC<BlocksTabProps> = ({
@@ -183,7 +188,54 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   onInstancesChange: _onInstancesChange,
   layoutBlocks,
   onLayoutBlocksChange,
+  displayAssignments,
+  onDisplayAssignmentsChange,
+  loadedShields,
+  shieldId = 'corne',
 }) => {
+  const effectiveShields = useMemo<LoadedShieldUnit[]>(() => {
+    if (loadedShields && loadedShields.length > 0) {
+      return loadedShields;
+    }
+    return getShieldUnitsForShield(shieldId);
+  }, [loadedShields, shieldId]);
+
+  // Screen setup & enabled screens state
+  const [localEnabledScreens, setLocalEnabledScreens] = useState<string[]>(['central', 'peripheral']);
+  const effectiveEnabledScreens = (enabledScreens ?? localEnabledScreens)
+    .map((s) => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
+    .filter((s) => s !== 'dongle');
+  const handleEnabledScreensChange = onEnabledScreensChange || setLocalEnabledScreens;
+
+  const centralShield = useMemo(() => {
+    return effectiveShields.find((s) => s.isMaster || s.side === 'left') || effectiveShields[0];
+  }, [effectiveShields]);
+
+  const centralDisplayId = useMemo(() => {
+    if (!centralShield) {
+      return effectiveEnabledScreens.includes('central')
+        ? 'central'
+        : effectiveEnabledScreens.includes('left')
+        ? 'left'
+        : effectiveEnabledScreens[0] || null;
+    }
+    if (displayAssignments) {
+      if (displayAssignments[centralShield.id] !== undefined) {
+        return displayAssignments[centralShield.id];
+      }
+    }
+    return effectiveEnabledScreens.includes('central')
+      ? 'central'
+      : effectiveEnabledScreens.includes('left')
+      ? 'left'
+      : null;
+  }, [displayAssignments, centralShield, effectiveEnabledScreens]);
+
+  const isCentralAttached = useMemo(() => {
+    if (!centralDisplayId) return false;
+    return effectiveEnabledScreens.includes(centralDisplayId);
+  }, [centralDisplayId, effectiveEnabledScreens]);
+
   // Active screen blocks
   const effectiveCentralBlocks = centralBlocks ?? leftBlocks ?? layoutBlocks ?? DEFAULT_CENTRAL_LAYOUT_BLOCKS;
   const effectivePeripheralBlocks = peripheralBlocks ?? rightBlocks ?? DEFAULT_PERIPHERAL_LAYOUT_BLOCKS;
@@ -206,13 +258,6 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   const handlePeripheralScreensChange = onPeripheralScreensChange || setLocalPeripheralScreens;
 
   const [internalDynamicPeripheralSettingsOpen, setInternalDynamicPeripheralSettingsOpen] = useState<Record<string, boolean>>({});
-
-  // Screen setup & enabled screens state
-  const [localEnabledScreens, setLocalEnabledScreens] = useState<string[]>(['central', 'peripheral']);
-  const effectiveEnabledScreens = (enabledScreens ?? localEnabledScreens)
-    .map((s) => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
-    .filter((s) => s !== 'dongle');
-  const handleEnabledScreensChange = onEnabledScreensChange || setLocalEnabledScreens;
 
   // Independent per-screen focus mode: 'active' or 'idle' for each screen ID ('central', 'peripheral', etc.)
   const [screenModes, setScreenModes] = useState<Record<string, 'active' | 'idle'>>({});
@@ -560,18 +605,34 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
 
   const handleDeleteCentral = useCallback(() => {
     if (effectiveEnabledScreens.length <= 1) return;
-    const updatedScreens = effectiveEnabledScreens.filter((s) => s !== 'central' && s !== 'left');
+    const activeCentralSide = centralDisplayId || 'central';
+    const updatedScreens = effectiveEnabledScreens.filter((s) => s !== activeCentralSide);
     handleEnabledScreensChange(updatedScreens);
+    if (displayAssignments && centralShield) {
+      onDisplayAssignmentsChange?.({ ...displayAssignments, [centralShield.id]: null });
+    }
     closeCentralSettings();
     trackEvent('delete_central_display');
-  }, [effectiveEnabledScreens, handleEnabledScreensChange, closeCentralSettings]);
+  }, [effectiveEnabledScreens, centralDisplayId, handleEnabledScreensChange, closeCentralSettings, displayAssignments, centralShield, onDisplayAssignmentsChange]);
 
   const handleAddCentral = useCallback(() => {
-    if (!effectiveEnabledScreens.includes('central') && !effectiveEnabledScreens.includes('left')) {
-      handleEnabledScreensChange(['central', ...effectiveEnabledScreens]);
+    if (centralShield) {
+      const assigned = Object.values(displayAssignments || {}).filter(Boolean);
+      const unattached = effectiveEnabledScreens.find((s) => !assigned.includes(s));
+      const targetDisplayId = unattached || 'central';
+
+      if (!effectiveEnabledScreens.includes(targetDisplayId)) {
+        handleEnabledScreensChange([targetDisplayId, ...effectiveEnabledScreens]);
+      }
+      if (displayAssignments && onDisplayAssignmentsChange) {
+        onDisplayAssignmentsChange({
+          ...displayAssignments,
+          [centralShield.id]: targetDisplayId,
+        });
+      }
       trackEvent('add_central_display');
     }
-  }, [effectiveEnabledScreens, handleEnabledScreensChange]);
+  }, [centralShield, displayAssignments, onDisplayAssignmentsChange, effectiveEnabledScreens, handleEnabledScreensChange]);
 
   const handleDeletePeripheral = useCallback(
     (peripheralSide: string) => {
@@ -1190,24 +1251,26 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   const totalDisplays = effectiveEnabledScreens.length;
   const isOverlaySettings = totalDisplays > 2;
   const canDeleteDisplay = totalDisplays > 1;
-  const hasCentral = effectiveEnabledScreens.includes('central') || effectiveEnabledScreens.includes('left');
+  const hasCentral = isCentralAttached;
+  const activeCentralSide = centralDisplayId || 'central';
+  const centralCfg = getSideConfig(activeCentralSide);
 
   const masterSettingsPanel = (isOverlay: boolean) => (
     <SideSettingsPanel
-      side="central"
-      isOpen={effectiveCentralSettingsOpen}
-      onClose={closeCentralSettings}
+      side={activeCentralSide}
+      isOpen={centralCfg.isOpen}
+      onClose={centralCfg.closeSettings}
       isOverlay={isOverlay}
-      screenDimensions={screenDimensions}
-      onScreenDimensionsChange={handleCentralDimensionsChange}
+      screenDimensions={centralCfg.dimensions}
+      onScreenDimensionsChange={centralCfg.onDimensionsChange}
       rotation={rotation}
       onRotationChange={onRotationChange}
-      idleScreensEnabled={effectiveIdleScreensEnabled}
-      onIdleScreensEnabledChange={handleCentralIdleEnabledChange}
-      idleTimeoutSec={effectiveIdleTimeoutSec}
-      onIdleTimeoutSecChange={handleCentralIdleTimeoutChange}
-      screenOffTimeoutSec={effectiveScreenOffTimeoutSec}
-      onScreenOffTimeoutSecChange={handleCentralScreenOffTimeoutChange}
+      idleScreensEnabled={centralCfg.idleEnabled}
+      onIdleScreensEnabledChange={centralCfg.onIdleEnabledChange}
+      idleTimeoutSec={centralCfg.idleTimeout}
+      onIdleTimeoutSecChange={centralCfg.onIdleTimeoutChange}
+      screenOffTimeoutSec={centralCfg.screenOffTimeout}
+      onScreenOffTimeoutSecChange={centralCfg.onScreenOffTimeoutChange}
       symmetricSettings={effectiveSymmetricSettings}
       onSymmetricSettingsChange={handleSymmetricChange}
       rightScreenDimensions={effectivePeripheralScreenDimensions}
@@ -1227,7 +1290,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     />
   );
 
-  const peripheralSettingsPanel = (side: string, cfg: ReturnType<typeof getPeripheralConfig>, isOverlay: boolean) => {
+  const peripheralSettingsPanel = (side: string, cfg: ReturnType<typeof getSideConfig>, isOverlay: boolean) => {
     return (
       <SideSettingsPanel
         side={side}
@@ -1265,22 +1328,24 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     );
   };
 
-  const centralMode = getScreenMode('central');
+  const centralMode = getScreenMode(activeCentralSide);
   const centralColumnNode = (
     <React.Fragment key="master-display">
       {!isOverlaySettings && masterSettingsPanel(false)}
-      <div className={`blocks-column-oled ${!effectiveIdleScreensEnabled ? 'idle-disabled' : centralMode === 'active' ? 'active-expanded' : 'idle-expanded'}`}>
+      <div className={`blocks-column-oled ${!centralCfg.idleEnabled ? 'idle-disabled' : centralMode === 'active' ? 'active-expanded' : 'idle-expanded'}`}>
         <OledPanelColumn
-          side="central"
+          side={activeCentralSide}
+          isCentral={true}
+          roleLabel="Central"
           screenKind="active"
           title="Central Active"
           subtitle="Central Host Coordinator Display"
-          blocks={effectiveCentralBlocks}
-          onBlocksChange={handleCentralBlocksChangeWithUndo}
-          onClearScreen={handleClearCentral}
-          onUndo={handleUndoCentral}
-          onToggleSettings={toggleCentralSettings}
-          isSettingsOpen={effectiveCentralSettingsOpen}
+          blocks={centralCfg.blocks}
+          onBlocksChange={centralCfg.onBlocksChange}
+          onClearScreen={centralCfg.onClear}
+          onUndo={centralCfg.onUndo}
+          onToggleSettings={centralCfg.toggleSettings}
+          isSettingsOpen={centralCfg.isOpen}
           symbolsGrid={symbolsGrid}
           symbolSlices={symbolSlices}
           fontGrid={fontGrid}
@@ -1288,36 +1353,38 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
           fontMappings={fontMappings}
           customText={customText}
           instances={instances}
-          isDropTarget={dragState?.targetSide === 'central' && (centralMode === 'active' || !effectiveIdleScreensEnabled)}
-          dropTargetX={dragState?.targetSide === 'central' ? dragState.targetX : null}
-          dropTargetY={dragState?.targetSide === 'central' ? dragState.targetY : null}
+          isDropTarget={dragState?.targetSide === activeCentralSide && (centralMode === 'active' || !centralCfg.idleEnabled)}
+          dropTargetX={dragState?.targetSide === activeCentralSide ? dragState.targetX : null}
+          dropTargetY={dragState?.targetSide === activeCentralSide ? dragState.targetY : null}
           draggedWidget={dragState?.widget || null}
-          selectedBlockId={selectedBlockSide === 'central' && selectedBlockKind === 'active' ? selectedBlockId : null}
+          selectedBlockId={selectedBlockSide === activeCentralSide && selectedBlockKind === 'active' ? selectedBlockId : null}
           onSelectBlock={id => {
-            setSelectedBlockSide(id ? 'central' : null);
+            setSelectedBlockSide(id ? activeCentralSide : null);
             setSelectedBlockKind('active');
             setSelectedBlockId(id);
           }}
           onRegisterScreenElement={handleRegisterScreenElement}
-          screenDimensions={screenDimensions}
+          screenDimensions={centralCfg.dimensions}
           layerNames={layerNames}
-          isCompact={effectiveIdleScreensEnabled && centralMode === 'idle'}
-          onExpand={() => setScreenMode('central', 'active')}
-          onSwitchMode={effectiveIdleScreensEnabled ? () => setScreenMode('central', 'idle') : undefined}
+          isCompact={centralCfg.idleEnabled && centralMode === 'idle'}
+          onExpand={() => setScreenMode(activeCentralSide, 'active')}
+          onSwitchMode={centralCfg.idleEnabled ? () => setScreenMode(activeCentralSide, 'idle') : undefined}
         />
 
-        {effectiveIdleScreensEnabled && (
+        {centralCfg.idleEnabled && (
           <OledPanelColumn
-            side="central"
+            side={activeCentralSide}
+            isCentral={true}
+            roleLabel="Central"
             screenKind="idle"
             title="Central Idle"
             subtitle="Central Host Coordinator Display"
-            blocks={effectiveIdleCentralBlocks}
-            onBlocksChange={handleIdleCentralBlocksChangeWithUndo}
-            onClearScreen={handleClearIdleCentral}
-            onUndo={handleUndoIdleCentral}
-            onToggleSettings={toggleCentralSettings}
-            isSettingsOpen={effectiveCentralSettingsOpen}
+            blocks={centralCfg.idleBlocks}
+            onBlocksChange={centralCfg.onIdleBlocksChange}
+            onClearScreen={centralCfg.onClearIdle}
+            onUndo={centralCfg.onUndoIdle}
+            onToggleSettings={centralCfg.toggleSettings}
+            isSettingsOpen={centralCfg.isOpen}
             symbolsGrid={symbolsGrid}
             symbolSlices={symbolSlices}
             fontGrid={fontGrid}
@@ -1325,22 +1392,22 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
             fontMappings={fontMappings}
             customText={customText}
             instances={instances}
-            isDropTarget={dragState?.targetSide === 'central' && centralMode === 'idle'}
-            dropTargetX={dragState?.targetSide === 'central' ? dragState.targetX : null}
-            dropTargetY={dragState?.targetSide === 'central' ? dragState.targetY : null}
+            isDropTarget={dragState?.targetSide === activeCentralSide && centralMode === 'idle'}
+            dropTargetX={dragState?.targetSide === activeCentralSide ? dragState.targetX : null}
+            dropTargetY={dragState?.targetSide === activeCentralSide ? dragState.targetY : null}
             draggedWidget={dragState?.widget || null}
-            selectedBlockId={selectedBlockSide === 'central' && selectedBlockKind === 'idle' ? selectedBlockId : null}
+            selectedBlockId={selectedBlockSide === activeCentralSide && selectedBlockKind === 'idle' ? selectedBlockId : null}
             onSelectBlock={id => {
-              setSelectedBlockSide(id ? 'central' : null);
+              setSelectedBlockSide(id ? activeCentralSide : null);
               setSelectedBlockKind('idle');
               setSelectedBlockId(id);
             }}
             onRegisterScreenElement={handleRegisterScreenElement}
-            screenDimensions={screenDimensions}
+            screenDimensions={centralCfg.dimensions}
             layerNames={layerNames}
             isCompact={centralMode === 'active'}
-            onExpand={() => setScreenMode('central', 'idle')}
-            onSwitchMode={() => setScreenMode('central', 'active')}
+            onExpand={() => setScreenMode(activeCentralSide, 'idle')}
+            onSwitchMode={() => setScreenMode(activeCentralSide, 'active')}
           />
         )}
 
@@ -1349,17 +1416,25 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     </React.Fragment>
   );
 
-  const renderPeripheralNode = (side: string) => {
-    const cfg = getPeripheralConfig(side);
+  const renderPeripheralNode = (side: string, index: number) => {
+    const cfg = getSideConfig(side);
     const sideMode = getScreenMode(side);
+    const num = side.startsWith('peripheral-')
+      ? side.replace('peripheral-', '')
+      : (peripheralScreensList.length > 1 ? String(index + 1) : '');
+    const pRoleLabel = num ? `Peripheral ${num}` : 'Peripheral';
+    const pTitle = (side === 'central' || side === 'left') ? `${pRoleLabel} Active` : cfg.title;
+    const pIdleTitle = (side === 'central' || side === 'left') ? `${pRoleLabel} Idle` : cfg.idleTitle;
 
     return (
       <React.Fragment key={side}>
         <div className={`blocks-column-oled ${!cfg.idleEnabled ? 'idle-disabled' : sideMode === 'active' ? 'active-expanded' : 'idle-expanded'}`}>
           <OledPanelColumn
             side={side}
+            isCentral={false}
+            roleLabel={pRoleLabel}
             screenKind="active"
-            title={cfg.title}
+            title={pTitle}
             subtitle="Peripheral Display"
             blocks={cfg.blocks}
             onBlocksChange={cfg.onBlocksChange}
@@ -1395,8 +1470,10 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
           {cfg.idleEnabled && (
             <OledPanelColumn
               side={side}
+              isCentral={false}
+              roleLabel={pRoleLabel}
               screenKind="idle"
-              title={cfg.idleTitle}
+              title={pIdleTitle}
               subtitle="Peripheral Display"
               blocks={cfg.idleBlocks}
               onBlocksChange={cfg.onIdleBlocksChange}
@@ -1496,7 +1573,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     </div>
   );
 
-  const peripheralScreensList = effectiveEnabledScreens.filter((s) => s !== 'left' && s !== 'central');
+  const peripheralScreensList = effectiveEnabledScreens.filter((s) => s !== activeCentralSide);
 
   return (
     <div className="blocks-tab-wrapper">
@@ -1532,9 +1609,9 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         {catalogColumnNode}
 
         {/* 3. Peripherals on the RIGHT of widgets */}
-        {peripheralScreensList.map((side) => renderPeripheralNode(side))}
+        {peripheralScreensList.map((side, idx) => renderPeripheralNode(side, idx))}
 
-        {/* 4. Add Button centered right of the right-most peripheral */}
+        {/* 4. Add Peripheral Display Button */}
         {addButtonNode}
       </div>
     </div>

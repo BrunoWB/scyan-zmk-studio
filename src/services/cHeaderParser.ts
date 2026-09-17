@@ -52,6 +52,8 @@ export interface HeaderMetadata {
   enabledScreens?: string[];
   /** Active keyboard shield ID (e.g. 'corne', 'lily58', 'sofle', etc.) */
   shieldId?: string;
+  /** Mapping of shield unit ID to mounted display ID (e.g. { 'corne_left': 'central', 'corne_right': 'peripheral' }) */
+  displayAssignments?: Record<string, string | null>;
   /** Bongo Cat tap animation duration in milliseconds (default 60, matches CONFIG_SCYAN_BONGO_TAP_MS) */
   bongoTapMs?: number;
   /** Bongo Cat debounce interval in milliseconds (default 100) */
@@ -712,6 +714,7 @@ export function parseCHeader(cCode: string): ParsedAssets {
                 .filter(s => s !== 'dongle')
             : ['central', 'peripheral'],
           shieldId: metadata?.shieldId,
+          displayAssignments: metadata?.displayAssignments,
         };
       }
     }
@@ -1658,6 +1661,7 @@ static const struct display_font font_default = {
         .map(s => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
         .filter(s => s !== 'dongle'),
       shieldId: metadata.shieldId,
+      displayAssignments: metadata.displayAssignments,
       bongoTapMs: metadata.bongoTapMs,
       bongoDebounceMs: metadata.bongoDebounceMs,
       layerNames: metadata.layerNames,
