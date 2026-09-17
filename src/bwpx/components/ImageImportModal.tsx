@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { BwpxGrid } from '../core/BwpxGrid';
 import { convertImageElementToGrid } from '../core/imageConversion';
 import { renderBwpxCanvas } from '../core/gridRenderer';
@@ -59,7 +59,6 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
 
   // GIF animation states
   const [decodedGif, setDecodedGif] = useState<DecodedGif | null>(null);
-  const [gifFrames, setGifFrames] = useState<ConvertedGifFrame[]>([]);
   const [currentFrameIndex, setCurrentFrameIndex] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [imageFileName, setImageFileName] = useState<string>('');
@@ -71,28 +70,17 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
     w: 0,
     h: 0,
   });
-  const [convertedGrid, setConvertedGrid] = useState<BwpxGrid | null>(null);
-  const [targetDimensions, setTargetDimensions] = useState<{ w: number; h: number }>({
-    w: 0,
-    h: 0,
-  });
   const [previewZoom, setPreviewZoom] = useState<number>(4);
   const [previewPan, setPreviewPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const refCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
-  const imageSrcRef = useRef<string | null>(null);
+  const [imageSrcUrl, setImageSrcUrl] = useState<string | null>(null);
 
   // Load image or GIF element from source
   useEffect(() => {
     if (!isOpen || !imageSource) {
-      setImgElement(null);
-      setDecodedGif(null);
-      setGifFrames([]);
-      setConvertedGrid(null);
-      setImageFileName('');
-      setCropRect(null);
       return;
     }
 
@@ -150,7 +138,7 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
         return;
       }
 
-      imageSrcRef.current = src;
+      setImageSrcUrl(src);
 
       // If recognized as a valid GIF
       if (buffer) {
@@ -175,7 +163,6 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
 
       // Non-GIF image fallback
       setDecodedGif(null);
-      setGifFrames([]);
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
@@ -199,6 +186,12 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
       if (createdUrl) {
         URL.revokeObjectURL(createdUrl);
       }
+      setImgElement(null);
+      setDecodedGif(null);
+      setImageFileName('');
+      setImageSrcUrl(null);
+      setCropRect(null);
+      setCurrentFrameIndex(0);
     };
   }, [isOpen, imageSource]);
 
@@ -268,59 +261,58 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
     }
   };
 
-  // Update converted grid whenever threshold, invert, crop, or sizing changes
-  useEffect(() => {
-    if (originalDimensions.w === 0 || originalDimensions.h === 0) return;
-
+  // Derived target dimensions based on preset and sizing
+  const targetDimensions = useMemo(() => {
+    if (originalDimensions.w === 0 || originalDimensions.h === 0) return { w: 0, h: 0 };
     const curBaseW = cropRect ? cropRect.w : originalDimensions.w;
     const curBaseH = cropRect ? cropRect.h : originalDimensions.h;
-
-    const target = computeTargetSize(
+    return computeTargetSize(
       curBaseW,
       curBaseH,
       scalePreset,
       customWidth,
       customHeight
     );
-    setTargetDimensions(target);
+  }, [originalDimensions, cropRect, scalePreset, customWidth, customHeight, computeTargetSize]);
 
+  // Derived GIF frames converted to 1bpp grids
+  const gifFrames = useMemo<ConvertedGifFrame[]>(() => {
+    if (!decodedGif || originalDimensions.w === 0 || originalDimensions.h === 0) return [];
     const cropOption = cropRect
       ? { x: cropRect.x, y: cropRect.y, width: cropRect.w, height: cropRect.h }
       : undefined;
+    return convertGifFramesToGrids(decodedGif, {
+      threshold,
+      invert,
+      targetWidth: targetDimensions.w,
+      targetHeight: targetDimensions.h,
+      crop: cropOption,
+    });
+  }, [decodedGif, originalDimensions, cropRect, threshold, invert, targetDimensions]);
 
+  // Derived active converted grid
+  const convertedGrid = useMemo<BwpxGrid | null>(() => {
+    if (originalDimensions.w === 0 || originalDimensions.h === 0) return null;
+    const cropOption = cropRect
+      ? { x: cropRect.x, y: cropRect.y, width: cropRect.w, height: cropRect.h }
+      : undefined;
     if (decodedGif) {
-      const frames = convertGifFramesToGrids(decodedGif, {
-        threshold,
-        invert,
-        targetWidth: target.w,
-        targetHeight: target.h,
-        crop: cropOption,
-      });
-      setGifFrames(frames);
-      const activeIdx = Math.min(currentFrameIndex, frames.length - 1);
-      setConvertedGrid(frames[activeIdx]?.grid || frames[0]?.grid || null);
-    } else if (imgElement) {
+      if (gifFrames.length === 0) return null;
+      const activeIdx = Math.min(currentFrameIndex, gifFrames.length - 1);
+      return gifFrames[activeIdx]?.grid || gifFrames[0]?.grid || null;
+    }
+    if (imgElement) {
       const result = convertImageElementToGrid(imgElement, {
         threshold,
         invert,
-        targetWidth: target.w,
-        targetHeight: target.h,
+        targetWidth: targetDimensions.w,
+        targetHeight: targetDimensions.h,
         crop: cropOption,
       });
-      setConvertedGrid(result.grid);
+      return result.grid;
     }
-  }, [
-    decodedGif,
-    imgElement,
-    threshold,
-    invert,
-    scalePreset,
-    customWidth,
-    customHeight,
-    originalDimensions,
-    cropRect,
-    computeTargetSize,
-  ]);
+    return null;
+  }, [originalDimensions, cropRect, decodedGif, gifFrames, currentFrameIndex, imgElement, threshold, invert, targetDimensions]);
 
   // GIF animation playback timer
   useEffect(() => {
@@ -332,7 +324,6 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
     const timer = window.setTimeout(() => {
       const nextIdx = (currentFrameIndex + 1) % gifFrames.length;
       setCurrentFrameIndex(nextIdx);
-      setConvertedGrid(gifFrames[nextIdx]?.grid || null);
     }, delay);
 
     return () => window.clearTimeout(timer);
@@ -631,9 +622,9 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
                         className="image-import-original-canvas"
                         style={{ width: '100%', height: '100%' }}
                       />
-                    ) : imageSrcRef.current ? (
+                    ) : imageSrcUrl ? (
                       <img
-                        src={imageSrcRef.current}
+                        src={imageSrcUrl}
                         alt="Original Reference"
                         className="image-import-original-img"
                         style={{ width: '100%', height: '100%' }}
@@ -763,7 +754,6 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
                     setIsPlaying(false);
                     const nextIdx = (currentFrameIndex - 1 + gifFrames.length) % gifFrames.length;
                     setCurrentFrameIndex(nextIdx);
-                    setConvertedGrid(gifFrames[nextIdx]?.grid || null);
                   }}
                   className="image-import-step-btn"
                   title="Previous Frame"
@@ -776,7 +766,6 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
                     setIsPlaying(false);
                     const nextIdx = (currentFrameIndex + 1) % gifFrames.length;
                     setCurrentFrameIndex(nextIdx);
-                    setConvertedGrid(gifFrames[nextIdx]?.grid || null);
                   }}
                   className="image-import-step-btn"
                   title="Next Frame"
@@ -798,7 +787,6 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
                     setIsPlaying(false);
                     const idx = Number(e.target.value);
                     setCurrentFrameIndex(idx);
-                    setConvertedGrid(gifFrames[idx]?.grid || null);
                   }}
                   className="image-import-scrubber"
                 />

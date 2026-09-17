@@ -1,59 +1,5 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { BwpxGrid } from './bwpx/core/BwpxGrid';
-import type { EditorViewport } from './bwpx';
-import type {
-  SpriteSlice,
-  FontGlyph,
-  FontCharMapping,
-  LayoutBlock,
-} from './types/zmk';
-import type { WidgetInstanceMap, WidgetInstance } from './types/widget';
-import { WIDGET_REGISTRY } from './services/widgetRegistry';
-import {
-  DEFAULT_CENTRAL_LAYOUT_BLOCKS,
-  DEFAULT_PERIPHERAL_LAYOUT_BLOCKS,
-  DEFAULT_IDLE_CENTRAL_BLOCKS,
-  DEFAULT_IDLE_PERIPHERAL_BLOCKS,
-} from './types/zmk';
-import {
-  parseCHeader,
-  generateCHeader,
-  getDefaultAssets,
-  type HeaderMetadata,
-  type ParsedAssets,
-  type PeripheralScreenData,
-} from './services/cHeaderParser';
-import {
-  type ParsedKeymapLayout,
-  DEFAULT_EMPTY_5X3_LAYOUT,
-  fetchRepoKeymap,
-  parseZmkKeymap,
-  inferShieldFromRepo,
-  getShieldDefaultResolution,
-  getShieldDefaultRotation,
-} from './services/keymapService';
-import {
-  type LoadedShieldUnit,
-  getShieldUnitsForShield,
-  detectShieldUnitsFromRepo,
-} from './data/shieldsData';
-import { remapBlockCoordinates } from './services/blocksLayout';
-import type {
-  GitHubRepoConfig,
-  GitHubConnectionState,
-} from './services/githubService';
-import {
-  getStoredGitHubConfig,
-  saveStoredGitHubConfig,
-  fetchFileFromRepo,
-  commitStudioSaveToRepo,
-  verifyGitHubConnection,
-  clearStoredGitHubToken,
-  checkRepoPrerequisites,
-  installScyanStudioToRepo,
-  uninstallScyanStudioFromRepo,
-  type RepoPrerequisites,
-} from './services/githubService';
+import { useEffect, useMemo } from 'react';
+import { getShieldUnitsForShield } from './data/shieldsData';
 import { trackEvent } from './services/analytics';
 import { HeaderBar } from './components/HeaderBar';
 import { OledPreviewTab } from './tabs/OledPreviewTab';
@@ -79,10 +25,22 @@ import {
   Cpu,
   Network,
 } from 'lucide-react';
+import { useAtlasStore } from './stores/useAtlasStore';
+import { useLayoutStore } from './stores/useLayoutStore';
+import { useGitHubStore } from './stores/useGitHubStore';
+import { useUiStore, type TabType, type ToastMessage } from './stores/useUiStore';
+import {
+  initializeWorkspace,
+  syncRepoAssets,
+  saveWorkspaceToRepo,
+  installScyanStudio,
+  uninstallScyanStudio,
+  restoreInitialValues,
+  restoreDefaults,
+} from './stores/workspaceActions';
 import './App.css';
 
 const VALID_TABS = ['preview', 'symbols', 'font', 'widgets', 'layout', 'blocks', 'reference', 'ui-elements', 'ui-elements-hero', 'shields', 'topology'] as const;
-type TabType = typeof VALID_TABS[number];
 
 const getTabFromHash = (): TabType => {
   const path = window.location.pathname.replace(/^\//, '').toLowerCase().trim();
@@ -108,7 +66,7 @@ const getTabFromHash = (): TabType => {
   if (import.meta.env.DEV && (hash === 'topology' || hash === 'topology-sandbox')) {
     return 'topology';
   }
-  if (VALID_TABS.includes(hash as TabType)) {
+  if (VALID_TABS.includes(hash as any)) {
     return hash as TabType;
   }
   if (import.meta.env.DEV && (hash === 'ui-elements-hero' || hash === 'hero' || hash === 'heroui' || hash === 'elements' || hash === 'ui-elements')) {
@@ -117,478 +75,92 @@ const getTabFromHash = (): TabType => {
   return 'preview';
 };
 
-const cloneParsedAssets = (assets: ParsedAssets): ParsedAssets => ({
-  symbolsGrid: assets.symbolsGrid.clone(),
-  symbolSlices: JSON.parse(JSON.stringify(assets.symbolSlices)),
-  fontGrid: assets.fontGrid.clone(),
-  fontGlyphs: JSON.parse(JSON.stringify(assets.fontGlyphs)),
-  fontMappings: JSON.parse(JSON.stringify(assets.fontMappings || [])),
-  metadata: assets.metadata ? JSON.parse(JSON.stringify(assets.metadata)) : undefined,
-});
-
 export function App() {
-  // Navigation Tab: initialized and tracked via URL hash (#preview, #symbols, etc.)
-  const [activeTab, setActiveTab] = useState<TabType>(() => getTabFromHash());
-  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  // Navigation & UI state from useUiStore
+  const activeTab = useUiStore((s) => s.activeTab);
+  const setActiveTab = useUiStore((s) => s.setActiveTab);
+  const isCommandPaletteOpen = useUiStore((s) => s.isCommandPaletteOpen);
+  const setIsCommandPaletteOpen = useUiStore((s) => s.setIsCommandPaletteOpen);
+  const isSettingsOpen = useUiStore((s) => s.isSettingsOpen);
+  const setIsSettingsOpen = useUiStore((s) => s.setIsSettingsOpen);
+  const isInitialLoading = useUiStore((s) => s.isInitialLoading);
+  const toasts = useUiStore((s) => s.toasts);
+  const showToast = useUiStore((s) => s.showToast);
+  const removeToast = useUiStore((s) => s.removeToast);
+  const customText = useUiStore((s) => s.customText);
 
-  // Loading overlay state: keep true until repository data (or defaults fallback) is loaded
-  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
+  // Atlas state from useAtlasStore
+  const symbolsGrid = useAtlasStore((s) => s.symbolsGrid);
+  const symbolSlices = useAtlasStore((s) => s.symbolSlices);
+  const fontGrid = useAtlasStore((s) => s.fontGrid);
+  const fontGlyphs = useAtlasStore((s) => s.fontGlyphs);
+  const fontMappings = useAtlasStore((s) => s.fontMappings);
 
-  // Snapshot of initially loaded assets (for Restore to Initial Values)
-  const initialAssetsRef = useRef<ParsedAssets | null>(null);
+  // Layout state from useLayoutStore
+  const centralBlocks = useLayoutStore((s) => s.centralBlocks);
+  const peripheralBlocks = useLayoutStore((s) => s.peripheralBlocks);
+  const idleCentralBlocks = useLayoutStore((s) => s.idleCentralBlocks);
+  const idlePeripheralBlocks = useLayoutStore((s) => s.idlePeripheralBlocks);
+  const screenDimensions = useLayoutStore((s) => s.screenDimensions);
+  const peripheralScreenDimensions = useLayoutStore((s) => s.peripheralScreenDimensions);
+  const handleCentralDimensionsChange = useLayoutStore((s) => s.handleCentralDimensionsChange);
+  const handlePeripheralDimensionsChange = useLayoutStore((s) => s.handlePeripheralDimensionsChange);
+  const handleRotationChange = useLayoutStore((s) => s.handleRotationChange);
+  const shieldId = useLayoutStore((s) => s.shieldId);
+  const setShieldId = useLayoutStore((s) => s.setShieldId);
+  const enabledScreens = useLayoutStore((s) => s.enabledScreens);
+  const displayAssignments = useLayoutStore((s) => s.displayAssignments);
+  const setDisplayAssignments = useLayoutStore((s) => s.setDisplayAssignments);
+  const loadedShields = useLayoutStore((s) => s.loadedShields);
+  const peripheralScreens = useLayoutStore((s) => s.peripheralScreens);
+  const widgetInstances = useLayoutStore((s) => s.widgetInstances);
+  const swapDisplays = useLayoutStore((s) => s.swapDisplays);
+  const makeMaster = useLayoutStore((s) => s.makeMaster);
 
-  // Core Bitmaps & Descriptors (initialized directly from canonical scyan_assets.install.h)
-  const [symbolsGrid, setSymbolsGrid] = useState<BwpxGrid>(() => getDefaultAssets().symbolsGrid);
-  const [symbolSlices, setSymbolSlices] = useState<SpriteSlice[]>(() => getDefaultAssets().symbolSlices);
-  const [fontGrid, setFontGrid] = useState<BwpxGrid>(() => getDefaultAssets().fontGrid);
-  const [fontGlyphs, setFontGlyphs] = useState<FontGlyph[]>(() => getDefaultAssets().fontGlyphs);
-  const [fontMappings, setFontMappings] = useState<FontCharMapping[]>(() => getDefaultAssets().fontMappings);
-  const [centralBlocks, setCentralBlocks] = useState<LayoutBlock[]>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-central-blocks') || localStorage.getItem('zmk-left-blocks');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.centralBlocks?.length
-      ? def.metadata.centralBlocks
-      : (def.metadata?.leftBlocks?.length ? def.metadata.leftBlocks : [...DEFAULT_CENTRAL_LAYOUT_BLOCKS]);
-  });
-  const [peripheralBlocks, setPeripheralBlocks] = useState<LayoutBlock[]>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-peripheral-blocks') || localStorage.getItem('zmk-right-blocks');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.peripheralBlocks?.length
-      ? def.metadata.peripheralBlocks
-      : (def.metadata?.rightBlocks?.length ? def.metadata.rightBlocks : [...DEFAULT_PERIPHERAL_LAYOUT_BLOCKS]);
-  });
-  const [idleCentralBlocks, setIdleCentralBlocks] = useState<LayoutBlock[]>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-idle-central-blocks') || localStorage.getItem('zmk-idle-left-blocks');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.idleCentralBlocks?.length
-      ? def.metadata.idleCentralBlocks
-      : (def.metadata?.idleLeftBlocks?.length ? def.metadata.idleLeftBlocks : [...DEFAULT_IDLE_CENTRAL_BLOCKS]);
-  });
-  const [idlePeripheralBlocks, setIdlePeripheralBlocks] = useState<LayoutBlock[]>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-idle-peripheral-blocks') || localStorage.getItem('zmk-idle-right-blocks');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.idlePeripheralBlocks?.length
-      ? def.metadata.idlePeripheralBlocks
-      : (def.metadata?.idleRightBlocks?.length ? def.metadata.idleRightBlocks : [...DEFAULT_IDLE_PERIPHERAL_BLOCKS]);
-  });
-  const [screenDimensions, setScreenDimensions] = useState<{ width: number; height: number }>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-screen-dimensions');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.screenDimensions || { width: 32, height: 128 };
-  });
+  // GitHub store state & actions
+  const config = useGitHubStore((s) => s.config);
+  const setConfig = useGitHubStore((s) => s.setConfig);
+  const connection = useGitHubStore((s) => s.connection);
+  const testConnection = useGitHubStore((s) => s.testConnection);
+  const disconnect = useGitHubStore((s) => s.disconnect);
+  const isSyncing = useGitHubStore((s) => s.isSyncing);
+  const isSaving = useGitHubStore((s) => s.isSaving);
+  const lastSavedAt = useGitHubStore((s) => s.lastSavedAt);
+  const repoPrereqs = useGitHubStore((s) => s.repoPrereqs);
+  const isInstallingStudio = useGitHubStore((s) => s.isInstallingStudio);
+  const isUninstallingStudio = useGitHubStore((s) => s.isUninstallingStudio);
 
-  const [hasUserCustomizedDimensions, setHasUserCustomizedDimensions] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('zmk-customized-dimensions') === 'true';
-    } catch {
-      return false;
-    }
-  });
-  const hasUserCustomizedDimensionsRef = useRef(hasUserCustomizedDimensions);
+  // Sync hash routing on window popstate / hashchange
   useEffect(() => {
-    hasUserCustomizedDimensionsRef.current = hasUserCustomizedDimensions;
-  }, [hasUserCustomizedDimensions]);
+    const handleHashChange = () => {
+      const next = getTabFromHash();
+      setActiveTab(next);
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [setActiveTab]);
 
-  const markDimensionsCustomized = useCallback(() => {
-    setHasUserCustomizedDimensions(true);
-    hasUserCustomizedDimensionsRef.current = true;
-    try {
-      localStorage.setItem('zmk-customized-dimensions', 'true');
-    } catch {}
+  // Initialize workspace from GitHub or fallback defaults
+  useEffect(() => {
+    initializeWorkspace();
   }, []);
 
-  const [idleScreensEnabled, setIdleScreensEnabled] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-idle-screens-enabled');
-      if (saved !== null) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.idleScreensEnabled ?? true;
-  });
+  const handleTabClick = (tab: TabType) => {
+    setActiveTab(tab);
+    window.location.hash = tab;
+    trackEvent('switch_tab', { tab });
+  };
 
-  const [idleTimeoutSec, setIdleTimeoutSec] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-idle-timeout-sec');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.idleTimeoutSec ?? 30;
-  });
+  const isConnected = connection.status === 'connected';
+  const isStudioInstalled = Boolean(repoPrereqs?.isInstalled);
+  const isPlaygroundMode = !isConnected || !isStudioInstalled;
 
-  const [screenOffTimeoutSec, setScreenOffTimeoutSec] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-screen-off-timeout-sec');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.screenOffTimeoutSec ?? 60;
-  });
-
-  const [symmetricSettings, setSymmetricSettings] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-symmetric-settings');
-      if (saved !== null) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.symmetricSettings ?? true;
-  });
-
-  const [peripheralScreenDimensions, setPeripheralScreenDimensions] = useState<{ width: number; height: number }>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-peripheral-screen-dimensions') || localStorage.getItem('zmk-right-screen-dimensions');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.peripheralScreenDimensions || def.metadata?.rightScreenDimensions || def.metadata?.screenDimensions || { width: 32, height: 128 };
-  });
-
-  const [peripheralIdleScreensEnabled, setPeripheralIdleScreensEnabled] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-peripheral-idle-screens-enabled') || localStorage.getItem('zmk-right-idle-screens-enabled');
-      if (saved !== null) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.peripheralIdleScreensEnabled ?? def.metadata?.rightIdleScreensEnabled ?? def.metadata?.idleScreensEnabled ?? true;
-  });
-
-  const [peripheralIdleTimeoutSec, setPeripheralIdleTimeoutSec] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-peripheral-idle-timeout-sec') || localStorage.getItem('zmk-right-idle-timeout-sec');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.peripheralIdleTimeoutSec ?? def.metadata?.rightIdleTimeoutSec ?? def.metadata?.idleTimeoutSec ?? 30;
-  });
-
-  const [peripheralScreenOffTimeoutSec, setPeripheralScreenOffTimeoutSec] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-peripheral-screen-off-timeout-sec') || localStorage.getItem('zmk-right-screen-off-timeout-sec');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.peripheralScreenOffTimeoutSec ?? def.metadata?.rightScreenOffTimeoutSec ?? def.metadata?.screenOffTimeoutSec ?? 60;
-  });
-
-  const [rotation, setRotation] = useState<0 | 90 | 180 | 270>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-screen-rotation');
-      if (saved !== null) {
-        const val = Number(saved);
-        if (val === 0 || val === 90 || val === 180 || val === 270) return val as 0 | 90 | 180 | 270;
-      }
-    } catch {}
-    const def = getDefaultAssets();
-    if (def.metadata?.rotation !== undefined) return def.metadata.rotation;
-    return getShieldDefaultRotation('corne');
-  });
-
-  const [peripheralRotation, setPeripheralRotation] = useState<0 | 90 | 180 | 270>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-peripheral-screen-rotation') || localStorage.getItem('zmk-right-screen-rotation');
-      if (saved !== null) {
-        const val = Number(saved);
-        if (val === 0 || val === 90 || val === 180 || val === 270) return val as 0 | 90 | 180 | 270;
-      }
-    } catch {}
-    const def = getDefaultAssets();
-    if (def.metadata?.peripheralRotation !== undefined) return def.metadata.peripheralRotation;
-    if (def.metadata?.rightRotation !== undefined) return def.metadata.rightRotation;
-    if (def.metadata?.rotation !== undefined) return def.metadata.rotation;
-    return getShieldDefaultRotation('corne');
-  });
-
-  const widgetInstancesRef = useRef<WidgetInstanceMap>({});
-
-  const handleCentralDimensionsChange = useCallback(
-    (newDims: { width: number; height: number }) => {
-      setScreenDimensions((prevDims) => {
-        if (prevDims.width === newDims.width && prevDims.height === newDims.height) {
-          return prevDims;
-        }
-        setCentralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims, widgetInstancesRef.current));
-        setIdleCentralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims, widgetInstancesRef.current));
-        return newDims;
-      });
-      markDimensionsCustomized();
-    },
-    [markDimensionsCustomized]
-  );
-
-  const handlePeripheralDimensionsChange = useCallback(
-    (newDims: { width: number; height: number }) => {
-      setPeripheralScreenDimensions((prevDims) => {
-        if (prevDims.width === newDims.width && prevDims.height === newDims.height) {
-          return prevDims;
-        }
-        setPeripheralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims, widgetInstancesRef.current));
-        setIdlePeripheralBlocks((prev) => remapBlockCoordinates(prev, prevDims, newDims, widgetInstancesRef.current));
-        return newDims;
-      });
-      markDimensionsCustomized();
-    },
-    [markDimensionsCustomized]
-  );
-
-  const handleRotationChange = useCallback(
-    (newRot: 0 | 90 | 180 | 270) => {
-      setRotation(newRot);
-      if (symmetricSettings) {
-        setPeripheralRotation(newRot);
-      }
-      markDimensionsCustomized();
-    },
-    [symmetricSettings, markDimensionsCustomized]
-  );
-
-  const handlePeripheralRotationChange = useCallback(
-    (newRot: 0 | 90 | 180 | 270) => {
-      setPeripheralRotation(newRot);
-      markDimensionsCustomized();
-    },
-    [markDimensionsCustomized]
-  );
-
-  const [shieldId, setShieldId] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-shield-id');
-      if (saved) return saved;
-    } catch {}
-    return 'corne';
-  });
-
-  const [enabledScreens, setEnabledScreens] = useState<('central' | 'peripheral' | string)[]>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-enabled-screens');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed
-            .map((s: string) => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
-            .filter((s: string) => s !== 'dongle');
-        }
-      }
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.enabledScreens
-      ?.map((s: string) => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
-      ?.filter((s: string) => s !== 'dongle') ?? ['central', 'peripheral'];
-  });
-
-  const [peripheralScreens, setPeripheralScreens] = useState<Record<string, PeripheralScreenData>>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-peripheral-screens');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const def = getDefaultAssets();
-    return def.metadata?.peripheralScreens || {};
-  });
-
-  const [loadedShields, setLoadedShields] = useState<LoadedShieldUnit[]>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-loaded-shields');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {}
+  const effectiveShields = useMemo(() => {
+    if (loadedShields && loadedShields.length > 0) return loadedShields;
     return getShieldUnitsForShield(shieldId);
-  });
+  }, [loadedShields, shieldId]);
 
-  const [displayAssignments, setDisplayAssignments] = useState<Record<string, string | null>>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-display-assignments');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const init: Record<string, string | null> = {};
-    const shields = getShieldUnitsForShield(shieldId);
-    const screens = enabledScreens;
-    shields.forEach((shield, idx) => {
-      if (idx === 0 && screens.includes('central')) init[shield.id] = 'central';
-      else if (idx === 1 && screens.includes('peripheral')) init[shield.id] = 'peripheral';
-      else if (idx < screens.length) init[shield.id] = screens[idx];
-      else init[shield.id] = null;
-    });
-    return init;
-  });
-
-  const loadedShieldsRef = useRef(loadedShields);
-  useEffect(() => {
-    loadedShieldsRef.current = loadedShields;
-  }, [loadedShields]);
-
-  const displayAssignmentsRef = useRef(displayAssignments);
-  useEffect(() => {
-    displayAssignmentsRef.current = displayAssignments;
-  }, [displayAssignments]);
-
-  // Track last editor grid looking position in the session (viewport: zoom & pan)
-  const [symbolsViewport, setSymbolsViewport] = useState<EditorViewport | undefined>(() => {
-    try {
-      const saved = sessionStorage.getItem('zmk-symbols-viewport');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return undefined;
-  });
-
-  const [fontViewport, setFontViewport] = useState<EditorViewport | undefined>(() => {
-    try {
-      const saved = sessionStorage.getItem('zmk-font-viewport');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return undefined;
-  });
-
-  const handleSymbolsViewportChange = useCallback((vp: EditorViewport) => {
-    setSymbolsViewport(vp);
-    try {
-      sessionStorage.setItem('zmk-symbols-viewport', JSON.stringify(vp));
-    } catch {}
-  }, []);
-
-  const handleFontViewportChange = useCallback((vp: EditorViewport) => {
-    setFontViewport(vp);
-    try {
-      sessionStorage.setItem('zmk-font-viewport', JSON.stringify(vp));
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-idle-screens-enabled', JSON.stringify(idleScreensEnabled));
-    } catch {}
-  }, [idleScreensEnabled]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-central-blocks', JSON.stringify(centralBlocks));
-    } catch {}
-  }, [centralBlocks]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-peripheral-blocks', JSON.stringify(peripheralBlocks));
-    } catch {}
-  }, [peripheralBlocks]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-idle-central-blocks', JSON.stringify(idleCentralBlocks));
-    } catch {}
-  }, [idleCentralBlocks]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-idle-peripheral-blocks', JSON.stringify(idlePeripheralBlocks));
-    } catch {}
-  }, [idlePeripheralBlocks]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-screen-dimensions', JSON.stringify(screenDimensions));
-    } catch {}
-  }, [screenDimensions]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-screen-rotation', String(rotation));
-    } catch {}
-  }, [rotation]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-peripheral-screen-rotation', String(peripheralRotation));
-    } catch {}
-  }, [peripheralRotation]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-idle-timeout-sec', JSON.stringify(idleTimeoutSec));
-    } catch {}
-  }, [idleTimeoutSec]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-screen-off-timeout-sec', JSON.stringify(screenOffTimeoutSec));
-    } catch {}
-  }, [screenOffTimeoutSec]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-symmetric-settings', JSON.stringify(symmetricSettings));
-    } catch {}
-  }, [symmetricSettings]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-peripheral-screen-dimensions', JSON.stringify(peripheralScreenDimensions));
-    } catch {}
-  }, [peripheralScreenDimensions]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-peripheral-idle-screens-enabled', JSON.stringify(peripheralIdleScreensEnabled));
-    } catch {}
-  }, [peripheralIdleScreensEnabled]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-peripheral-idle-timeout-sec', JSON.stringify(peripheralIdleTimeoutSec));
-    } catch {}
-  }, [peripheralIdleTimeoutSec]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-peripheral-screen-off-timeout-sec', JSON.stringify(peripheralScreenOffTimeoutSec));
-    } catch {}
-  }, [peripheralScreenOffTimeoutSec]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-shield-id', shieldId);
-    } catch {}
-  }, [shieldId]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-enabled-screens', JSON.stringify(enabledScreens));
-    } catch {}
-  }, [enabledScreens]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-peripheral-screens', JSON.stringify(peripheralScreens));
-    } catch {}
-  }, [peripheralScreens]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-loaded-shields', JSON.stringify(loadedShields));
-    } catch {}
-  }, [loadedShields]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-display-assignments', JSON.stringify(displayAssignments));
-    } catch {}
-  }, [displayAssignments]);
-
-  // Compute attached and unattached displays
-  const currentShieldIds = useMemo(() => new Set(loadedShields.map((s) => s.id)), [loadedShields]);
+  const currentShieldIds = useMemo(() => new Set(effectiveShields.map((u) => u.id)), [effectiveShields]);
 
   const attachedDisplayIds = useMemo(() => {
     const ids = new Set<string>();
@@ -604,1267 +176,6 @@ export function App() {
     return enabledScreens.filter((s) => !attachedDisplayIds.has(s));
   }, [enabledScreens, attachedDisplayIds]);
 
-  // Reconcile displayAssignments when enabledScreens changes (e.g. display deleted in layout)
-  useEffect(() => {
-    setDisplayAssignments((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      for (const [shieldKey, dispId] of Object.entries(next)) {
-        if (dispId && !enabledScreens.includes(dispId)) {
-          next[shieldKey] = null;
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [enabledScreens]);
-
-  const [customText, setCustomText] = useState<string>('BRUNOWB');
-  const [_clearedTemplates, setClearedTemplates] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-cleared-templates');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return [];
-  });
-
-  const [widgetInstances, setWidgetInstances] = useState<WidgetInstanceMap>(() => {
-    let savedInstances: WidgetInstanceMap = {};
-    try {
-      const saved = localStorage.getItem('zmk-widget-instances');
-      if (saved) {
-        savedInstances = JSON.parse(saved);
-      } else {
-        const def = getDefaultAssets();
-        if (def.metadata?.widgetInstances) {
-          savedInstances = JSON.parse(JSON.stringify(def.metadata.widgetInstances));
-        }
-      }
-    } catch {}
-    
-    // Auto-populate defaults for templates that aren't in savedInstances AND aren't cleared
-    const defaults: WidgetInstanceMap = { ...savedInstances };
-    let clearedStr = localStorage.getItem('zmk-cleared-templates');
-    let clearedSet = new Set<string>();
-    if (clearedStr) {
-      try { clearedSet = new Set(JSON.parse(clearedStr)); } catch {}
-    }
-
-    if (savedInstances['loop'] && !defaults['animation']) {
-      defaults['animation'] = savedInstances['loop'].map(i => ({ ...i, widgetTypeId: 'animation' }));
-    } else if (savedInstances['animation'] && !defaults['loop']) {
-      defaults['loop'] = savedInstances['animation'].map(i => ({ ...i, widgetTypeId: 'loop' }));
-    }
-
-    WIDGET_REGISTRY.forEach(w => {
-      const shouldAutoPopulate = w.id === 'wpm-chart' || w.id === 'animation' || w.id === 'loop' || (w.associatedSliceIds && w.associatedSliceIds.length > 0);
-      if (!defaults[w.id] && !clearedSet.has(w.id) && shouldAutoPopulate) {
-        let initialConfig: import('./types/widget').WidgetInstanceConfig = { mode: 'symbol', textAlign: 'center', align: 'center' };
-        if (w.id === 'branding') {
-          initialConfig = { mode: 'font', fontSize: 'small', textAlign: 'center', align: 'center', textEntries: ['ZMK'] };
-        } else if (w.id === 'wpm-chart') {
-          initialConfig = { mode: 'symbol', wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100 } };
-        } else if (w.id === 'connection') {
-          initialConfig = {
-            mode: 'symbol',
-            groupId: 'SYMBOL_USB',
-            groupIds: [
-              'SYMBOL_BLUETOOTH',
-              'SYMBOL_BLUETOOTH',
-              'SYMBOL_BLUETOOTH',
-              'SYMBOL_BLUETOOTH',
-              'SYMBOL_BLUETOOTH',
-              'SYMBOL_BLUETOOTH',
-            ],
-            textEntries: ['USB', 'No conn', 'P1', 'P2', 'P3', 'P4', 'P5'],
-          };
-        } else if (w.id === 'bongo') {
-          const bongoSlice = (symbolSlices || []).find(s =>
-            s.id.toUpperCase().includes('BONGO') ||
-            s.groupId.toUpperCase().includes('BONGO') ||
-            s.id.startsWith('SYMBOL_SLICE_40_4046')
-          );
-          initialConfig = {
-            mode: 'symbol',
-            groupId: bongoSlice?.groupId || 'SYMBOL_SLICE_40_4046',
-            textEntries: ['(=^.^=)'],
-            bongoTapMs: 60,
-            bongoDebounceMs: 100,
-          };
-        } else if (w.id === 'animation' || w.id === 'loop') {
-          const campfireInst: WidgetInstance = {
-            id: 'anim-campfire',
-            widgetTypeId: w.id,
-            label: 'Campfire',
-            config: {
-              mode: 'symbol',
-              groupId: 'SYMBOL_CAMPFIRE',
-              loopSpeedMs: 150,
-              loop: true,
-            },
-            slots: {},
-          };
-          const duckInst: WidgetInstance = {
-            id: 'anim-shuba-duck',
-            widgetTypeId: w.id,
-            label: 'Infinite Walker Shuba Duck',
-            config: {
-              mode: 'symbol',
-              groupId: 'SYMBOL_SHUBA_DUCK',
-              loopSpeedMs: 120,
-              loop: true,
-            },
-            slots: {},
-          };
-          const capybaraInst: WidgetInstance = {
-            id: 'anim-capybara',
-            widgetTypeId: w.id,
-            label: 'Bathing Capybara',
-            config: {
-              mode: 'symbol',
-              groupId: 'SYMBOL_BATHING_CAPYBARA',
-              loopSpeedMs: 300,
-              loop: true,
-            },
-            slots: {},
-          };
-          defaults[w.id] = [campfireInst, duckInst, capybaraInst];
-          return;
-        }
-
-        const inst: WidgetInstance = {
-          id: `w_${Math.random().toString(36).substr(2, 6)}`,
-          widgetTypeId: w.id,
-          label: `${w.name}`,
-          config: initialConfig,
-          slots: {}
-        };
-        w.slots.forEach(slot => {
-          if (slot.defaultSymbolId || slot.defaultText) {
-            if (!inst.slots) inst.slots = {};
-            inst.slots[slot.id] = {
-              mode: slot.defaultMode,
-              symbolId: slot.defaultSymbolId,
-              text: slot.defaultText
-            };
-          }
-        });
-        defaults[w.id] = [inst];
-      }
-    });
- 
-    if (defaults['animation'] && !defaults['loop']) {
-      defaults['loop'] = defaults['animation'].map(i => ({ ...i, widgetTypeId: 'loop' }));
-    } else if (defaults['loop'] && !defaults['animation']) {
-      defaults['animation'] = defaults['loop'].map(i => ({ ...i, widgetTypeId: 'animation' }));
-    }
-
-    if (defaults['ble-profile']) {
-      delete defaults['ble-profile'];
-    }
-    return defaults;
-  });
-
-  useEffect(() => {
-    widgetInstancesRef.current = widgetInstances;
-  }, [widgetInstances]);
-
-  const handleInstancesChange = useCallback((newInstances: WidgetInstanceMap) => {
-    setWidgetInstances(prev => {
-      // Find templates that went from having instances to having 0 instances
-      const newlyCleared = Object.keys(prev).filter(
-        typeId => prev[typeId].length > 0 && (!newInstances[typeId] || newInstances[typeId].length === 0)
-      );
-      
-      if (newlyCleared.length > 0) {
-        setClearedTemplates(prevCleared => {
-          const nextCleared = Array.from(new Set([...prevCleared, ...newlyCleared]));
-          localStorage.setItem('zmk-cleared-templates', JSON.stringify(nextCleared));
-          return nextCleared;
-        });
-      }
-      return newInstances;
-    });
-    
-    try {
-      localStorage.setItem('zmk-widget-instances', JSON.stringify(newInstances));
-    } catch (e) {
-      console.error('Failed to save instances to localStorage', e);
-    }
-  }, []);
-
-  const applyParsedAssets = useCallback((parsed: ParsedAssets) => {
-    setSymbolsGrid(parsed.symbolsGrid);
-    setSymbolSlices(parsed.symbolSlices);
-    setFontGrid(parsed.fontGrid);
-    setFontGlyphs(parsed.fontGlyphs);
-    if (parsed.fontMappings && parsed.fontMappings.length > 0) {
-      setFontMappings(parsed.fontMappings);
-    }
-    if (parsed.metadata) {
-      const cBlocks = parsed.metadata.centralBlocks ?? parsed.metadata.leftBlocks;
-      if (cBlocks && cBlocks.length > 0) {
-        setCentralBlocks(cBlocks);
-      }
-      const pBlocks = parsed.metadata.peripheralBlocks ?? parsed.metadata.rightBlocks;
-      if (pBlocks && pBlocks.length > 0) {
-        setPeripheralBlocks(pBlocks);
-      }
-      const idleCBlocks = parsed.metadata.idleCentralBlocks ?? parsed.metadata.idleLeftBlocks;
-      if (idleCBlocks && idleCBlocks.length > 0) {
-        setIdleCentralBlocks(idleCBlocks);
-      }
-      const idlePBlocks = parsed.metadata.idlePeripheralBlocks ?? parsed.metadata.idleRightBlocks;
-      if (idlePBlocks && idlePBlocks.length > 0) {
-        setIdlePeripheralBlocks(idlePBlocks);
-      }
-      if (parsed.metadata.screenDimensions) {
-        setScreenDimensions(parsed.metadata.screenDimensions);
-        markDimensionsCustomized();
-      }
-      if (parsed.metadata.rotation !== undefined) {
-        setRotation(parsed.metadata.rotation);
-      }
-      const pRot = parsed.metadata.peripheralRotation ?? parsed.metadata.rightRotation;
-      if (pRot !== undefined) {
-        setPeripheralRotation(pRot);
-      } else if (parsed.metadata.rotation !== undefined) {
-        setPeripheralRotation(parsed.metadata.rotation);
-      }
-      if (parsed.metadata.widgetInstances) {
-        const instMap = { ...parsed.metadata.widgetInstances };
-        if (instMap['loop'] && !instMap['animation']) {
-          instMap['animation'] = instMap['loop'].map(i => ({ ...i, widgetTypeId: 'animation' }));
-        } else if (instMap['animation'] && !instMap['loop']) {
-          instMap['loop'] = instMap['animation'].map(i => ({ ...i, widgetTypeId: 'loop' }));
-        }
-        setWidgetInstances(instMap);
-      }
-      if (parsed.metadata.idleTimeoutSec !== undefined) {
-        setIdleTimeoutSec(parsed.metadata.idleTimeoutSec);
-      }
-      if (parsed.metadata.screenOffTimeoutSec !== undefined) {
-        setScreenOffTimeoutSec(parsed.metadata.screenOffTimeoutSec);
-      }
-      if (parsed.metadata.idleScreensEnabled !== undefined) {
-        setIdleScreensEnabled(parsed.metadata.idleScreensEnabled);
-      }
-      if (parsed.metadata.symmetricSettings !== undefined) {
-        setSymmetricSettings(parsed.metadata.symmetricSettings);
-      }
-      const pDims = parsed.metadata.peripheralScreenDimensions ?? parsed.metadata.rightScreenDimensions;
-      if (pDims) {
-        setPeripheralScreenDimensions(pDims);
-      }
-      const pIdleEnabled = parsed.metadata.peripheralIdleScreensEnabled ?? parsed.metadata.rightIdleScreensEnabled;
-      if (pIdleEnabled !== undefined) {
-        setPeripheralIdleScreensEnabled(pIdleEnabled);
-      }
-      const pIdleTimeout = parsed.metadata.peripheralIdleTimeoutSec ?? parsed.metadata.rightIdleTimeoutSec;
-      if (pIdleTimeout !== undefined) {
-        setPeripheralIdleTimeoutSec(pIdleTimeout);
-      }
-      const pScreenOffTimeout = parsed.metadata.peripheralScreenOffTimeoutSec ?? parsed.metadata.rightScreenOffTimeoutSec;
-      if (pScreenOffTimeout !== undefined) {
-        setPeripheralScreenOffTimeoutSec(pScreenOffTimeout);
-      }
-      if (parsed.metadata.peripheralScreens) {
-        setPeripheralScreens(parsed.metadata.peripheralScreens);
-      }
-      if (parsed.metadata.shieldId) {
-        setShieldId(parsed.metadata.shieldId);
-      }
-      if (parsed.metadata.displayAssignments) {
-        setDisplayAssignments(parsed.metadata.displayAssignments);
-      }
-      const rawEnabled = parsed.metadata.enabledScreens;
-      const resolvedEnabledScreens = rawEnabled && rawEnabled.length > 0
-        ? rawEnabled
-            .map(s => s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s)
-            .filter(s => s !== 'dongle')
-        : ['central', 'peripheral'];
-      setEnabledScreens(resolvedEnabledScreens);
-    }
-  }, []);
-
-
-  const applyDefaults = useCallback(() => {
-    const keysToRemove = [
-      'zmk-central-blocks',
-      'zmk-peripheral-blocks',
-      'zmk-idle-central-blocks',
-      'zmk-idle-peripheral-blocks',
-      'zmk-screen-dimensions',
-      'zmk-idle-screens-enabled',
-      'zmk-idle-timeout-sec',
-      'zmk-screen-off-timeout-sec',
-      'zmk-symmetric-settings',
-      'zmk-peripheral-screen-dimensions',
-      'zmk-peripheral-idle-screens-enabled',
-      'zmk-peripheral-idle-timeout-sec',
-      'zmk-peripheral-screen-off-timeout-sec',
-      'zmk-left-blocks',
-      'zmk-right-blocks',
-      'zmk-dongle-blocks',
-      'zmk-idle-left-blocks',
-      'zmk-idle-right-blocks',
-      'zmk-idle-dongle-blocks',
-      'zmk-dongle-screen-dimensions',
-      'zmk-dongle-idle-screens-enabled',
-      'zmk-dongle-idle-timeout-sec',
-      'zmk-dongle-screen-off-timeout-sec',
-      'zmk-right-screen-dimensions',
-      'zmk-right-idle-screens-enabled',
-      'zmk-right-idle-timeout-sec',
-      'zmk-right-screen-off-timeout-sec',
-      'zmk-screen-rotation',
-      'zmk-peripheral-screen-rotation',
-      'zmk-right-screen-rotation',
-      'zmk-shield-id',
-      'zmk-enabled-screens',
-      'zmk-peripheral-screens',
-      'zmk-widget-instances',
-      'zmk-cleared-templates',
-      'zmk_builder_cached_header',
-      'zmk-customized-dimensions',
-      'zmk-loaded-shields',
-      'zmk-display-assignments',
-    ];
-    keysToRemove.forEach(k => {
-      try {
-        localStorage.removeItem(k);
-      } catch {}
-    });
-    setHasUserCustomizedDimensions(false);
-    hasUserCustomizedDimensionsRef.current = false;
-    setPeripheralScreens({});
-    setLoadedShields(getShieldUnitsForShield('corne'));
-    setDisplayAssignments({
-      'corne_left': 'central',
-      'corne_right': 'peripheral',
-    });
-    setRotation(getShieldDefaultRotation('corne'));
-    setPeripheralRotation(getShieldDefaultRotation('corne'));
-    applyParsedAssets(getDefaultAssets());
-    setCustomText('BRUNOWB');
-  }, [applyParsedAssets]);
-
-  // Notification Toast
-  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
-
-  const showToast = useCallback((type: 'success' | 'error' | 'warning', message: string) => {
-    setToast({ type, message });
-    setTimeout(() => {
-      setToast(null);
-    }, 4000);
-  }, []);
-
-  // Gracefully handles shield detection & reconcile removed shields from repository
-  const reconcileDetectedShields = useCallback((
-    detectedUnits: LoadedShieldUnit[],
-    sourceDesc: string = 'repository config'
-  ) => {
-    if (!detectedUnits || detectedUnits.length === 0) return;
-
-    const detectedIds = new Set(detectedUnits.map((u) => u.id));
-    const prevShields = loadedShieldsRef.current;
-
-    // Detect removed shields from previous loaded shields as well as previously assigned display keys
-    const removedShieldIds = new Set<string>();
-    prevShields.forEach((s) => {
-      if (!detectedIds.has(s.id)) {
-        removedShieldIds.add(s.id);
-      }
-    });
-    Object.keys(displayAssignmentsRef.current).forEach((shId) => {
-      if (!detectedIds.has(shId)) {
-        removedShieldIds.add(shId);
-      }
-    });
-
-    setLoadedShields(detectedUnits);
-
-    if (removedShieldIds.size > 0) {
-      // Detach any displays that were on the removed shields
-      setDisplayAssignments((prevAssignments) => {
-        let changed = false;
-        const nextAssignments = { ...prevAssignments };
-        removedShieldIds.forEach((shId) => {
-          if (shId in nextAssignments) {
-            delete nextAssignments[shId];
-            changed = true;
-          }
-        });
-        return changed ? nextAssignments : prevAssignments;
-      });
-
-      // Show graceful warning for removed shields
-      const removedNames = Array.from(removedShieldIds).join(', ');
-      showToast(
-        'warning',
-        `Shield (${removedNames}) was removed from ${sourceDesc}. Any previously attached display is now unattached and won't be saved when committing.`
-      );
-    }
-  }, [showToast]);
-
-  const handleRestoreInitialValues = useCallback(() => {
-    if (initialAssetsRef.current) {
-      applyParsedAssets(cloneParsedAssets(initialAssetsRef.current));
-      showToast('success', 'Workspace restored to initial values.');
-    } else {
-      applyDefaults();
-      showToast('success', 'Workspace restored to initial values.');
-    }
-  }, [applyParsedAssets, applyDefaults, showToast]);
-
-  const handleRestoreDefaults = useCallback(() => {
-    applyDefaults();
-    showToast('success', 'Workspace restored to base factory defaults.');
-  }, [applyDefaults, showToast]);
-
-  // Helper to apply detected shield and update default screen dimensions if not already customized
-  const applyShieldDetectionIfUnset = useCallback(
-    (detectedShield: string, sourceDesc?: string) => {
-      if (!detectedShield || detectedShield === 'unknown') return;
-
-      setShieldId(detectedShield);
-      try {
-        localStorage.setItem('zmk-shield-id', detectedShield);
-      } catch {}
-
-      if (!hasUserCustomizedDimensionsRef.current) {
-        const defaultRes = getShieldDefaultResolution(detectedShield);
-        const defaultRot = getShieldDefaultRotation(detectedShield);
-        handleCentralDimensionsChange(defaultRes);
-        handlePeripheralDimensionsChange(defaultRes);
-        setRotation(defaultRot);
-        setPeripheralRotation(defaultRot);
-        if (sourceDesc) {
-          showToast('success', `Detected ${detectedShield} from ${sourceDesc}: aligned canvas to ${defaultRes.width}x${defaultRes.height} px (${defaultRot}°)`);
-        }
-      }
-    },
-    [handleCentralDimensionsChange, handlePeripheralDimensionsChange, showToast]
-  );
-
-  // GitHub integration & Connection State
-  const [config, setConfig] = useState<GitHubRepoConfig>(getStoredGitHubConfig());
-  const [connection, setConnection] = useState<GitHubConnectionState>({
-    status: 'connecting',
-    user: null,
-    repo: null,
-    errorMessage: null,
-    lastCheckedAt: null,
-    resolvedOwner: null,
-    resolvedRepo: null,
-  });
-  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
-  const [isSyncing, setIsSyncing] = useState<boolean>(false);
-  const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(() => localStorage.getItem('zmk_builder_last_saved_at'));
-  const [_currentSha, setCurrentSha] = useState<string | undefined>(undefined);
-  const [currentHeaderPath, setCurrentHeaderPath] = useState<string>('config/scyan_assets.h');
-  const [repoPrereqs, setRepoPrereqs] = useState<RepoPrerequisites | null>(null);
-  const [isInstallingStudio, setIsInstallingStudio] = useState<boolean>(false);
-  const [isUninstallingStudio, setIsUninstallingStudio] = useState<boolean>(false);
-  const [syncTrigger, setSyncTrigger] = useState<number>(0);
-  const autoSyncedRepoRef = useRef<string | null>(null);
-
-  // Keymap Layout: dynamic from GitHub ZMK repository, cached in localStorage
-  const [keymapLayout, setKeymapLayout] = useState<ParsedKeymapLayout>(() => {
-    try {
-      const saved = localStorage.getItem('zmk-keymap-layout');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return DEFAULT_EMPTY_5X3_LAYOUT;
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zmk-keymap-layout', JSON.stringify(keymapLayout));
-    } catch {}
-  }, [keymapLayout]);
-
-  // Automatically fetch keymap from GitHub when repository is configured or synced
-  useEffect(() => {
-    if (config?.owner && config?.repo) {
-      let isMounted = true;
-      fetchRepoKeymap(config)
-        .then(result => {
-          if (!isMounted) return;
-          if (result && result.content) {
-            const parsed = parseZmkKeymap(result.content, result.filename);
-            setKeymapLayout(parsed);
-            if (parsed.shieldId && parsed.shieldId !== 'unknown') {
-              if (!repoPrereqs?.hasAssetsHeader) {
-                applyShieldDetectionIfUnset(parsed.shieldId, result.filename);
-              }
-            }
-          }
-        })
-        .catch(err => {
-          console.warn('Error fetching keymap from repo in App:', err);
-        });
-
-      return () => {
-        isMounted = false;
-      };
-    }
-  }, [config?.token, config?.owner, config?.repo, config?.branch, connection?.status, syncTrigger, repoPrereqs?.hasAssetsHeader, applyShieldDetectionIfUnset]);
-
-  // Check and verify GitHub connection on mount and config updates
-  const testConnection = useCallback(async (cfg: GitHubRepoConfig) => {
-    setConnection(prev => ({ ...prev, status: 'connecting' }));
-    const result = await verifyGitHubConnection(cfg);
-    setConnection(result);
-
-    if (result.status === 'connected') {
-      trackEvent('github_connected', {
-        has_push_access: Boolean(result.repo?.hasPushAccess),
-      });
-    } else if (result.status === 'error') {
-      trackEvent('github_connect_failed', {
-        error: result.errorMessage ?? 'Connection failed',
-      });
-    }
-
-    let updatedCfg = { ...cfg };
-    let configChanged = false;
-
-    // If auto-discovery resolved a different owner/repo, write it back to config
-    // so the commit target is always the same repo that was verified.
-    if (result.resolvedOwner && result.resolvedOwner !== cfg.owner) {
-      updatedCfg = { ...updatedCfg, owner: result.resolvedOwner };
-      configChanged = true;
-    }
-    if (result.resolvedRepo && result.resolvedRepo !== cfg.repo) {
-      updatedCfg = { ...updatedCfg, repo: result.resolvedRepo };
-      configChanged = true;
-    }
-
-    // If connected and default branch is detected (e.g. main while config was master), auto-align
-    if (result.status === 'connected' && result.repo?.defaultBranch) {
-      if (updatedCfg.branch !== result.repo.defaultBranch && (updatedCfg.branch === 'master' || !updatedCfg.branch)) {
-        updatedCfg = { ...updatedCfg, branch: result.repo.defaultBranch };
-        configChanged = true;
-      }
-    }
-
-    if (configChanged) {
-      setConfig(updatedCfg);
-      saveStoredGitHubConfig(updatedCfg);
-    }
-
-    return result;
-  }, []);
-
-  // Initial startup: verify connection, fetch repo scyan_assets.h, or load factory defaults
-  useEffect(() => {
-    let isCancelled = false;
-
-    const initializeWorkspace = async () => {
-      setIsInitialLoading(true);
-
-      // Check if credentials exist
-      if (!config.token || !config.owner || !config.repo) {
-        applyDefaults();
-        initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
-        setConnection({
-          status: 'disconnected',
-          user: null,
-          repo: null,
-          errorMessage: null,
-          lastCheckedAt: Date.now(),
-          resolvedOwner: null,
-          resolvedRepo: null,
-        });
-        setRepoPrereqs(null);
-        if (!isCancelled) {
-          setIsInitialLoading(false);
-        }
-        return;
-      }
-
-      try {
-        const connResult = await testConnection(config);
-        if (isCancelled) return;
-
-        if (connResult.status === 'connected') {
-          try {
-            const activeOwner = connResult.resolvedOwner || config.owner;
-            const activeRepo = connResult.resolvedRepo || config.repo;
-            const activeBranch = connResult.repo?.defaultBranch || config.branch || 'main';
-            const fetchConfig = { ...config, owner: activeOwner, repo: activeRepo, branch: activeBranch };
-
-            // Check if repo has module and config installed
-            const prereqs = await checkRepoPrerequisites(fetchConfig);
-            if (isCancelled) return;
-            setRepoPrereqs(prereqs);
-
-            if (prereqs.hasAssetsHeader) {
-              const fileData = await fetchFileFromRepo(fetchConfig, 'config/scyan_assets.h');
-              if (isCancelled) return;
-
-              if (fileData.content) {
-                const parsed = parseCHeader(fileData.content);
-                applyParsedAssets(parsed);
-                initialAssetsRef.current = cloneParsedAssets(parsed);
-                setCurrentSha(fileData.sha);
-                if (fileData.resolvedPath) {
-                  setCurrentHeaderPath(fileData.resolvedPath);
-                }
-                localStorage.setItem('zmk_builder_cached_header', fileData.content);
-                showToast('success', `Loaded display assets from ${activeOwner}/${activeRepo}!`);
-              } else {
-                applyDefaults();
-                initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
-              }
-            } else {
-              applyDefaults();
-              initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
-              try {
-                const confCandidates = prereqs.candidateConfFiles || (prereqs.confPath ? [prereqs.confPath] : undefined);
-                const inferred = inferShieldFromRepo(activeRepo, undefined, confCandidates);
-                if (inferred) {
-                  applyShieldDetectionIfUnset(inferred.shieldId, 'repository config');
-                }
-              } catch (detectErr) {
-                console.warn('Pre-install shield inference warning:', detectErr);
-              }
-            }
-
-            try {
-              const confCandidates = prereqs.candidateConfFiles || (prereqs.confPath ? [prereqs.confPath] : undefined);
-              const detected = detectShieldUnitsFromRepo(
-                shieldId,
-                confCandidates,
-                undefined,
-                prereqs.buildYamlContent
-              );
-              reconcileDetectedShields(detected, `${activeOwner}/${activeRepo}`);
-            } catch (shieldErr) {
-              console.warn('Shield detection warning:', shieldErr);
-            }
-          } catch {
-            console.info('No scyan_assets.h in repo (first time setup). Loading defaults.');
-            applyDefaults();
-            initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
-          }
-        } else {
-          applyDefaults();
-          initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
-        }
-      } catch (err) {
-        console.warn('Initial workspace loading error:', err);
-        applyDefaults();
-      } finally {
-        if (!isCancelled) {
-          setIsInitialLoading(false);
-        }
-      }
-    };
-
-    initializeWorkspace();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, []); // Run on initial mount
-
-  // Automatically fetch latest assets when repository selection changes after initial load
-  useEffect(() => {
-    if (isInitialLoading) return;
-    if (connection.status !== 'connected' || !config.owner || !config.repo || !config.token) {
-      return;
-    }
-
-    const repoKey = `${config.owner}/${config.repo}@${config.branch}`;
-    if (autoSyncedRepoRef.current === repoKey) {
-      return;
-    }
-    autoSyncedRepoRef.current = repoKey;
-
-    let isMounted = true;
-    const syncRepoAssets = async () => {
-      try {
-        setIsSyncing(true);
-        const prereqs = await checkRepoPrerequisites(config);
-        if (!isMounted) return;
-        setRepoPrereqs(prereqs);
-
-        if (prereqs.hasAssetsHeader) {
-          const fileData = await fetchFileFromRepo(config, 'config/scyan_assets.h');
-          if (!isMounted) return;
-
-          if (fileData.content) {
-            const parsed = parseCHeader(fileData.content);
-            applyParsedAssets(parsed);
-            initialAssetsRef.current = cloneParsedAssets(parsed);
-            setCurrentSha(fileData.sha);
-            if (fileData.resolvedPath) {
-              setCurrentHeaderPath(fileData.resolvedPath);
-            }
-            localStorage.setItem('zmk_builder_cached_header', fileData.content);
-            showToast('success', `Loaded display assets from ${config.owner}/${config.repo}!`);
-          } else {
-            applyDefaults();
-            initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
-          }
-        } else {
-          applyDefaults();
-          initialAssetsRef.current = cloneParsedAssets(getDefaultAssets());
-        }
-
-        try {
-          const confCandidates = prereqs.candidateConfFiles || (prereqs.confPath ? [prereqs.confPath] : undefined);
-          const detected = detectShieldUnitsFromRepo(
-            shieldId,
-            confCandidates,
-            undefined,
-            prereqs.buildYamlContent
-          );
-          reconcileDetectedShields(detected, `${config.owner}/${config.repo}`);
-        } catch (shieldErr) {
-          console.warn('Sync shield detection warning:', shieldErr);
-        }
-      } catch (err: any) {
-        console.info('Repository does not contain scyan_assets.h yet. Keeping defaults.', err);
-      } finally {
-        if (isMounted) {
-          setIsSyncing(false);
-        }
-      }
-    };
-
-    syncRepoAssets();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isInitialLoading, connection.status, config.owner, config.repo, config.branch, config.token, showToast, applyDefaults]);
-
-  // Detect GitHub OAuth token or callback in URL parameters
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    const tokenParam = url.searchParams.get('token') || url.searchParams.get('access_token');
-    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-    const hashToken = hashParams.get('access_token');
-    const incomingToken = tokenParam || hashToken;
-
-    if (incomingToken) {
-      const updatedConfig = { ...config, token: incomingToken };
-      setConfig(updatedConfig);
-      saveStoredGitHubConfig(updatedConfig);
-      testConnection(updatedConfig);
-      showToast('success', 'Logged in with GitHub!');
-      // Clean query parameters from URL without reloading
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, [config, testConnection, showToast]);
-
-  // Listen to hash changes (e.g. browser back/forward or manual hash edits)
-  useEffect(() => {
-    const onHashChange = () => {
-      const hashTab = getTabFromHash();
-      setActiveTab(hashTab);
-    };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
-  }, []);
-
-  // Keep URL hash synchronized with activeTab
-  useEffect(() => {
-    const currentHash = window.location.hash.replace(/^#/, '').toLowerCase().trim();
-    if (currentHash !== activeTab) {
-      window.location.hash = activeTab;
-    }
-  }, [activeTab]);
-
-  const handleDisconnect = () => {
-    clearStoredGitHubToken();
-    autoSyncedRepoRef.current = null;
-    localStorage.removeItem('zmk_builder_cached_header');
-    setHasUserCustomizedDimensions(false);
-    hasUserCustomizedDimensionsRef.current = false;
-    try {
-      localStorage.removeItem('zmk-customized-dimensions');
-    } catch {}
-    const newConfig = { ...config, token: '' };
-    setConfig(newConfig);
-    setConnection({
-      status: 'disconnected',
-      user: null,
-      repo: null,
-      errorMessage: null,
-      lastCheckedAt: Date.now(),
-      resolvedOwner: null,
-      resolvedRepo: null,
-    });
-    showToast('success', 'GitHub repository disconnected.');
-  };
-
-  const isConnected = connection.status === 'connected';
-  const isStudioInstalled = isConnected && Boolean(repoPrereqs?.isInstalled);
-  const isPlaygroundMode = !isConnected || !isStudioInstalled;
-
-  // Handle Tab navigation (open to all as interactive playground)
-  const handleTabClick = (tabKey: TabType) => {
-    if (tabKey !== activeTab) {
-      trackEvent('tab_switched', { tab_id: tabKey });
-    }
-    setActiveTab(tabKey);
-    window.location.hash = tabKey;
-  };
-
-  // Sync assets from GitHub repo
-  const handleSync = async () => {
-    if (!isConnected) {
-      setIsSettingsOpen(true);
-      showToast('error', 'Connect your GitHub repository before syncing.');
-      return;
-    }
-
-    try {
-      setIsSyncing(true);
-      setSyncTrigger(prev => prev + 1);
-
-      try {
-        const prereqs = await checkRepoPrerequisites(config);
-        setRepoPrereqs(prereqs);
-
-        if (prereqs.hasAssetsHeader) {
-          const fileData = await fetchFileFromRepo(config, 'config/scyan_assets.h');
-          const parsed = parseCHeader(fileData.content);
-          applyParsedAssets(parsed);
-          initialAssetsRef.current = cloneParsedAssets(parsed);
-          setCurrentSha(fileData.sha);
-          if (fileData.resolvedPath) {
-            setCurrentHeaderPath(fileData.resolvedPath);
-          }
-          localStorage.setItem('zmk_builder_cached_header', fileData.content);
-          showToast('success', `Synced display assets from ${config.owner}/${config.repo}!`);
-        } else {
-          showToast('success', `Synced repository from ${config.owner}/${config.repo}! (Display assets not installed yet)`);
-          try {
-            const confCandidates = prereqs.candidateConfFiles || (prereqs.confPath ? [prereqs.confPath] : undefined);
-            const inferred = inferShieldFromRepo(config.repo, undefined, confCandidates);
-            if (inferred) {
-              applyShieldDetectionIfUnset(inferred.shieldId, 'repository config');
-            }
-          } catch (inferErr) {
-            console.warn('Sync shield inference error:', inferErr);
-          }
-        }
-
-        try {
-          const confCandidates = prereqs.candidateConfFiles || (prereqs.confPath ? [prereqs.confPath] : undefined);
-          const detected = detectShieldUnitsFromRepo(
-            shieldId,
-            confCandidates,
-            undefined,
-            prereqs.buildYamlContent
-          );
-          reconcileDetectedShields(detected, `${config.owner}/${config.repo}`);
-        } catch (shieldErr) {
-          console.warn('Sync shield detection warning:', shieldErr);
-        }
-
-        // Also fetch and update keymap layout from repository
-        try {
-          const keymapResult = await fetchRepoKeymap(config);
-          if (keymapResult && keymapResult.content) {
-            const parsedKm = parseZmkKeymap(keymapResult.content, keymapResult.filename);
-            setKeymapLayout(parsedKm);
-            if (!prereqs.hasAssetsHeader && parsedKm.shieldId && parsedKm.shieldId !== 'unknown') {
-              applyShieldDetectionIfUnset(parsedKm.shieldId, keymapResult.filename);
-            }
-          }
-        } catch (kmErr) {
-          console.warn('Failed to fetch keymap during repo sync:', kmErr);
-        }
-      } catch (assetErr: any) {
-        console.warn('Sync failed:', assetErr);
-        showToast('error', `Sync failed: ${assetErr.message || 'Could not fetch file'}`);
-      }
-    } catch (err: any) {
-      console.error('Sync failed:', err);
-      showToast('error', `Sync failed: ${err.message || 'Could not fetch file'}`);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  // One-click installation of Scyan Studio into connected repository
-  const handleInstallStudio = async () => {
-    if (!isConnected || !config.token || !config.owner || !config.repo) {
-      setIsSettingsOpen(true);
-      showToast('error', 'Connect your GitHub repository before installing.');
-      return;
-    }
-
-    try {
-      setIsInstallingStudio(true);
-      const effCentralShield = loadedShields.find((s) => s.isMaster || s.side === 'left') || loadedShields[0];
-      const effPeripheralShield = loadedShields.find((s) => s.id !== effCentralShield?.id);
-
-      const centralDispId = effCentralShield ? (displayAssignments[effCentralShield.id] ?? 'central') : 'central';
-      const peripheralDispId = effPeripheralShield ? (displayAssignments[effPeripheralShield.id] ?? 'peripheral') : 'peripheral';
-
-      const centralData = getScreenData(centralDispId || 'central');
-      const peripheralData = getScreenData(peripheralDispId || 'peripheral');
-
-      const metadata: HeaderMetadata = {
-        version: 1,
-        centralBlocks: centralData.blocks,
-        peripheralBlocks: peripheralData.blocks,
-        idleCentralBlocks: centralData.idleBlocks,
-        idlePeripheralBlocks: peripheralData.idleBlocks,
-        screenDimensions: centralData.dimensions,
-        rotation: centralData.rotation,
-        widgetInstances,
-        idleTimeoutSec: centralData.idleTimeoutSec,
-        screenOffTimeoutSec: centralData.screenOffTimeoutSec,
-        idleScreensEnabled: centralData.idleScreensEnabled,
-        symmetricSettings,
-        peripheralScreenDimensions: symmetricSettings ? undefined : peripheralData.dimensions,
-        peripheralRotation: symmetricSettings ? undefined : peripheralData.rotation,
-        peripheralIdleScreensEnabled: symmetricSettings ? undefined : peripheralData.idleScreensEnabled,
-        peripheralIdleTimeoutSec: symmetricSettings ? undefined : peripheralData.idleTimeoutSec,
-        peripheralScreenOffTimeoutSec: symmetricSettings ? undefined : peripheralData.screenOffTimeoutSec,
-        shieldId,
-        enabledScreens,
-        peripheralScreens: Object.keys(peripheralScreens).length > 0 ? peripheralScreens : undefined,
-        displayAssignments,
-        layerNames: keymapLayout.layerNames,
-      };
-
-      const defaultC = generateCHeader(symbolsGrid, symbolSlices, fontGrid, fontMappings, metadata);
-      const res = await installScyanStudioToRepo(config, defaultC);
-
-      // Re-verify prerequisites immediately against the newly created commit SHA to bypass any CDN / browser caching
-      const updatedPrereqs = await checkRepoPrerequisites(config, res.commitSha);
-      setRepoPrereqs(updatedPrereqs);
-      setCurrentSha(res.commitSha);
-      setCurrentHeaderPath('config/scyan_assets.h');
-      localStorage.setItem('zmk_builder_cached_header', defaultC);
-      markDimensionsCustomized();
-
-      showToast('success', `Scyan Studio successfully installed in ${config.owner}/${config.repo}! Firmware build started in GitHub Actions.`);
-      trackEvent('studio_installed', {
-        repo: `${config.owner}/${config.repo}`,
-      });
-    } catch (err: any) {
-      console.error('Failed to install Scyan Studio:', err);
-      showToast('error', `Installation failed: ${err.message || 'Check repository permissions'}`);
-    } finally {
-      setIsInstallingStudio(false);
-    }
-  };
-
-  // One-click uninstallation of Scyan Studio from connected repository
-  const handleUninstallStudio = async () => {
-    if (!config.token || !config.owner || !config.repo) {
-      showToast('error', 'Connect your GitHub repository before uninstalling.');
-      return;
-    }
-
-    try {
-      setIsUninstallingStudio(true);
-      await uninstallScyanStudioFromRepo(config);
-      trackEvent('studio_uninstalled', {
-        repo: `${config.owner}/${config.repo}`,
-      });
-
-      // Remove all cached workspace, layout, header, and session data from local storage
-      const preserveAuthKeys = new Set([
-        'zmk_builder_gh_token',
-        'zmk_builder_gh_owner',
-        'zmk_builder_gh_repo',
-        'zmk_builder_gh_branch',
-      ]);
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && !preserveAuthKeys.has(key)) {
-          keysToRemove.push(key);
-        }
-      }
-      keysToRemove.forEach(k => {
-        try {
-          localStorage.removeItem(k);
-        } catch {}
-      });
-      try {
-        sessionStorage.clear();
-      } catch {}
-
-      showToast('success', `Scyan Studio successfully uninstalled from ${config.owner}/${config.repo}! Reloading...`);
-      setTimeout(() => {
-        window.location.reload();
-      }, 1000);
-    } catch (err: any) {
-      console.error('Failed to uninstall Scyan Studio:', err);
-      showToast('error', `Uninstallation failed: ${err.message || 'Check repository permissions'}`);
-      setIsUninstallingStudio(false);
-    }
-  };
-
-  // Save & Commit to GitHub
-  const handleSave = async () => {
-    if (!isConnected || !config.owner || !config.repo) {
-      setIsSettingsOpen(true);
-      showToast('error', 'Please configure and connect a valid GitHub repository in settings first.');
-      return;
-    }
-
-    if (!connection.repo?.hasPushAccess) {
-      showToast('error', 'Your token lacks push permissions for this repository.');
-      return;
-    }
-
-    // Guard against config drift: ensure the commit target matches what was verified
-    if (connection.repo && connection.repo.name !== config.repo) {
-      showToast('error',
-        `Config mismatch: connection was verified for "${connection.repo.name}" but config targets "${config.repo}". ` +
-        `Re-open Settings to re-verify the connection.`
-      );
-      return;
-    }
-
-    try {
-      setIsSaving(true);
-      if (unattachedScreens.length > 0) {
-        showToast(
-          'warning',
-          `Warning: ${unattachedScreens.length} display(s) (${unattachedScreens.join(', ')}) are not attached and won't be saved when committing.`
-        );
-      }
-
-      const screensToCommit = enabledScreens.filter((s) => attachedDisplayIds.has(s));
-      const peripheralScreensToCommit: Record<string, PeripheralScreenData> = {};
-      Object.entries(peripheralScreens).forEach(([k, v]) => {
-        if (attachedDisplayIds.has(k)) {
-          peripheralScreensToCommit[k] = v;
-        }
-      });
-
-      const effCentralShield = loadedShields.find((s) => s.isMaster || s.side === 'left') || loadedShields[0];
-      const effPeripheralShield = loadedShields.find((s) => s.id !== effCentralShield?.id);
-
-      const centralDispId = effCentralShield ? (displayAssignments[effCentralShield.id] ?? 'central') : 'central';
-      const peripheralDispId = effPeripheralShield ? (displayAssignments[effPeripheralShield.id] ?? 'peripheral') : 'peripheral';
-
-      const centralData = getScreenData(centralDispId || 'central');
-      const peripheralData = getScreenData(peripheralDispId || 'peripheral');
-
-      const metadata: HeaderMetadata = {
-        version: 1,
-        centralBlocks: centralData.blocks,
-        peripheralBlocks: peripheralData.blocks,
-        idleCentralBlocks: centralData.idleBlocks,
-        idlePeripheralBlocks: peripheralData.idleBlocks,
-        screenDimensions: centralData.dimensions,
-        rotation: centralData.rotation,
-        widgetInstances,
-        idleTimeoutSec: centralData.idleTimeoutSec,
-        screenOffTimeoutSec: centralData.screenOffTimeoutSec,
-        idleScreensEnabled: centralData.idleScreensEnabled,
-        symmetricSettings,
-        peripheralScreenDimensions: symmetricSettings ? undefined : peripheralData.dimensions,
-        peripheralRotation: symmetricSettings ? undefined : peripheralData.rotation,
-        peripheralIdleScreensEnabled: symmetricSettings ? undefined : peripheralData.idleScreensEnabled,
-        peripheralIdleTimeoutSec: symmetricSettings ? undefined : peripheralData.idleTimeoutSec,
-        peripheralScreenOffTimeoutSec: symmetricSettings ? undefined : peripheralData.screenOffTimeoutSec,
-        shieldId,
-        enabledScreens: screensToCommit.length > 0 ? screensToCommit : ['central'],
-        peripheralScreens: Object.keys(peripheralScreensToCommit).length > 0 ? peripheralScreensToCommit : undefined,
-        displayAssignments,
-        layerNames: keymapLayout.layerNames,
-      };
-      const generatedC = generateCHeader(symbolsGrid, symbolSlices, fontGrid, fontMappings, metadata);
-      const targetPath = currentHeaderPath || 'config/scyan_assets.h';
-      const commitRes = await commitStudioSaveToRepo(
-        config,
-        targetPath,
-        generatedC,
-        {
-          screenOffTimeoutSec,
-          peripheralScreenOffTimeoutSec,
-          rightScreenOffTimeoutSec: peripheralScreenOffTimeoutSec,
-          symmetricSettings,
-        },
-        '[Scyan Studio] feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio'
-      );
-      setCurrentSha(commitRes.commitSha);
-      setCurrentHeaderPath(targetPath);
-      localStorage.setItem('zmk_builder_cached_header', generatedC);
-      const savedParsed = parseCHeader(generatedC);
-      initialAssetsRef.current = cloneParsedAssets(savedParsed);
-      const nowStr = new Date().toLocaleTimeString();
-      setLastSavedAt(nowStr);
-      localStorage.setItem('zmk_builder_last_saved_at', nowStr);
-      const fileListMsg = commitRes.filesCommitted.length > 1
-        ? ` (${commitRes.filesCommitted.join(', ')})`
-        : '';
-      showToast('success', `Committed to ${config.branch}!${fileListMsg} GitHub Actions firmware build started.`);
-      trackEvent('github_push_success', {
-        branch: config.branch,
-        files_count: commitRes.filesCommitted.length,
-      });
-    } catch (err: any) {
-      console.error('Save failed:', err);
-      let msg = err.message || 'Check repository permissions';
-      if (err.status === 403 || msg.includes('accessible by personal access token')) {
-        msg =
-          `Permission denied writing to ${config.owner}/${config.repo}. ` +
-          `Ensure your PAT has "Contents: Read & write" access for this exact repository, ` +
-          `then re-open Settings and reconnect.`;
-      }
-      showToast('error', `Save failed: ${msg}`);
-      trackEvent('github_push_failed', {
-        error: msg,
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // Lossless display swapping & master shield binding helpers
-  const getScreenData = useCallback(
-    (id: string) => {
-      if (id === 'left' || id === 'central') {
-        return {
-          blocks: centralBlocks,
-          idleBlocks: idleCentralBlocks,
-          dimensions: screenDimensions,
-          rotation,
-          idleScreensEnabled,
-          idleTimeoutSec,
-          screenOffTimeoutSec,
-        };
-      }
-      if (id === 'right' || id === 'peripheral') {
-        return {
-          blocks: peripheralBlocks,
-          idleBlocks: idlePeripheralBlocks,
-          dimensions: peripheralScreenDimensions,
-          rotation: peripheralRotation,
-          idleScreensEnabled: peripheralIdleScreensEnabled,
-          idleTimeoutSec: peripheralIdleTimeoutSec,
-          screenOffTimeoutSec: peripheralScreenOffTimeoutSec,
-        };
-      }
-      const p = peripheralScreens[id] || {};
-      return {
-        blocks: p.blocks || [],
-        idleBlocks: p.idleBlocks || [],
-        dimensions: p.screenDimensions || { width: 32, height: 128 },
-        rotation: p.rotation ?? (p.screenDimensions && p.screenDimensions.width < p.screenDimensions.height ? 90 : 0),
-        idleScreensEnabled: p.idleScreensEnabled ?? false,
-        idleTimeoutSec: p.idleTimeoutSec ?? 30,
-        screenOffTimeoutSec: p.screenOffTimeoutSec ?? 60,
-        customTitle: p.name,
-      };
-    },
-    [
-      centralBlocks,
-      idleCentralBlocks,
-      screenDimensions,
-      rotation,
-      idleScreensEnabled,
-      idleTimeoutSec,
-      screenOffTimeoutSec,
-      peripheralBlocks,
-      idlePeripheralBlocks,
-      peripheralScreenDimensions,
-      peripheralRotation,
-      peripheralIdleScreensEnabled,
-      peripheralIdleTimeoutSec,
-      peripheralScreenOffTimeoutSec,
-      peripheralScreens,
-    ]
-  );
-
-  const setScreenData = useCallback(
-    (
-      id: string,
-      data: {
-        blocks: LayoutBlock[];
-        idleBlocks: LayoutBlock[];
-        dimensions: { width: number; height: number };
-        rotation?: 0 | 90 | 180 | 270;
-        idleScreensEnabled: boolean;
-        idleTimeoutSec: number;
-        screenOffTimeoutSec: number;
-        customTitle?: string;
-      }
-    ) => {
-      if (id === 'left' || id === 'central') {
-        const remappedBlocks = remapBlockCoordinates(data.blocks, screenDimensions, data.dimensions, widgetInstancesRef.current);
-        const remappedIdle = remapBlockCoordinates(data.idleBlocks, screenDimensions, data.dimensions, widgetInstancesRef.current);
-        setCentralBlocks(remappedBlocks);
-        setIdleCentralBlocks(remappedIdle);
-        setScreenDimensions(data.dimensions);
-        if (data.rotation !== undefined) setRotation(data.rotation);
-        markDimensionsCustomized();
-        setIdleScreensEnabled(data.idleScreensEnabled);
-        setIdleTimeoutSec(data.idleTimeoutSec);
-        setScreenOffTimeoutSec(data.screenOffTimeoutSec);
-      } else if (id === 'right' || id === 'peripheral') {
-        const remappedBlocks = remapBlockCoordinates(data.blocks, peripheralScreenDimensions, data.dimensions, widgetInstancesRef.current);
-        const remappedIdle = remapBlockCoordinates(data.idleBlocks, peripheralScreenDimensions, data.dimensions, widgetInstancesRef.current);
-        setPeripheralBlocks(remappedBlocks);
-        setIdlePeripheralBlocks(remappedIdle);
-        setPeripheralScreenDimensions(data.dimensions);
-        if (data.rotation !== undefined) setPeripheralRotation(data.rotation);
-        markDimensionsCustomized();
-        setPeripheralIdleScreensEnabled(data.idleScreensEnabled);
-        setPeripheralIdleTimeoutSec(data.idleTimeoutSec);
-        setPeripheralScreenOffTimeoutSec(data.screenOffTimeoutSec);
-      } else {
-        setPeripheralScreens((prev) => {
-          const oldDims = prev[id]?.screenDimensions || { width: 32, height: 128 };
-          return {
-            ...prev,
-            [id]: {
-              ...prev[id],
-              blocks: remapBlockCoordinates(data.blocks, oldDims, data.dimensions, widgetInstancesRef.current),
-              idleBlocks: remapBlockCoordinates(data.idleBlocks, oldDims, data.dimensions, widgetInstancesRef.current),
-              screenDimensions: data.dimensions,
-              rotation: data.rotation ?? prev[id]?.rotation,
-              idleScreensEnabled: data.idleScreensEnabled,
-              idleTimeoutSec: data.idleTimeoutSec,
-              screenOffTimeoutSec: data.screenOffTimeoutSec,
-              name: data.customTitle ?? prev[id]?.name,
-            },
-          };
-        });
-      }
-    },
-    []
-  );
-
-  const handleSwapDisplays = useCallback(
-    (idA: string, idB: string) => {
-      if (idA === idB) return;
-      const dataA = getScreenData(idA);
-      const dataB = getScreenData(idB);
-      setScreenData(idA, dataB);
-      setScreenData(idB, dataA);
-      showToast('success', `Swapped displays: ${idA} ↔ ${idB}`);
-      trackEvent('swap_displays', { idA, idB });
-    },
-    [getScreenData, setScreenData, showToast]
-  );
-
-  const handleMakeMaster = useCallback(
-    (displayId: string) => {
-      if (displayId === 'left' || displayId === 'central') return;
-      handleSwapDisplays('central', displayId);
-    },
-    [handleSwapDisplays]
-  );
-
   return (
     <div className="flex flex-col h-screen w-screen bg-[#0b0d13] text-[#f1f5f9] overflow-hidden">
       {/* Top Header Bar with Live Git Status */}
@@ -1872,10 +183,10 @@ export function App() {
         config={config}
         connection={connection}
         onConfigChange={setConfig}
-        onSync={handleSync}
-        onSave={handleSave}
+        onSync={syncRepoAssets}
+        onSave={saveWorkspaceToRepo}
         onTestConnection={testConnection}
-        onDisconnect={handleDisconnect}
+        onDisconnect={disconnect}
         isSyncing={isSyncing}
         isSaving={isSaving}
         lastSavedAt={lastSavedAt}
@@ -1884,16 +195,16 @@ export function App() {
         showToast={showToast}
         repoPrereqs={repoPrereqs}
         isInstallingStudio={isInstallingStudio}
-        onInstallStudio={handleInstallStudio}
+        onInstallStudio={installScyanStudio}
         isUninstallingStudio={isUninstallingStudio}
-        onUninstallStudio={handleUninstallStudio}
+        onUninstallStudio={uninstallScyanStudio}
         onSearchClick={import.meta.env.DEV ? () => setIsCommandPaletteOpen(true) : undefined}
-        onRestoreInitialValues={handleRestoreInitialValues}
-        onRestoreDefaults={handleRestoreDefaults}
+        onRestoreInitialValues={restoreInitialValues}
+        onRestoreDefaults={restoreDefaults}
         unattachedDisplaysCount={unattachedScreens.length}
       />
 
-      {/* Main Tab Navigation Bar with Quick Navigation Scroll Bar */}
+      {/* Main Tab Navigation Bar */}
       <div className="border-b border-[#1e2538] bg-[#0b0d13] px-6 py-2.5 flex items-center justify-between gap-4 overflow-x-auto no-scrollbar shrink-0">
         <div className="flex items-center gap-1.5">
           {/* Tab 1: Preview */}
@@ -1972,7 +283,7 @@ export function App() {
           </button>
         </div>
 
-        {/* Right-Aligned Dev Wrapper (Dev-only) */}
+        {/* Right-Aligned Dev Tabs (Dev-only) */}
         {import.meta.env.DEV && (
           <div className="flex items-center gap-1.5 ml-auto pl-3.5 border-l border-[#1e2538]/80">
             <span className="text-[9px] font-mono font-bold tracking-wider uppercase text-[#00f0ff]/60 px-1.5 py-0.5 rounded bg-[#00f0ff]/5 border border-[#00f0ff]/20">
@@ -2046,150 +357,18 @@ export function App() {
           </div>
         ) : (
           <>
-            {activeTab === 'preview' && (
-              <OledPreviewTab
-                symbolsGrid={symbolsGrid}
-                symbolSlices={symbolSlices}
-                fontGrid={fontGrid}
-                fontGlyphs={fontGlyphs}
-                fontMappings={fontMappings}
-                centralBlocks={centralBlocks}
-                peripheralBlocks={peripheralBlocks}
-                layoutBlocks={centralBlocks}
-                idleCentralBlocks={idleCentralBlocks}
-                idlePeripheralBlocks={idlePeripheralBlocks}
-                onCentralBlocksChange={setCentralBlocks}
-                onPeripheralBlocksChange={setPeripheralBlocks}
-                onIdleCentralBlocksChange={setIdleCentralBlocks}
-                onIdlePeripheralBlocksChange={setIdlePeripheralBlocks}
-                screenDimensions={screenDimensions}
-                peripheralScreenDimensions={peripheralScreenDimensions}
-                symmetricSettings={symmetricSettings}
-                shieldId={shieldId}
-                onShieldIdChange={setShieldId}
-                enabledScreens={enabledScreens}
-                onEnabledScreensChange={setEnabledScreens}
-                customText={customText}
-                onCustomTextChange={setCustomText}
-                instances={widgetInstances}
-                config={config}
-                connection={connection}
-                onShowToast={showToast}
-                onOpenSettings={() => setIsSettingsOpen(true)}
-                syncTrigger={syncTrigger}
-                keymapLayout={keymapLayout}
-                onKeymapLayoutChange={setKeymapLayout}
-                onSwapDisplays={handleSwapDisplays}
-                loadedShields={loadedShields}
-                displayAssignments={displayAssignments}
-                onDisplayAssignmentsChange={setDisplayAssignments}
-                peripheralScreens={peripheralScreens}
-              />
-            )}
+            {activeTab === 'preview' && <OledPreviewTab />}
 
-            {activeTab === 'symbols' && (
-              <SymbolsAtlasTab
-                symbolsGrid={symbolsGrid}
-                onSymbolsGridChange={setSymbolsGrid}
-                slices={symbolSlices}
-                onSlicesChange={setSymbolSlices}
-                viewport={symbolsViewport}
-                onViewportChange={handleSymbolsViewportChange}
-              />
-            )}
+            {activeTab === 'symbols' && <SymbolsAtlasTab />}
 
-            {activeTab === 'font' && (
-              <FontAtlasTab
-                fontGrid={fontGrid}
-                onFontGridChange={setFontGrid}
-                fontMappings={fontMappings}
-                onFontMappingsChange={setFontMappings}
-                viewport={fontViewport}
-                onViewportChange={handleFontViewportChange}
-              />
-            )}
+            {activeTab === 'font' && <FontAtlasTab />}
 
-            {activeTab === 'widgets' && (
-              <WidgetsTab
-                symbolsGrid={symbolsGrid}
-                symbolSlices={symbolSlices}
-                fontGrid={fontGrid}
-                fontGlyphs={fontGlyphs}
-                fontMappings={fontMappings}
-                customText={customText}
-                onCustomTextChange={setCustomText}
-                instances={widgetInstances}
-                onInstancesChange={handleInstancesChange}
-                centralBlocks={centralBlocks}
-                peripheralBlocks={peripheralBlocks}
-                onCentralBlocksChange={setCentralBlocks}
-                onPeripheralBlocksChange={setPeripheralBlocks}
-                idleCentralBlocks={idleCentralBlocks}
-                idlePeripheralBlocks={idlePeripheralBlocks}
-                onIdleCentralBlocksChange={setIdleCentralBlocks}
-                onIdlePeripheralBlocksChange={setIdlePeripheralBlocks}
-                layerNames={keymapLayout.layerNames}
-              />
-            )}
+            {activeTab === 'widgets' && <WidgetsTab />}
 
-            {(activeTab === 'layout' || activeTab === 'blocks') && (
-              <BlocksTab
-                centralBlocks={centralBlocks}
-                peripheralBlocks={peripheralBlocks}
-                onCentralBlocksChange={setCentralBlocks}
-                onPeripheralBlocksChange={setPeripheralBlocks}
-                idleCentralBlocks={idleCentralBlocks}
-                idlePeripheralBlocks={idlePeripheralBlocks}
-                layerNames={keymapLayout.layerNames}
-                onIdleCentralBlocksChange={setIdleCentralBlocks}
-                onIdlePeripheralBlocksChange={setIdlePeripheralBlocks}
-                screenDimensions={screenDimensions}
-                onScreenDimensionsChange={handleCentralDimensionsChange}
-                rotation={rotation}
-                onRotationChange={handleRotationChange}
-                idleScreensEnabled={idleScreensEnabled}
-                onIdleScreensEnabledChange={setIdleScreensEnabled}
-                idleTimeoutSec={idleTimeoutSec}
-                onIdleTimeoutSecChange={setIdleTimeoutSec}
-                screenOffTimeoutSec={screenOffTimeoutSec}
-                onScreenOffTimeoutSecChange={setScreenOffTimeoutSec}
-                symmetricSettings={symmetricSettings}
-                onSymmetricSettingsChange={setSymmetricSettings}
-                peripheralScreenDimensions={peripheralScreenDimensions}
-                onPeripheralScreenDimensionsChange={handlePeripheralDimensionsChange}
-                peripheralRotation={peripheralRotation}
-                onPeripheralRotationChange={handlePeripheralRotationChange}
-                peripheralIdleScreensEnabled={peripheralIdleScreensEnabled}
-                onPeripheralIdleScreensEnabledChange={setPeripheralIdleScreensEnabled}
-                peripheralIdleTimeoutSec={peripheralIdleTimeoutSec}
-                onPeripheralIdleTimeoutSecChange={setPeripheralIdleTimeoutSec}
-                peripheralScreenOffTimeoutSec={peripheralScreenOffTimeoutSec}
-                onPeripheralScreenOffTimeoutSecChange={setPeripheralScreenOffTimeoutSec}
-                enabledScreens={enabledScreens}
-                onEnabledScreensChange={setEnabledScreens}
-                peripheralScreens={peripheralScreens}
-                onPeripheralScreensChange={setPeripheralScreens}
-                symbolsGrid={symbolsGrid}
-                symbolSlices={symbolSlices}
-                fontGrid={fontGrid}
-                fontGlyphs={fontGlyphs}
-                fontMappings={fontMappings}
-                customText={customText}
-                instances={widgetInstances}
-                onInstancesChange={handleInstancesChange}
-                layoutBlocks={centralBlocks}
-                onLayoutBlocksChange={setCentralBlocks}
-                displayAssignments={displayAssignments}
-                onDisplayAssignmentsChange={setDisplayAssignments}
-                loadedShields={loadedShields}
-                shieldId={shieldId}
-              />
-            )}
+            {(activeTab === 'layout' || activeTab === 'blocks') && <BlocksTab />}
 
             {import.meta.env.DEV && (activeTab === 'reference' || activeTab === 'ui-elements' || activeTab === 'ui-elements-hero') && (
-              <div className="flex-1 overflow-y-auto">
-                <ElementReferencePage onOpenCommandPalette={() => setIsCommandPaletteOpen(true)} />
-              </div>
+              <ElementReferencePage />
             )}
 
             {import.meta.env.DEV && activeTab === 'shields' && (
@@ -2208,25 +387,17 @@ export function App() {
                 onApplyDimensions={(dims, rightDims, rot) => {
                   handleCentralDimensionsChange(dims);
                   if (rightDims) handlePeripheralDimensionsChange(rightDims);
-                  if (rot !== undefined) {
-                    setRotation(rot);
-                    setPeripheralRotation(rot);
-                  }
-                  setToast({
-                    type: 'success',
-                    message: `Applied shield resolution: ${dims.width}x${dims.height} px (${rot ?? 0}°)`,
-                  });
+                  if (rot !== undefined) handleRotationChange(rot);
                 }}
+                currentShieldId={shieldId}
                 onSelectShield={(id) => {
                   setShieldId(id);
-                  setToast({
-                    type: 'success',
-                    message: `Switched keyboard shield to: ${id}`,
-                  });
+                  showToast('success', `Switched keyboard shield to: ${id}`);
                 }}
                 onNavigateToPreview={() => handleTabClick('preview')}
               />
             )}
+
             {import.meta.env.DEV && activeTab === 'topology' && (
               <TopologySandboxTab
                 symbolsGrid={symbolsGrid}
@@ -2246,8 +417,8 @@ export function App() {
                 customText={customText}
                 displayAssignments={displayAssignments}
                 onDisplayAssignmentsChange={setDisplayAssignments}
-                onSwapDisplays={handleSwapDisplays}
-                onMakeMaster={handleMakeMaster}
+                onSwapDisplays={swapDisplays}
+                onMakeMaster={makeMaster}
                 onNavigateToPreview={() => handleTabClick('preview')}
               />
             )}
@@ -2255,38 +426,41 @@ export function App() {
         )}
       </main>
 
-      {/* Floating Toast notification */}
-      {toast && (
+      {/* Floating Toast notifications */}
+      {toasts.length > 0 && (
         <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none">
-          <div
-            className={`pointer-events-auto p-4 rounded-xl border shadow-2xl backdrop-blur-lg flex items-start gap-3 transition-all ${
-              toast.type === 'success'
-                ? 'bg-[#0b0d13]/95 border-[#00f0ff]/50 text-white shadow-[0_0_24px_rgba(0,240,255,0.2)]'
-                : toast.type === 'warning'
-                ? 'bg-[#0b0d13]/95 border-amber-500/60 text-white shadow-[0_0_24px_rgba(245,158,11,0.2)]'
-                : 'bg-[#0b0d13]/95 border-[#f2741d]/50 text-white shadow-[0_0_24px_rgba(242,116,29,0.2)]'
-            }`}
-          >
-            {toast.type === 'success' ? (
-              <CheckCircle2 size={16} className="text-[#00f0ff] shrink-0 mt-0.5" />
-            ) : toast.type === 'warning' ? (
-              <AlertCircle size={16} className="text-amber-400 shrink-0 mt-0.5" />
-            ) : (
-              <AlertCircle size={16} className="text-[#f2741d] shrink-0 mt-0.5" />
-            )}
-            <div className="flex-1 min-w-0">
-              <h4 className="text-xs font-bold">
-                {toast.type === 'success' ? 'Success' : toast.type === 'warning' ? 'Warning' : 'Error'}
-              </h4>
-              <p className="text-xs text-[#94a3b8] mt-0.5 leading-relaxed">{toast.message}</p>
-            </div>
-            <button
-              onClick={() => setToast(null)}
-              className="text-[#94a3b8] hover:text-white transition-colors cursor-pointer p-0.5"
+          {toasts.map((t: ToastMessage) => (
+            <div
+              key={t.id}
+              className={`pointer-events-auto p-4 rounded-xl border shadow-2xl backdrop-blur-lg flex items-start gap-3 transition-all ${
+                t.type === 'success'
+                  ? 'bg-[#0b0d13]/95 border-[#00f0ff]/50 text-white shadow-[0_0_24px_rgba(0,240,255,0.2)]'
+                  : t.type === 'warning'
+                  ? 'bg-[#0b0d13]/95 border-amber-500/60 text-white shadow-[0_0_24px_rgba(245,158,11,0.2)]'
+                  : 'bg-[#0b0d13]/95 border-[#f2741d]/50 text-white shadow-[0_0_24px_rgba(242,116,29,0.2)]'
+              }`}
             >
-              ✕
-            </button>
-          </div>
+              {t.type === 'success' ? (
+                <CheckCircle2 size={16} className="text-[#00f0ff] shrink-0 mt-0.5" />
+              ) : t.type === 'warning' ? (
+                <AlertCircle size={16} className="text-amber-400 shrink-0 mt-0.5" />
+              ) : (
+                <AlertCircle size={16} className="text-[#f2741d] shrink-0 mt-0.5" />
+              )}
+              <div className="flex-1 min-w-0">
+                <h4 className="text-xs font-bold">
+                  {t.type === 'success' ? 'Success' : t.type === 'warning' ? 'Warning' : 'Error'}
+                </h4>
+                <p className="text-xs text-[#94a3b8] mt-0.5 leading-relaxed">{t.message}</p>
+              </div>
+              <button
+                onClick={() => removeToast(t.id)}
+                className="text-[#94a3b8] hover:text-white transition-colors cursor-pointer p-0.5"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
         </div>
       )}
 

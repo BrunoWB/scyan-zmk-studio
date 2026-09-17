@@ -17,6 +17,8 @@ import {
   getWidgetNaturalSize,
   measureTextWidth,
   resolveWidgetInstance,
+  getDefaultWidgetConfig,
+  createDefaultWidgetInstance,
 } from '../widgetRegistry';
 import {
   DEFAULT_LEFT_LAYOUT_BLOCKS,
@@ -1467,6 +1469,45 @@ describe('Widget Registry - Single Source of Truth', () => {
       brandingDef.render(gridRight, 0, 0, makeContext('right'));
       // 32 - 4 = 28
       expect(gridRight.get(28, 5)).toBe(1);
+    });
+  });
+
+  describe('Canonical Initial Configuration (Single Source of Truth)', () => {
+    it('assigns valid initial configuration for all core widgets without missing values', () => {
+      const all = getAllWidgets();
+      all.forEach((w) => {
+        const config = getDefaultWidgetConfig(w.id, DEFAULT_SYMBOL_SLICES);
+        expect(config).toBeDefined();
+        if (config.mode === 'symbol') {
+          if (w.id === 'layer-banner') {
+            expect(config.groupIds).toBeDefined();
+            expect(config.groupIds!.length).toBeGreaterThanOrEqual(4);
+          } else if (w.id === 'wpm-chart') {
+            expect(config.wpmChart).toBeDefined();
+          } else {
+            expect(config.groupId).toBeDefined();
+            expect(typeof config.groupId).toBe('string');
+            expect(config.groupId!.length).toBeGreaterThan(0);
+          }
+        }
+      });
+    });
+
+    it('creates complete default widget instances with valid default values and slots', () => {
+      const inst = createDefaultWidgetInstance('battery', DEFAULT_SYMBOL_SLICES, 'batt-test');
+      expect(inst.id).toBe('batt-test');
+      expect(inst.widgetTypeId).toBe('battery');
+      expect(inst.config?.groupId).toBe('SYMBOL_BATTERY_FRAME');
+
+      const splitInst = createDefaultWidgetInstance('split', DEFAULT_SYMBOL_SLICES);
+      expect(splitInst.config?.groupId).toBe('SYMBOL_SPLIT_CONNECTED');
+
+      const layerInst = createDefaultWidgetInstance('layer-banner', DEFAULT_SYMBOL_SLICES);
+      expect(layerInst.config?.groupIds).toContain('SYMBOL_BRACKET_LAYER_0');
+
+      const wpmInst = createDefaultWidgetInstance('wpm', DEFAULT_SYMBOL_SLICES);
+      expect(wpmInst.config?.groupId).toBe('SYMBOL_ARROW_HEAD');
+      expect(wpmInst.config?.targetValue).toBe(70);
     });
   });
 });

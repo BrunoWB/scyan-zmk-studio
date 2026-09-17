@@ -57,6 +57,9 @@ const STORAGE_KEY_REPO = 'zmk_builder_gh_repo';
 const STORAGE_KEY_BRANCH = 'zmk_builder_gh_branch';
 
 export function getStoredGitHubConfig(): GitHubRepoConfig {
+  if (typeof localStorage === 'undefined') {
+    return { owner: '', repo: '', branch: 'main', token: '' };
+  }
   return {
     owner: localStorage.getItem(STORAGE_KEY_OWNER) || '',
     repo: localStorage.getItem(STORAGE_KEY_REPO) || '',
@@ -66,6 +69,7 @@ export function getStoredGitHubConfig(): GitHubRepoConfig {
 }
 
 export function saveStoredGitHubConfig(config: Partial<GitHubRepoConfig>): void {
+  if (typeof localStorage === 'undefined') return;
   if (config.owner !== undefined) localStorage.setItem(STORAGE_KEY_OWNER, config.owner);
   if (config.repo !== undefined) localStorage.setItem(STORAGE_KEY_REPO, config.repo);
   if (config.branch !== undefined) localStorage.setItem(STORAGE_KEY_BRANCH, config.branch);
@@ -73,6 +77,7 @@ export function saveStoredGitHubConfig(config: Partial<GitHubRepoConfig>): void 
 }
 
 export function clearStoredGitHubToken(): void {
+  if (typeof localStorage === 'undefined') return;
   localStorage.removeItem(STORAGE_KEY_TOKEN);
 }
 

@@ -21,26 +21,40 @@ import {
   getGroupDefaultFilename,
 } from '../services/symbolGroupExport';
 import { trackEvent } from '../services/analytics';
+import { useAtlasStore } from '../stores/useAtlasStore';
 
 export interface SymbolsAtlasTabProps {
-  symbolsGrid: BwpxGrid;
-  onSymbolsGridChange: (grid: BwpxGrid) => void;
-  slices: SpriteSlice[];
-  onSlicesChange: (slices: SpriteSlice[]) => void;
+  symbolsGrid?: BwpxGrid;
+  onSymbolsGridChange?: (grid: BwpxGrid) => void;
+  slices?: SpriteSlice[];
+  onSlicesChange?: (slices: SpriteSlice[]) => void;
   initialSelectedSliceId?: string;
   viewport?: EditorViewport;
   onViewportChange?: (viewport: EditorViewport) => void;
 }
 
 export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
-  symbolsGrid,
-  onSymbolsGridChange,
-  slices,
-  onSlicesChange,
+  symbolsGrid: propsSymbolsGrid,
+  onSymbolsGridChange: propsOnSymbolsGridChange,
+  slices: propsSlices,
+  onSlicesChange: propsOnSlicesChange,
   initialSelectedSliceId,
-  viewport,
-  onViewportChange,
+  viewport: propsViewport,
+  onViewportChange: propsOnViewportChange,
 }) => {
+  const storeSymbolsGrid = useAtlasStore((s) => s.symbolsGrid);
+  const storeSetSymbolsGrid = useAtlasStore((s) => s.setSymbolsGrid);
+  const storeSlices = useAtlasStore((s) => s.symbolSlices);
+  const storeSetSlices = useAtlasStore((s) => s.setSymbolSlices);
+  const storeViewport = useAtlasStore((s) => s.symbolsViewport);
+  const storeSetViewport = useAtlasStore((s) => s.setSymbolsViewport);
+
+  const symbolsGrid = propsSymbolsGrid ?? storeSymbolsGrid;
+  const onSymbolsGridChange = propsOnSymbolsGridChange ?? storeSetSymbolsGrid;
+  const slices = propsSlices ?? storeSlices;
+  const onSlicesChange = propsOnSlicesChange ?? storeSetSlices;
+  const viewport = propsViewport !== undefined ? propsViewport : storeViewport;
+  const onViewportChange = propsOnViewportChange ?? storeSetViewport;
   const [selectedSliceIds, setSelectedSliceIds] = useState<Set<string>>(
     () => new Set(initialSelectedSliceId ? [initialSelectedSliceId] : [])
   );

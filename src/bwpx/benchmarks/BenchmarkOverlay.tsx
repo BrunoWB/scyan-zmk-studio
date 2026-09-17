@@ -19,16 +19,7 @@ export const BenchmarkOverlay: React.FC<BenchmarkOverlayProps> = ({ isOpen, onCl
   const [report, setReport] = useState<BenchmarkSuiteReport | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Auto-run if requested via URL param "?bench_autorun=true"
-  useEffect(() => {
-    if (isOpen && typeof window !== 'undefined' && window.location.search.includes('bench_autorun=true')) {
-      handleRun();
-    }
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  const handleRun = async () => {
+  const handleRun = React.useCallback(async () => {
     setIsRunning(true);
     setReport(null);
     setCurrentStatus(null);
@@ -44,7 +35,19 @@ export const BenchmarkOverlay: React.FC<BenchmarkOverlayProps> = ({ isOpen, onCl
       setIsRunning(false);
       setCurrentStatus(null);
     }
-  };
+  }, []);
+
+  // Auto-run if requested via URL param "?bench_autorun=true"
+  useEffect(() => {
+    if (isOpen && typeof window !== 'undefined' && window.location.search.includes('bench_autorun=true')) {
+      const timer = setTimeout(() => {
+        handleRun();
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, handleRun]);
+
+  if (!isOpen) return null;
 
   const handleCopyJson = () => {
     if (!report) return;

@@ -144,11 +144,13 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   const [logoMenuPos, setLogoMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [isChangelogOpen, setIsChangelogOpen] = useState(false);
 
-  useEffect(() => {
+  const [prevSettingsOpen, setPrevSettingsOpen] = useState(isSettingsOpen);
+  if (isSettingsOpen !== prevSettingsOpen) {
+    setPrevSettingsOpen(isSettingsOpen);
     if (!isSettingsOpen) {
       setConfirmUninstall(false);
     }
-  }, [isSettingsOpen]);
+  }
 
   // Repositories and Branches for interactive selection
   const [repositories, setRepositories] = useState<GitHubRepositoryItem[]>([]);
@@ -210,7 +212,11 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   );
 
   // Sync tempConfig when modal opens or config changes
-  useEffect(() => {
+  const [prevConfig, setPrevConfig] = useState(config);
+  const [prevModalOpen, setPrevModalOpen] = useState(isSettingsOpen);
+  if (isSettingsOpen !== prevModalOpen || config !== prevConfig) {
+    setPrevModalOpen(isSettingsOpen);
+    setPrevConfig(config);
     if (isSettingsOpen) {
       setTempConfig(config);
       setRepoSearch('');
@@ -218,13 +224,15 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
       setQuickKeyInput('');
       setManualRepoInput('');
     }
-  }, [isSettingsOpen, config]);
+  }
 
   // When connected and modal is open, load user repositories for the selector
   useEffect(() => {
     if (isSettingsOpen && connection.status === 'connected' && config.token) {
       let isMounted = true;
-      setIsLoadingRepos(true);
+      queueMicrotask(() => {
+        if (isMounted) setIsLoadingRepos(true);
+      });
 
       fetchUserRepositories(config.token)
         .then(repos => {
@@ -247,16 +255,21 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   useEffect(() => {
     if (isSettingsOpen && tempConfig.token && tempConfig.owner && tempConfig.repo) {
       let isMounted = true;
-      setIsLoadingBranches(true);
+      queueMicrotask(() => {
+        if (isMounted) setIsLoadingBranches(true);
+      });
 
       fetchRepoBranches(tempConfig.token, tempConfig.owner, tempConfig.repo)
         .then(branchList => {
           if (isMounted) {
             setBranches(branchList);
             setIsLoadingBranches(false);
-            if (!branchList.includes(tempConfig.branch) && branchList.length > 0) {
-              setTempConfig(prev => ({ ...prev, branch: branchList[0] }));
-            }
+            setTempConfig(prev => {
+              if (!branchList.includes(prev.branch) && branchList.length > 0) {
+                return { ...prev, branch: branchList[0] };
+              }
+              return prev;
+            });
           }
         })
         .catch(() => {
@@ -272,7 +285,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   // Poll workflow runs periodically only when connected
   useEffect(() => {
     if (connection.status !== 'connected') {
-      setWorkflowRun(null);
       return;
     }
 
@@ -289,7 +301,10 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
     checkCi();
     interval = setInterval(checkCi, 30000); // every 30s
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      setWorkflowRun(null);
+    };
   }, [config, connection.status]);
 
   // Handle saving chosen repository and branch
@@ -436,7 +451,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     } finally {
       setIsAuthorizing(false);
     }
-  }, [quickKeyInput, manualRepoInput, tempConfig, onTestConnection, onConfigChange]);
+  }, [quickKeyInput, manualRepoInput, tempConfig, onTestConnection, onConfigChange, setIsSettingsOpen]);
 
   const isValidTokenLength = (raw: string): boolean => {
     const token = raw.trim();

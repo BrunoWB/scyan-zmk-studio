@@ -97,6 +97,8 @@ function isConnectedToMaster(partKeys: string[], masterKey: string): boolean {
   return visited.size === keySet.size;
 }
 
+const EMPTY_BLOCKS: LayoutBlock[] = [];
+
 export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
   placedParts,
   onPlacedPartsChange,
@@ -125,8 +127,8 @@ export const TopologyGridCanvas: React.FC<TopologyGridCanvasProps> = ({
   instances,
   onKeystroke,
 }) => {
-  const effectiveCentral = activeCentralBlocks ?? activeLeftBlocks ?? [];
-  const effectivePeripheral = activePeripheralBlocks ?? activeRightBlocks ?? [];
+  const effectiveCentral = activeCentralBlocks ?? activeLeftBlocks ?? EMPTY_BLOCKS;
+  const effectivePeripheral = activePeripheralBlocks ?? activeRightBlocks ?? EMPTY_BLOCKS;
 
   const [zoomScale, setZoomScale] = useState<number>(0.85);
   const [hoveredDropSlot, setHoveredDropSlot] = useState<string | null>(null);

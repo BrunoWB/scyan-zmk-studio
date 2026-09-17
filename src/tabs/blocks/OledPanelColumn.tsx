@@ -118,9 +118,11 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
   const blockInitialYRef = useRef<number>(0);
 
   const blocksRef = useRef(blocks);
-  blocksRef.current = blocks;
   const onBlocksChangeRef = useRef(onBlocksChange);
-  onBlocksChangeRef.current = onBlocksChange;
+  useEffect(() => {
+    blocksRef.current = blocks;
+    onBlocksChangeRef.current = onBlocksChange;
+  });
 
   const V_WIDTH = screenDimensions?.width || 32;
   const V_HEIGHT = screenDimensions?.height || 128;
@@ -187,6 +189,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
     customText,
     instances,
     side,
+    layerNames,
     V_WIDTH,
     V_HEIGHT,
   ]);
@@ -265,8 +268,8 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
     const gridY = (clientY - rect.top) * pxToGridY;
 
     // Search from topmost block down
-    for (let i = blocksRef.current.length - 1; i >= 0; i--) {
-      const block = blocksRef.current[i];
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      const block = blocks[i];
       if (!block.enabled) continue;
       const normType = normalizeWidgetType(block.widgetType || block.id);
       const def = getWidgetDefinition(normType);
@@ -283,7 +286,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
       }
     }
     return null;
-  }, [V_WIDTH, V_HEIGHT, instances, symbolSlices, fontGlyphs, fontMappings]);
+  }, [V_WIDTH, V_HEIGHT, instances, symbolSlices, fontGlyphs, fontMappings, blocks]);
 
   // Context menu trigger handler
   const handleContextMenu = useCallback((e: React.MouseEvent, explicitBlock?: LayoutBlock) => {
@@ -307,7 +310,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
       y: clampedY,
       block: targetBlock,
     });
-  }, [isCompact, getBlockAtCoords, onSelectBlock]);
+  }, [isCompact, getBlockAtCoords, onSelectBlock, setContextMenu]);
 
   // Dismiss context menu on pointerdown outside or escape key
   useEffect(() => {
@@ -432,7 +435,17 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
       window.removeEventListener('pointerup', handlePointerUp);
       window.removeEventListener('pointercancel', handlePointerUp);
     };
-  }, [internalDraggingBlockId, updateBlock, deleteBlock, instances, symbolSlices]);
+  }, [
+    internalDraggingBlockId,
+    updateBlock,
+    deleteBlock,
+    instances,
+    symbolSlices,
+    V_WIDTH,
+    V_HEIGHT,
+    fontGlyphs,
+    fontMappings,
+  ]);
 
 
   const aspect = V_WIDTH / V_HEIGHT;

@@ -7,6 +7,7 @@ import {
   renderWidgetById,
   getWidgetNaturalSize,
   normalizeWidgetType,
+  createDefaultWidgetInstance,
 } from '../services/widgetRegistry';
 import { formatLayerLabel } from '../services/keymapService';
 import { WidgetMiniPreview } from './blocks/WidgetCatalogList';
@@ -22,15 +23,19 @@ import {
   AlignLeft, AlignCenter, AlignRight, Cpu
 } from 'lucide-react';
 
+import { useAtlasStore } from '../stores/useAtlasStore';
+import { useLayoutStore } from '../stores/useLayoutStore';
+import { useUiStore } from '../stores/useUiStore';
+
 export interface WidgetsTabProps {
   initialActiveWidgetId?: string;
-  symbolsGrid: BwpxGrid;
-  symbolSlices: SpriteSlice[];
-  fontGrid: BwpxGrid;
+  symbolsGrid?: BwpxGrid;
+  symbolSlices?: SpriteSlice[];
+  fontGrid?: BwpxGrid;
   fontGlyphs?: FontGlyph[];
   fontMappings?: FontCharMapping[];
-  customText: string;
-  onCustomTextChange: (text: string) => void;
+  customText?: string;
+  onCustomTextChange?: (text: string) => void;
   instances?: WidgetInstanceMap;
   onInstancesChange?: (instances: WidgetInstanceMap) => void;
   centralBlocks?: LayoutBlock[];
@@ -89,41 +94,79 @@ const TIER_METADATA = {
 
 export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   initialActiveWidgetId,
-  symbolsGrid,
-  symbolSlices,
-  fontGrid,
-  fontGlyphs = [],
-  fontMappings = [],
-  customText,
-  onCustomTextChange: _onCustomTextChange,
-  instances = {},
-  onInstancesChange,
-  centralBlocks,
-  peripheralBlocks,
-  onCentralBlocksChange,
-  onPeripheralBlocksChange,
-  idleCentralBlocks,
-  idlePeripheralBlocks,
-  onIdleCentralBlocksChange,
-  onIdlePeripheralBlocksChange,
-  leftBlocks,
-  rightBlocks,
-  onLeftBlocksChange,
-  onRightBlocksChange,
-  idleLeftBlocks,
-  idleRightBlocks,
-  onIdleLeftBlocksChange,
-  onIdleRightBlocksChange,
-  layerNames,
+  symbolsGrid: propsSymbolsGrid,
+  symbolSlices: propsSymbolSlices,
+  fontGrid: propsFontGrid,
+  fontGlyphs: propsFontGlyphs,
+  fontMappings: propsFontMappings,
+  customText: propsCustomText,
+  onCustomTextChange: _propsOnCustomTextChange,
+  instances: propsInstances,
+  onInstancesChange: propsOnInstancesChange,
+  centralBlocks: propsCentralBlocks,
+  peripheralBlocks: propsPeripheralBlocks,
+  onCentralBlocksChange: propsOnCentralBlocksChange,
+  onPeripheralBlocksChange: propsOnPeripheralBlocksChange,
+  idleCentralBlocks: propsIdleCentralBlocks,
+  idlePeripheralBlocks: propsIdlePeripheralBlocks,
+  onIdleCentralBlocksChange: propsOnIdleCentralBlocksChange,
+  onIdlePeripheralBlocksChange: propsOnIdlePeripheralBlocksChange,
+  leftBlocks: propsLeftBlocks,
+  rightBlocks: propsRightBlocks,
+  onLeftBlocksChange: propsOnLeftBlocksChange,
+  onRightBlocksChange: propsOnRightBlocksChange,
+  idleLeftBlocks: propsIdleLeftBlocks,
+  idleRightBlocks: propsIdleRightBlocks,
+  onIdleLeftBlocksChange: propsOnIdleLeftBlocksChange,
+  onIdleRightBlocksChange: propsOnIdleRightBlocksChange,
+  layerNames: propsLayerNames,
 }) => {
-  const effectiveCentralBlocks = centralBlocks ?? leftBlocks;
-  const effectivePeripheralBlocks = peripheralBlocks ?? rightBlocks;
-  const handleCentralBlocksChange = onCentralBlocksChange || onLeftBlocksChange;
-  const handlePeripheralBlocksChange = onPeripheralBlocksChange || onRightBlocksChange;
-  const effectiveIdleCentralBlocks = idleCentralBlocks ?? idleLeftBlocks;
-  const effectiveIdlePeripheralBlocks = idlePeripheralBlocks ?? idleRightBlocks;
-  const handleIdleCentralBlocksChange = onIdleCentralBlocksChange || onIdleLeftBlocksChange;
-  const handleIdlePeripheralBlocksChange = onIdlePeripheralBlocksChange || onIdleRightBlocksChange;
+  const storeSymbolsGrid = useAtlasStore((s) => s.symbolsGrid);
+  const storeSymbolSlices = useAtlasStore((s) => s.symbolSlices);
+  const storeFontGrid = useAtlasStore((s) => s.fontGrid);
+  const storeFontGlyphs = useAtlasStore((s) => s.fontGlyphs);
+  const storeFontMappings = useAtlasStore((s) => s.fontMappings);
+
+  const storeCustomText = useUiStore((s) => s.customText);
+
+  const storeCentralBlocks = useLayoutStore((s) => s.centralBlocks);
+  const storeSetCentralBlocks = useLayoutStore((s) => s.setCentralBlocks);
+  const storePeripheralBlocks = useLayoutStore((s) => s.peripheralBlocks);
+  const storeSetPeripheralBlocks = useLayoutStore((s) => s.setPeripheralBlocks);
+  const storeIdleCentralBlocks = useLayoutStore((s) => s.idleCentralBlocks);
+  const storeSetIdleCentralBlocks = useLayoutStore((s) => s.setIdleCentralBlocks);
+  const storeIdlePeripheralBlocks = useLayoutStore((s) => s.idlePeripheralBlocks);
+  const storeSetIdlePeripheralBlocks = useLayoutStore((s) => s.setIdlePeripheralBlocks);
+  const storeWidgetInstances = useLayoutStore((s) => s.widgetInstances);
+  const storeHandleInstancesChange = useLayoutStore((s) => s.handleInstancesChange);
+  const storeLayerNames = useLayoutStore((s) => s.keymapLayout.layerNames);
+
+  const symbolsGrid = propsSymbolsGrid ?? storeSymbolsGrid;
+  const symbolSlices = propsSymbolSlices ?? storeSymbolSlices;
+  const fontGrid = propsFontGrid ?? storeFontGrid;
+  const fontGlyphs = propsFontGlyphs ?? storeFontGlyphs;
+  const fontMappings = propsFontMappings ?? storeFontMappings;
+  const customText = propsCustomText ?? storeCustomText;
+  const instances = propsInstances ?? storeWidgetInstances;
+  const onInstancesChange = propsOnInstancesChange ?? storeHandleInstancesChange;
+  const centralBlocks = propsCentralBlocks ?? propsLeftBlocks ?? storeCentralBlocks;
+  const peripheralBlocks = propsPeripheralBlocks ?? propsRightBlocks ?? storePeripheralBlocks;
+  const onCentralBlocksChange = propsOnCentralBlocksChange ?? propsOnLeftBlocksChange ?? storeSetCentralBlocks;
+  const onPeripheralBlocksChange = propsOnPeripheralBlocksChange ?? propsOnRightBlocksChange ?? storeSetPeripheralBlocks;
+  const idleCentralBlocks = propsIdleCentralBlocks ?? propsIdleLeftBlocks ?? storeIdleCentralBlocks;
+  const idlePeripheralBlocks = propsIdlePeripheralBlocks ?? propsIdleRightBlocks ?? storeIdlePeripheralBlocks;
+  const onIdleCentralBlocksChange = propsOnIdleCentralBlocksChange ?? propsOnIdleLeftBlocksChange ?? storeSetIdleCentralBlocks;
+  const onIdlePeripheralBlocksChange = propsOnIdlePeripheralBlocksChange ?? propsOnIdleRightBlocksChange ?? storeSetIdlePeripheralBlocks;
+  const layerNames = propsLayerNames ?? storeLayerNames;
+
+  const effectiveCentralBlocks = centralBlocks;
+  const effectivePeripheralBlocks = peripheralBlocks;
+  const handleCentralBlocksChange = onCentralBlocksChange;
+  const handlePeripheralBlocksChange = onPeripheralBlocksChange;
+  const effectiveIdleCentralBlocks = idleCentralBlocks;
+  const effectiveIdlePeripheralBlocks = idlePeripheralBlocks;
+  const handleIdleCentralBlocksChange = onIdleCentralBlocksChange;
+  const handleIdlePeripheralBlocksChange = onIdlePeripheralBlocksChange;
   const [activeWidgetId, setActiveWidgetId] = useState<string>(initialActiveWidgetId || WIDGET_REGISTRY[0]?.id || 'status-bar');
   
   const effectiveLayerNames = useMemo(() => {
@@ -140,11 +183,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   const [simulateMissingSymbols] = useState<boolean>(false);
   const [testBongoState, setTestBongoState] = useState<0 | 1 | 2>(0);
 
-  useEffect(() => {
-    if (testLayer >= effectiveLayerNames.length) {
-      setTestLayer(0);
-    }
-  }, [effectiveLayerNames.length, testLayer]);
+  const effectiveTestLayer = testLayer < effectiveLayerNames.length ? testLayer : 0;
 
   const activeWidget: DisplayWidgetDefinition = getWidgetDefinition(activeWidgetId) || WIDGET_REGISTRY[0];
   const activeInstances = instances[activeWidget.id] || (activeWidget.id === 'animation' ? instances['loop'] : activeWidget.id === 'loop' ? instances['animation'] : undefined) || [];
@@ -152,65 +191,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   const handleAddInstance = () => {
     if (!onInstancesChange) return;
     const newInstanceId = `${activeWidget.id}-${Date.now()}`;
-    let initialConfig: import('../types/widget').WidgetInstanceConfig = { mode: 'symbol', fontSize: 'small', textAlign: 'center', align: 'center' };
-    if (activeWidget.id === 'branding') {
-      initialConfig = { mode: 'font', fontSize: 'small', textAlign: 'center', align: 'center', textEntries: ['ZMK'] };
-    } else if (activeWidget.id === 'wpm-chart') {
-      initialConfig = { mode: 'symbol', wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 } };
-    } else if (activeWidget.id === 'connection') {
-      initialConfig = {
-        mode: 'symbol',
-        groupId: 'SYMBOL_USB',
-        groupIds: [
-          'SYMBOL_BLUETOOTH',
-          'SYMBOL_BLUETOOTH',
-          'SYMBOL_BLUETOOTH',
-          'SYMBOL_BLUETOOTH',
-          'SYMBOL_BLUETOOTH',
-          'SYMBOL_BLUETOOTH'
-        ],
-        textEntries: ['USB', 'No conn', 'P1', 'P2', 'P3', 'P4', 'P5']
-      };
-    } else if (activeWidget.id === 'bongo') {
-      const bongoGroup = symbolSlices.find(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length >= 3);
-      initialConfig = {
-        mode: 'symbol',
-        groupId: bongoGroup?.groupId || '',
-        textEntries: ['(=^.^=)'],
-        bongoTapMs: 60,
-        bongoDebounceMs: 100,
-      };
-    } else if (activeWidget.id === 'animation' || activeWidget.id === 'loop') {
-      const isSystemGroup = (gid: string) => {
-        const u = gid.toUpperCase();
-        return u.includes('CHARGE') || u.includes('BATTERY') || u.includes('SPEED') || u.includes('WPM') || u.includes('BLUETOOTH') || u.includes('USB') || u.includes('SPLIT') || u.includes('LAYER') || u.includes('BRACKET');
-      };
-      const animGroup = symbolSlices.find(s => !isSystemGroup(s.groupId) && s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length >= 2)
-        || symbolSlices.find(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length >= 2);
-      initialConfig = {
-        mode: 'symbol',
-        groupId: animGroup?.groupId || '',
-        loopSpeedMs: 250,
-        loop: true,
-      };
-    }
-
-    const newInst: WidgetInstance = {
-      id: newInstanceId,
-      widgetTypeId: activeWidget.id,
-      label: `${activeWidget.name}`,
-      config: initialConfig,
-      slots: {}
-    };
-    if (newInst.slots) {
-      activeWidget.slots.forEach(s => {
-        newInst.slots![s.id] = {
-          mode: s.defaultMode,
-          symbolId: s.defaultSymbolId,
-          text: s.defaultText
-        };
-      });
-    }
+    const newInst = createDefaultWidgetInstance(activeWidget.id, symbolSlices, newInstanceId);
     
     const nextInstances = [...activeInstances, newInst];
     const updatedMap: import('../types/widget').WidgetInstanceMap = {
@@ -413,7 +394,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                     <button
                       key={idx}
                       type="button"
-                      className={`btn-chip !px-2.5 !py-1 text-xs ${testLayer === idx ? 'active' : ''}`}
+                      className={`btn-chip !px-2.5 !py-1 text-xs ${effectiveTestLayer === idx ? 'active' : ''}`}
                       onClick={() => setTestLayer(idx)}
                     >
                       <span>{formatLayerLabel(idx, name)}</span>
@@ -562,7 +543,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                       testWpm={testWpm}
                       testOutputMode={testOutputMode}
                       testBleProfile={testBleProfile}
-                      testLayer={testLayer}
+                      testLayer={effectiveTestLayer}
                       layerNames={effectiveLayerNames}
                       testSplitConnected={testSplitConnected}
                       simulateMissingSymbols={simulateMissingSymbols}
@@ -1215,25 +1196,21 @@ interface InstancePreviewProps {
 const InstancePreview: React.FC<InstancePreviewProps> = ({
   widget, instance, symbolsGrid, symbolSlices, fontGrid, fontGlyphs, fontMappings,
   customText, testBattery, testWpm, testOutputMode, testBleProfile, testLayer, layerNames, testSplitConnected, simulateMissingSymbols,
-  testBongoState = 0
+  testBongoState = 0,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const startTimeRef = useRef<number>(Date.now());
+  const startTimeRef = useRef<number>(0);
   const [animTimestamp, setAnimTimestamp] = useState<number>(0);
-
-  useEffect(() => {
-    startTimeRef.current = Date.now();
-    setAnimTimestamp(0);
-  }, [widget.id, instance.id, instance.config?.loop, instance.config?.groupId, instance.config?.loopSpeedMs]);
 
   useEffect(() => {
     if (widget.id !== 'animation' && widget.id !== 'loop') return;
     const speedMs = Math.max(20, instance.config?.loopSpeedMs ?? 250);
+    startTimeRef.current = Date.now();
     const timer = setInterval(() => {
       setAnimTimestamp(Date.now() - startTimeRef.current);
     }, speedMs);
     return () => clearInterval(timer);
-  }, [widget.id, instance.config?.loopSpeedMs, instance.config?.loop]);
+  }, [widget.id, instance.id, instance.config?.loopSpeedMs, instance.config?.loop, instance.config?.groupId]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

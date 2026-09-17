@@ -44,6 +44,7 @@ export interface ShieldsTabProps {
     rightDimensions?: { width: number; height: number },
     rotation?: 0 | 90 | 180 | 270
   ) => void;
+  currentShieldId?: string;
   onSelectShield?: (shieldId: string) => void;
   onNavigateToPreview?: () => void;
 }
@@ -63,10 +64,11 @@ export const ShieldsTab: React.FC<ShieldsTabProps> = ({
   instances,
   customText = 'SCYAN',
   onApplyDimensions,
+  currentShieldId,
   onSelectShield,
   onNavigateToPreview,
 }) => {
-  const [selectedShieldId, setSelectedShieldId] = useState<string | null>('corne');
+  const [selectedShieldId, setSelectedShieldId] = useState<string | null>(currentShieldId ?? 'corne');
   const [corneColumns, setCorneColumns] = useState<5 | 6>(6);
   const [sandboxScale, setSandboxScale] = useState<number>(0.9);
   const [typingWpm, setTypingWpm] = useState(48);

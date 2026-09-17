@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { BwpxGrid } from '../bwpx/core/BwpxGrid';
 import { BwpxEditor, type EditorViewport } from '../bwpx';
 import type { FontCharMapping, GlyphSlot, SpriteSlice } from '../types/zmk';
@@ -13,17 +13,19 @@ import {
   Sparkles,
 } from 'lucide-react';
 
+import { useAtlasStore } from '../stores/useAtlasStore';
+
 export interface FontAtlasTabProps {
-  fontGrid: BwpxGrid;
-  onFontGridChange: (grid: BwpxGrid) => void;
-  fontMappings: FontCharMapping[];
-  onFontMappingsChange: (mappings: FontCharMapping[]) => void;
+  fontGrid?: BwpxGrid;
+  onFontGridChange?: (grid: BwpxGrid) => void;
+  fontMappings?: FontCharMapping[];
+  onFontMappingsChange?: (mappings: FontCharMapping[]) => void;
   initialSelectedMappingId?: string;
   viewport?: EditorViewport;
   onViewportChange?: (viewport: EditorViewport) => void;
 }
 
-export const GHOST_SENTENCES = [
+const GHOST_SENTENCES = [
   'Hello World',
   'Lorem Ipsum',
   'Scyan Studio',
@@ -37,14 +39,27 @@ export const GHOST_SENTENCES = [
 ];
 
 export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
-  fontGrid,
-  onFontGridChange,
-  fontMappings,
-  onFontMappingsChange,
+  fontGrid: propsFontGrid,
+  onFontGridChange: propsOnFontGridChange,
+  fontMappings: propsFontMappings,
+  onFontMappingsChange: propsOnFontMappingsChange,
   initialSelectedMappingId,
-  viewport,
-  onViewportChange,
+  viewport: propsViewport,
+  onViewportChange: propsOnViewportChange,
 }) => {
+  const storeFontGrid = useAtlasStore((s) => s.fontGrid);
+  const storeSetFontGrid = useAtlasStore((s) => s.setFontGrid);
+  const storeFontMappings = useAtlasStore((s) => s.fontMappings);
+  const storeSetFontMappings = useAtlasStore((s) => s.setFontMappings);
+  const storeViewport = useAtlasStore((s) => s.fontViewport);
+  const storeSetViewport = useAtlasStore((s) => s.setFontViewport);
+
+  const fontGrid = propsFontGrid ?? storeFontGrid;
+  const onFontGridChange = propsOnFontGridChange ?? storeSetFontGrid;
+  const fontMappings = propsFontMappings ?? storeFontMappings;
+  const onFontMappingsChange = propsOnFontMappingsChange ?? storeSetFontMappings;
+  const viewport = propsViewport !== undefined ? propsViewport : storeViewport;
+  const onViewportChange = propsOnViewportChange ?? storeSetViewport;
   const [selectedMappingId, setSelectedMappingId] = useState<string>(initialSelectedMappingId || '');
   const [selectedMappingIds, setSelectedMappingIds] = useState<Set<string>>(
     () => new Set(initialSelectedMappingId ? [initialSelectedMappingId] : [])
@@ -173,13 +188,13 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
     }
   };
 
-  const findGlyphForChar = (char: string, size: 'small' | 'big'): GlyphSlot | null => {
+  const findGlyphForChar = useCallback((char: string, size: 'small' | 'big'): GlyphSlot | null => {
     let match = fontMappings.find(m => m.chars.includes(char));
     if (!match) match = fontMappings.find(m => m.chars.toUpperCase().includes(char.toUpperCase()));
     if (!match) return null;
     if (size === 'small') return match.small || match.big || null;
     else return match.big || match.small || null;
-  };
+  }, [fontMappings]);
 
   // Ghost typing animated demo effect
   useEffect(() => {
@@ -297,7 +312,7 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
       ctx.fillStyle = previewFontSize === 'big' ? '#c084fc' : '#00d2ff';
       ctx.fillRect((curX + 1) * scale, cursorY * scale, Math.max(2, scale * 0.7), 8 * scale);
     }
-  }, [activeDisplayString, previewFontSize, fontGrid, fontMappings, userInput]);
+  }, [activeDisplayString, previewFontSize, fontGrid, fontMappings, userInput, findGlyphForChar]);
 
   const renderSlotThumb = (slot: GlyphSlot, isBig: boolean, scale = 2) => (
     <canvas

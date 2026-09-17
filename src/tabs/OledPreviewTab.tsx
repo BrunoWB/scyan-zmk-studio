@@ -1,20 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { BwpxGrid } from '../bwpx/core/BwpxGrid';
 import type { SpriteSlice, FontGlyph, LayoutBlock, FontCharMapping } from '../types/zmk';
-import {
-  Battery,
-  Bluetooth,
-  Usb,
-  Gauge,
-  Layers,
-  Moon,
-  Sun,
-  Sliders,
-  Shuffle,
-  AlertTriangle,
-  Monitor,
-  Cpu,
-} from 'lucide-react';
+import { Cpu } from 'lucide-react';
 import type { GitHubRepoConfig, GitHubConnectionState } from '../services/githubService';
 import type { PeripheralScreenData } from '../services/cHeaderParser';
 import {
@@ -23,16 +10,19 @@ import {
   fetchRepoKeymap,
   parseZmkKeymap,
   getMatchingKeyCoords,
-  formatLayerLabel,
 } from '../services/keymapService';
+import {
+  OledSimulationPanel,
+  OledDisplayBay,
+  UnattachedDisplaysSection,
+  CorneKeysCluster,
+  type OledBlitterRenderState,
+} from './preview';
 import {
   getNextClickerAction,
   getKeystrokeIntervalMs,
   calculateTypingWpm,
 } from '../services/wpmSimulator';
-import {
-  renderBlocksToGrid,
-} from '../services/widgetRegistry';
 import {
   DEFAULT_CENTRAL_LAYOUT_BLOCKS,
   DEFAULT_PERIPHERAL_LAYOUT_BLOCKS,
@@ -40,6 +30,11 @@ import {
   DEFAULT_IDLE_PERIPHERAL_BLOCKS,
 } from '../types/zmk';
 import { getShieldDefinition, getShieldUnitsForShield, type LoadedShieldUnit } from '../data/shieldsData';
+
+import { useAtlasStore } from '../stores/useAtlasStore';
+import { useLayoutStore } from '../stores/useLayoutStore';
+import { useGitHubStore } from '../stores/useGitHubStore';
+import { useUiStore } from '../stores/useUiStore';
 
 function getOledDisplayDimensions(width: number, height: number): { displayW: number; displayH: number } {
   const w = width || 32;
@@ -59,12 +54,10 @@ function getOledDisplayDimensions(width: number, height: number): { displayW: nu
   }
 }
 
-const OLED_BORDER_UNITS = 5;
-
 export interface OledPreviewTabProps {
-  symbolsGrid: BwpxGrid;
-  symbolSlices: SpriteSlice[];
-  fontGrid: BwpxGrid;
+  symbolsGrid?: BwpxGrid;
+  symbolSlices?: SpriteSlice[];
+  fontGrid?: BwpxGrid;
   fontGlyphs?: FontGlyph[];
   fontMappings?: FontCharMapping[];
   centralBlocks?: LayoutBlock[];
@@ -97,8 +90,8 @@ export interface OledPreviewTabProps {
   onDisplayAssignmentsChange?: (assignments: Record<string, string | null>) => void;
   loadedShields?: LoadedShieldUnit[];
   peripheralScreens?: Record<string, PeripheralScreenData>;
-  customText: string;
-  onCustomTextChange: (text: string) => void;
+  customText?: string;
+  onCustomTextChange?: (text: string) => void;
   instances?: import('../types/widget').WidgetInstanceMap;
   customizations?: import('../types/widget').WidgetCustomizationMap;
   config?: GitHubRepoConfig;
@@ -117,17 +110,17 @@ function normalizeScreenKey(key: string): 'central' | 'peripheral' | string {
 }
 
 export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
-  symbolsGrid,
-  symbolSlices,
-  fontGrid,
-  fontGlyphs = [],
-  fontMappings = [],
-  centralBlocks,
-  peripheralBlocks,
+  symbolsGrid: propsSymbolsGrid,
+  symbolSlices: propsSymbolSlices,
+  fontGrid: propsFontGrid,
+  fontGlyphs: propsFontGlyphs,
+  fontMappings: propsFontMappings,
+  centralBlocks: propsCentralBlocks,
+  peripheralBlocks: propsPeripheralBlocks,
   onCentralBlocksChange: _onCentralBlocksChange,
   onPeripheralBlocksChange: _onPeripheralBlocksChange,
-  idleCentralBlocks,
-  idlePeripheralBlocks,
+  idleCentralBlocks: propsIdleCentralBlocks,
+  idlePeripheralBlocks: propsIdlePeripheralBlocks,
   onIdleCentralBlocksChange: _onIdleCentralBlocksChange,
   onIdlePeripheralBlocksChange: _onIdlePeripheralBlocksChange,
   leftBlocks,
@@ -139,31 +132,90 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   onRightBlocksChange: _onRightBlocksChange,
   onIdleLeftBlocksChange: _onIdleLeftBlocksChange,
   onIdleRightBlocksChange: _onIdleRightBlocksChange,
-  screenDimensions,
-  peripheralScreenDimensions,
+  screenDimensions: propsScreenDimensions,
+  peripheralScreenDimensions: propsPeripheralScreenDimensions,
   rightScreenDimensions,
-  symmetricSettings,
-  shieldId = 'corne',
+  symmetricSettings: propsSymmetricSettings,
+  shieldId: propsShieldId,
   onShieldIdChange: _onShieldIdChange,
-  enabledScreens,
+  enabledScreens: propsEnabledScreens,
   onEnabledScreensChange: _onEnabledScreensChange,
   onSwapDisplays: _onSwapDisplays,
-  displayAssignments,
-  onDisplayAssignmentsChange,
-  loadedShields,
-  peripheralScreens,
-  customText,
+  displayAssignments: propsDisplayAssignments,
+  onDisplayAssignmentsChange: propsOnDisplayAssignmentsChange,
+  loadedShields: propsLoadedShields,
+  peripheralScreens: propsPeripheralScreens,
+  customText: propsCustomText,
   onCustomTextChange: _onCustomTextChange,
-  instances,
+  instances: propsInstances,
   customizations,
-  config,
-  connection,
-  onShowToast,
-  onOpenSettings,
-  syncTrigger,
+  config: propsConfig,
+  connection: propsConnection,
+  onShowToast: propsOnShowToast,
+  onOpenSettings: propsOnOpenSettings,
+  syncTrigger: propsSyncTrigger,
   keymapLayout: propKeymapLayout,
   onKeymapLayoutChange,
 }) => {
+  const storeSymbolsGrid = useAtlasStore((s) => s.symbolsGrid);
+  const storeSymbolSlices = useAtlasStore((s) => s.symbolSlices);
+  const storeFontGrid = useAtlasStore((s) => s.fontGrid);
+  const storeFontGlyphs = useAtlasStore((s) => s.fontGlyphs);
+  const storeFontMappings = useAtlasStore((s) => s.fontMappings);
+
+  const storeCentralBlocks = useLayoutStore((s) => s.centralBlocks);
+  const storePeripheralBlocks = useLayoutStore((s) => s.peripheralBlocks);
+  const storeIdleCentralBlocks = useLayoutStore((s) => s.idleCentralBlocks);
+  const storeIdlePeripheralBlocks = useLayoutStore((s) => s.idlePeripheralBlocks);
+  const storeScreenDimensions = useLayoutStore((s) => s.screenDimensions);
+  const storePeripheralScreenDimensions = useLayoutStore((s) => s.peripheralScreenDimensions);
+  const storeSymmetricSettings = useLayoutStore((s) => s.symmetricSettings);
+  const storeShieldId = useLayoutStore((s) => s.shieldId);
+  const storeEnabledScreens = useLayoutStore((s) => s.enabledScreens);
+  const storeDisplayAssignments = useLayoutStore((s) => s.displayAssignments);
+  const storeSetDisplayAssignments = useLayoutStore((s) => s.setDisplayAssignments);
+  const storeLoadedShields = useLayoutStore((s) => s.loadedShields);
+  const storePeripheralScreens = useLayoutStore((s) => s.peripheralScreens);
+  const storeWidgetInstances = useLayoutStore((s) => s.widgetInstances);
+
+  const storeConfig = useGitHubStore((s) => s.config);
+  const storeConnection = useGitHubStore((s) => s.connection);
+  const storeSyncTrigger = useGitHubStore((s) => s.syncTrigger);
+
+  const storeCustomText = useUiStore((s) => s.customText);
+  const storeShowToast = useUiStore((s) => s.showToast);
+  const storeOpenSettingsModal = useUiStore((s) => s.openSettingsModal);
+
+  const symbolsGrid = propsSymbolsGrid ?? storeSymbolsGrid;
+  const symbolSlices = propsSymbolSlices ?? storeSymbolSlices;
+  const fontGrid = propsFontGrid ?? storeFontGrid;
+  const fontGlyphs = propsFontGlyphs ?? storeFontGlyphs;
+  const fontMappings = propsFontMappings ?? storeFontMappings;
+  const centralBlocks = propsCentralBlocks ?? storeCentralBlocks;
+  const peripheralBlocks = propsPeripheralBlocks ?? storePeripheralBlocks;
+  const idleCentralBlocks = propsIdleCentralBlocks ?? storeIdleCentralBlocks;
+  const idlePeripheralBlocks = propsIdlePeripheralBlocks ?? storeIdlePeripheralBlocks;
+  const screenDimensions = propsScreenDimensions ?? storeScreenDimensions;
+  const peripheralScreenDimensions = propsPeripheralScreenDimensions ?? rightScreenDimensions ?? storePeripheralScreenDimensions;
+  const symmetricSettings = propsSymmetricSettings ?? storeSymmetricSettings;
+  const shieldId = propsShieldId ?? storeShieldId ?? 'corne';
+  const enabledScreens = propsEnabledScreens ?? storeEnabledScreens;
+  const displayAssignments = propsDisplayAssignments ?? storeDisplayAssignments;
+  const onDisplayAssignmentsChange = propsOnDisplayAssignmentsChange ?? storeSetDisplayAssignments;
+  const loadedShields = propsLoadedShields !== undefined
+    ? propsLoadedShields
+    : (propsShieldId === undefined || propsShieldId === storeShieldId)
+      ? storeLoadedShields
+      : undefined;
+  const peripheralScreens = propsPeripheralScreens ?? storePeripheralScreens;
+  const customText = propsCustomText ?? storeCustomText;
+  const instances = propsInstances ?? storeWidgetInstances;
+  const config = propsConfig ?? storeConfig;
+  const connection = propsConnection ?? storeConnection;
+  const onShowToast = propsOnShowToast ?? storeShowToast;
+  const onOpenSettings = propsOnOpenSettings ?? storeOpenSettingsModal;
+  const syncTrigger = propsSyncTrigger ?? storeSyncTrigger;
+
   const activeCentralBlocks = centralBlocks ?? leftBlocks ?? layoutBlocks ?? DEFAULT_CENTRAL_LAYOUT_BLOCKS;
   const activePeripheralBlocks = peripheralBlocks ?? rightBlocks ?? DEFAULT_PERIPHERAL_LAYOUT_BLOCKS;
 
@@ -421,11 +473,6 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   const bongoTapMs = activeBongoInstance?.config?.bongoTapMs ?? 60;
   const bongoDebounceMs = activeBongoInstance?.config?.bongoDebounceMs ?? Math.max(bongoTapMs + 30, 100);
 
-  const bongoTapMsRef = useRef(bongoTapMs);
-  bongoTapMsRef.current = bongoTapMs;
-  const bongoDebounceMsRef = useRef(bongoDebounceMs);
-  bongoDebounceMsRef.current = bongoDebounceMs;
-
   const [bongoState, setBongoState] = useState<0 | 1 | 2>(0);
   const bongoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTapTimeRef = useRef<number>(0);
@@ -433,7 +480,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   const triggerBongoTap = useCallback((isLeft: boolean) => {
     const now = Date.now();
     // Debounce check: suppress rapid re-triggering within the debounce window
-    if (now - lastTapTimeRef.current < bongoDebounceMsRef.current) {
+    if (now - lastTapTimeRef.current < bongoDebounceMs) {
       return;
     }
     lastTapTimeRef.current = now;
@@ -447,8 +494,8 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     bongoTimerRef.current = setTimeout(() => {
       setBongoState(0);
       bongoTimerRef.current = null;
-    }, bongoTapMsRef.current);
-  }, []);
+    }, bongoTapMs);
+  }, [bongoDebounceMs, bongoTapMs]);
 
   useEffect(() => {
     return () => {
@@ -460,7 +507,9 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
 
   // Time-progressing WPM history ticker (continuous 1Hz sampling using ref to avoid reset on keypress/decay)
   const wpmRef = useRef(wpm);
-  wpmRef.current = wpm;
+  useEffect(() => {
+    wpmRef.current = wpm;
+  }, [wpm]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -480,60 +529,42 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   // Currently pressed keycaps set (supports key label or coordinate for empty keys)
   const [pressedKeys, setPressedKeys] = useState<Set<string>>(new Set());
 
-  const leftCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const rightCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const canvasRefs = useRef<Record<string, HTMLCanvasElement | null>>({});
   const keystrokeTimestampsRef = useRef<number[]>([]);
   const hadRecentKeystrokesRef = useRef<boolean>(false);
 
   // Automatically fetch keymap from GitHub when repository is configured
   useEffect(() => {
-    if (config?.owner && config?.repo) {
-      let isMounted = true;
-      fetchRepoKeymap(config)
-        .then(result => {
-          if (!isMounted) return;
-          if (result && result.content) {
-            const parsed = parseZmkKeymap(result.content, result.filename);
-            setKeymapLayout(parsed);
-            setCurrentLayer(0);
-          } else {
-            setKeymapLayout(DEFAULT_EMPTY_5X3_LAYOUT);
-            setCurrentLayer(0);
-          }
-        })
-        .catch(err => {
-          console.warn('Error fetching keymap from repo:', err);
-          if (isMounted) {
-            setKeymapLayout(DEFAULT_EMPTY_5X3_LAYOUT);
-            setCurrentLayer(0);
-          }
-        });
-
-      return () => {
-        isMounted = false;
-      };
-    } else {
-      setKeymapLayout(DEFAULT_EMPTY_5X3_LAYOUT);
-      setCurrentLayer(0);
+    if (!config?.owner || !config?.repo) {
+      return;
     }
-  }, [config?.token, config?.owner, config?.repo, config?.branch, connection?.status]);
+    let isMounted = true;
+    fetchRepoKeymap(config)
+      .then(result => {
+        if (!isMounted) return;
+        if (result && result.content) {
+          const parsed = parseZmkKeymap(result.content, result.filename);
+          setKeymapLayout(parsed);
+          setCurrentLayer(0);
+        } else {
+          setKeymapLayout(DEFAULT_EMPTY_5X3_LAYOUT);
+          setCurrentLayer(0);
+        }
+      })
+      .catch(err => {
+        console.warn('Error fetching keymap from repo:', err);
+        if (isMounted) {
+          setKeymapLayout(DEFAULT_EMPTY_5X3_LAYOUT);
+          setCurrentLayer(0);
+        }
+      });
 
-  // Re-fetch keymap when syncTrigger changes from outside (e.g. HeaderBar sync)
-  const prevSyncTriggerRef = useRef<number | undefined>(syncTrigger);
-  useEffect(() => {
-    if (
-      syncTrigger !== undefined &&
-      prevSyncTriggerRef.current !== undefined &&
-      syncTrigger > prevSyncTriggerRef.current
-    ) {
-      handleRefreshKeymap();
-    }
-    prevSyncTriggerRef.current = syncTrigger;
-  }, [syncTrigger]);
+    return () => {
+      isMounted = false;
+    };
+  }, [config, connection?.status, setKeymapLayout]);
 
   // Manual refresh helper with toasts and clear feedback
-  const handleRefreshKeymap = async () => {
+  const handleRefreshKeymap = useCallback(async () => {
     if (!config?.owner || !config?.repo) {
       onOpenSettings?.();
       onShowToast?.('error', 'Please configure your GitHub repository in Settings before syncing.');
@@ -574,7 +605,20 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
         onOpenSettings?.();
       }
     }
-  };
+  }, [config, connection?.status, onOpenSettings, onShowToast, setKeymapLayout]);
+
+  // Re-fetch keymap when syncTrigger changes from outside (e.g. HeaderBar sync)
+  const prevSyncTriggerRef = useRef<number | undefined>(syncTrigger);
+  useEffect(() => {
+    if (
+      syncTrigger !== undefined &&
+      prevSyncTriggerRef.current !== undefined &&
+      syncTrigger > prevSyncTriggerRef.current
+    ) {
+      handleRefreshKeymap();
+    }
+    prevSyncTriggerRef.current = syncTrigger;
+  }, [syncTrigger, handleRefreshKeymap]);
 
   // Layer names from parsed keymap
   const layerNames = useMemo(
@@ -660,7 +704,6 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   // Random key clicker: simulates typing speeds from 0 (stalled) to 60 WPM
   useEffect(() => {
     if (!randomClickerEnabled) {
-      setClickerSpeed(0);
       return;
     }
 
@@ -687,7 +730,6 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     if (allCoords.length === 0) return;
 
     let burstState = getNextClickerAction(false);
-    setClickerSpeed(burstState.targetWpm);
 
     const step = () => {
       if (!isMounted) return;
@@ -703,31 +745,26 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
         triggerKeyPress(picked);
         burstState.burstLength--;
 
-        if (burstState.burstLength > 0) {
-          const delay = getKeystrokeIntervalMs(burstState.targetWpm, true);
-          timerId = setTimeout(step, delay);
-        } else {
-          // Burst completed, determine next action (stall or another burst)
-          const next = getNextClickerAction(false);
-          burstState = next;
-          setClickerSpeed(next.targetWpm);
-          if (next.isStalled) {
-            timerId = setTimeout(step, next.durationMs);
-          } else {
-            const interWordPause = Math.round(250 + Math.random() * 350);
-            timerId = setTimeout(step, interWordPause);
-          }
-        }
+        const interval = getKeystrokeIntervalMs(burstState.targetWpm);
+        timerId = setTimeout(step, interval);
+      } else {
+        // Burst finished, switch to pause/stall
+        burstState = getNextClickerAction(false);
+        setClickerSpeed(burstState.targetWpm);
+        timerId = setTimeout(step, burstState.durationMs);
       }
     };
 
-    // Immediate first keystroke on activation
-    step();
+    timerId = setTimeout(() => {
+      if (isMounted) {
+        setClickerSpeed(burstState.targetWpm);
+        step();
+      }
+    }, 100);
 
     return () => {
       isMounted = false;
       if (timerId) clearTimeout(timerId);
-      setClickerSpeed(0);
     };
   }, [
     randomClickerEnabled,
@@ -841,7 +878,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     return leftDisplayBlocks.some(isAnim) || rightDisplayBlocks.some(isAnim);
   }, [leftDisplayBlocks, rightDisplayBlocks]);
 
-  const animStartTimeRef = useRef<number>(Date.now());
+  const animStartTimeRef = useRef<number>(0);
   const [animTimestamp, setAnimTimestamp] = useState<number>(0);
 
   useEffect(() => {
@@ -854,7 +891,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   }, [hasAnimationBlock]);
 
   const getDisplayInfo = useCallback(
-    (displayId: string | null) => {
+    (displayId: string | null | undefined) => {
       if (!displayId) return null;
       const isMaster = displayId === 'central' || displayId === 'left';
       const isPeripheral = displayId === 'peripheral' || displayId === 'right';
@@ -897,114 +934,56 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     ]
   );
 
-  // Render Left (Master), Right (Peripheral), and any additional/unattached OLED displays
-  useEffect(() => {
-    const PIXEL_PITCH = 2; // Crisp dot simulation
-    const DOT_SIZE = 1.6;
-    const onColor = '#e2f1ff';
-
-    const renderToCanvas = (
-      canvas: HTMLCanvasElement | null,
-      blocks: LayoutBlock[],
-      vW: number,
-      vH: number,
-      side: string
-    ) => {
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      const vbuf = new BwpxGrid(vW, vH);
-      renderBlocksToGrid(blocks, vbuf, {
-        symbolsGrid,
-        symbolSlices,
-        fontGrid,
-        fontGlyphs,
-        fontMappings,
-        battery,
-        outputMode,
-        bleProfileIndex,
-        currentLayer,
-        layerNames,
-        wpm,
-        wpmHistory,
-        splitConnected,
-        capsLock,
-        customText,
-        instances,
-        side,
-        isIdle,
-        customizations,
-        bongoState,
-        animationTimestamp: animTimestamp,
-      });
-
-      canvas.width = vW * PIXEL_PITCH;
-      canvas.height = vH * PIXEL_PITCH;
-
-      ctx.fillStyle = '#05070a';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      ctx.fillStyle = onColor;
-      for (let y = 0; y < vH; y++) {
-        for (let x = 0; x < vW; x++) {
-          if (vbuf.get(x, y)) {
-            ctx.fillRect(x * PIXEL_PITCH, y * PIXEL_PITCH, DOT_SIZE, DOT_SIZE);
-          }
-        }
-      }
-    };
-
-    // 1. RENDER LEFT (MASTER) DISPLAY
-    renderToCanvas(leftCanvasRef.current, leftDisplayBlocks, leftVWidth, leftVHeight, 'left');
-
-    // 2. RENDER RIGHT (PERIPHERAL) DISPLAY
-    renderToCanvas(rightCanvasRef.current, rightDisplayBlocks, rightVWidth, rightVHeight, 'right');
-
-    // 3. RENDER ANY DYNAMIC OR UNATTACHED CANVASES
-    Object.entries(canvasRefs.current).forEach(([screenKey, canvasEl]) => {
-      if (!canvasEl) return;
-      if (screenKey === 'central' || screenKey === 'left' || screenKey === 'peripheral' || screenKey === 'right') {
-        return;
-      }
-      const info = getDisplayInfo(screenKey);
-      if (info) {
-        renderToCanvas(canvasEl, info.blocks, info.width, info.height, screenKey);
-      }
-    });
-  }, [
-    leftDisplayBlocks,
-    rightDisplayBlocks,
+  // Memoized reactive simulator state passed down to modular OledBlitterCanvas instances
+  const blitterRenderState: OledBlitterRenderState = useMemo(() => ({
     symbolsGrid,
     symbolSlices,
     fontGrid,
     fontGlyphs,
     fontMappings,
-    leftVWidth,
-    leftVHeight,
-    rightVWidth,
-    rightVHeight,
+    battery,
     outputMode,
     bleProfileIndex,
-    battery,
     currentLayer,
+    layerNames,
     wpm,
     wpmHistory,
-    instances,
     splitConnected,
     capsLock,
     customText,
+    instances,
+    customizations,
+    bongoState,
+    animationTimestamp: animTimestamp,
+    isIdle,
+  }), [
+    symbolsGrid,
+    symbolSlices,
+    fontGrid,
+    fontGlyphs,
+    fontMappings,
+    battery,
+    outputMode,
+    bleProfileIndex,
+    currentLayer,
     layerNames,
+    wpm,
+    wpmHistory,
+    splitConnected,
+    capsLock,
+    customText,
+    instances,
     customizations,
     bongoState,
     animTimestamp,
-    getDisplayInfo,
+    isIdle,
   ]);
 
   return (
     <div className="oled-preview-fullscreen">
+
       {/* =========================================================================
           TOP: KEYBOARD / SHIELD VISUALIZATION WITH OLED DISPLAYS
-          Loaded configuration is realignable; drop zones are only shown during drag.
           ========================================================================= */}
       {activeShield.layoutGeometry.type === 'unknown' ? (
         <div className="flex items-center justify-center gap-8 my-6 relative">
@@ -1048,71 +1027,19 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
                       </div>
                     )}
 
-                    {assignedDisplayId && dispInfo ? (
-                      <div
-                        className={`oled-glass-housing relative group/display cursor-grab active:cursor-grabbing rounded-xl transition-all ${
-                          hoveredDisplayDropTarget === shield.id
-                            ? 'ring-2 ring-[#00f0ff] shadow-[0_0_20px_rgba(0,240,255,0.6)] scale-102'
-                            : 'hover:ring-1 hover:ring-[#00f0ff]/50'
-                        }`}
-                        style={{
-                          width: `${dispInfo.displayDim.displayW + OLED_BORDER_UNITS * 2}px`,
-                          height: `${dispInfo.displayDim.displayH + OLED_BORDER_UNITS * 2}px`,
-                        }}
-                        draggable={true}
-                        onDragStart={(e) => handleDisplayDragStart(e, shield.id, assignedDisplayId)}
-                        onDragEnd={handleDisplayDragEnd}
-                        onDragOver={(e) => handleDisplayDragOver(e, shield.id)}
-                        onDragLeave={(e) => handleDisplayDragLeave(e, shield.id)}
-                        onDrop={(e) => handleDisplayDrop(e, shield.id)}
-                        title={`${dispInfo.name} (Drag to swap or move to another shield)`}
-                      >
-                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 opacity-0 group-hover/display:opacity-100 transition-opacity z-20 pointer-events-none bg-[#0a0d14]/95 border border-[#00f0ff]/40 text-[#00f0ff] text-[8px] font-mono font-bold px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap select-none">
-                          Drag Display
-                        </div>
-                        <div
-                          style={{
-                            position: 'relative',
-                            width: `${dispInfo.displayDim.displayW}px`,
-                            height: `${dispInfo.displayDim.displayH}px`,
-                          }}
-                        >
-                          <canvas
-                            ref={(el) => {
-                              if (assignedDisplayId === 'central') leftCanvasRef.current = el;
-                              else if (assignedDisplayId === 'peripheral') rightCanvasRef.current = el;
-                              canvasRefs.current[assignedDisplayId] = el;
-                            }}
-                            className="corne-oled-canvas"
-                            style={{
-                              width: `${dispInfo.displayDim.displayW}px`,
-                              height: `${dispInfo.displayDim.displayH}px`,
-                              display: 'block',
-                            }}
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        className={`preview-oled-empty-bay transition-all ${
-                          hoveredDisplayDropTarget === shield.id
-                            ? 'border-[#00f0ff] bg-[#00f0ff]/15 ring-2 ring-[#00f0ff] shadow-[0_0_20px_rgba(0,240,255,0.4)] scale-102'
-                            : ''
-                        }`}
-                        onDragOver={(e) => handleDisplayDragOver(e, shield.id)}
-                        onDragLeave={(e) => handleDisplayDragLeave(e, shield.id)}
-                        onDrop={(e) => handleDisplayDrop(e, shield.id)}
-                        style={{
-                          width: `${leftDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
-                          minHeight: `${leftDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
-                        }}
-                        title="Empty OLED Bay — Drag a display here to mount"
-                      >
-                        <Monitor size={20} className="text-muted/60" />
-                        <span className="text-[11px] text-muted font-mono font-medium">Empty OLED Bay</span>
-                        <span className="text-[10px] text-muted/50 font-mono">No display attached</span>
-                      </div>
-                    )}
+                    <OledDisplayBay
+                      shieldId={shield.id}
+                      assignedDisplayId={assignedDisplayId}
+                      dispInfo={dispInfo}
+                      fallbackDisplayDim={leftDisplayDim}
+                      isHoveredDropTarget={hoveredDisplayDropTarget === shield.id}
+                      onDragStart={handleDisplayDragStart}
+                      onDragEnd={handleDisplayDragEnd}
+                      onDragOver={handleDisplayDragOver}
+                      onDragLeave={handleDisplayDragLeave}
+                      onDrop={handleDisplayDrop}
+                      renderState={blitterRenderState}
+                    />
                   </div>
                 </div>
               </div>
@@ -1140,194 +1067,68 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
                 onDrop={(e) => handleDisplayDrop(e, shield.id)}
               >
                 <div className={`corne-half-case ${isLeft ? 'left-half' : 'right-half'}`}>
-                    {/* Central Shield Badge with tooltip */}
-                    {isLeft && (
-                      <div
-                        className="central-shield-badge"
-                        title="Central Shield"
-                        data-testid="central-shield-badge"
-                      >
-                        <div className="central-shield-badge-dot">
-                          <Cpu size={10} className="shrink-0" />
-                        </div>
-                        <div className="central-shield-tooltip">
-                          Central Shield
-                        </div>
+                  {/* Central Shield Badge with tooltip */}
+                  {isLeft && (
+                    <div
+                      className="central-shield-badge"
+                      title="Central Shield"
+                      data-testid="central-shield-badge"
+                    >
+                      <div className="central-shield-badge-dot">
+                        <Cpu size={10} className="shrink-0" />
                       </div>
+                      <div className="central-shield-tooltip">
+                        Central Shield
+                      </div>
+                    </div>
+                  )}
+
+                  <div className={`half-inner-layout ${!isLeft ? 'mirrored' : ''}`}>
+                    {/* Left: Keys Cluster first */}
+                    {isLeft && (
+                      <CorneKeysCluster
+                        isLeft={true}
+                        keymapLayout={keymapLayout}
+                        matrix={currentLeftMatrix}
+                        thumbs={currentLeftThumbs}
+                        pressedKeys={pressedKeys}
+                        onKeyPress={triggerKeyPress}
+                        getColStagger={getColStagger}
+                      />
                     )}
 
-                    <div className={`half-inner-layout ${!isLeft ? 'mirrored' : ''}`}>
-                      {/* Left: Keys Cluster first */}
-                      {isLeft && (
-                        <div className="corne-keys-cluster">
-                          <div className="corne-matrix">
-                            {Array.from({ length: keymapLayout.columns }, (_, colIdx) => (
-                              <div
-                                key={colIdx}
-                                className="corne-col"
-                                style={{ transform: `translateY(${getColStagger(colIdx, keymapLayout.columns, false)}px)` }}
-                              >
-                                {Array.from({ length: keymapLayout.rows }, (_, rowIdx) => {
-                                  const keyLabel = currentLeftMatrix[rowIdx]?.[colIdx] || '';
-                                  const coordId = `L_${rowIdx}_${colIdx}`;
-                                  const isPressed = pressedKeys.has(coordId);
-                                  const isEmpty = !keyLabel;
-                                  return (
-                                    <div
-                                      key={rowIdx}
-                                      className={`corne-keycap ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
-                                      onClick={() => triggerKeyPress(coordId)}
-                                      title={keyLabel ? `Left [${rowIdx},${colIdx}]: ${keyLabel}` : `Left [${rowIdx},${colIdx}]`}
-                                    >
-                                      {keyLabel ? <span className="keycap-legend">{keyLabel}</span> : null}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            ))}
-                          </div>
-
-                          <div className="corne-thumbs left-thumbs">
-                            {currentLeftThumbs.map((t, idx) => {
-                              const coordId = `LT_${idx}`;
-                              const isPressed = pressedKeys.has(coordId);
-                              const isEmpty = !t;
-                              return (
-                                <div
-                                  key={idx}
-                                  className={`corne-thumb-key thumb-${idx} ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
-                                  onClick={() => triggerKeyPress(coordId)}
-                                  title={t ? `Left Thumb [${idx}]: ${t}` : `Left Thumb [${idx}]`}
-                                >
-                                  {t ? <span className="thumb-legend">{t}</span> : null}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* OLED Display Bay (Inner Side) */}
-                      <div className="corne-mcu-bay">
-                        <div className="mcu-pcb-socket">
-                          {assignedDisplayId && dispInfo ? (
-                            <div
-                              className={`oled-glass-housing relative group/display cursor-grab active:cursor-grabbing rounded-xl transition-all ${
-                                hoveredDisplayDropTarget === shield.id
-                                  ? 'ring-2 ring-[#00f0ff] shadow-[0_0_20px_rgba(0,240,255,0.6)] scale-102'
-                                  : 'hover:ring-1 hover:ring-[#00f0ff]/50'
-                              }`}
-                              style={{
-                                width: `${dispInfo.displayDim.displayW + OLED_BORDER_UNITS * 2}px`,
-                                height: `${dispInfo.displayDim.displayH + OLED_BORDER_UNITS * 2}px`,
-                              }}
-                              draggable={true}
-                              onDragStart={(e) => handleDisplayDragStart(e, shield.id, assignedDisplayId)}
-                              onDragEnd={handleDisplayDragEnd}
-                              onDragOver={(e) => handleDisplayDragOver(e, shield.id)}
-                              onDragLeave={(e) => handleDisplayDragLeave(e, shield.id)}
-                              onDrop={(e) => handleDisplayDrop(e, shield.id)}
-                              title={`${dispInfo.name} (Drag to swap or move to another shield)`}
-                            >
-                              <div className="absolute -top-3 left-1/2 -translate-x-1/2 opacity-0 group-hover/display:opacity-100 transition-opacity z-20 pointer-events-none bg-[#0a0d14]/95 border border-[#00f0ff]/40 text-[#00f0ff] text-[8px] font-mono font-bold px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap select-none">
-                                Drag Display
-                              </div>
-                              <div
-                                style={{
-                                  position: 'relative',
-                                  width: `${dispInfo.displayDim.displayW}px`,
-                                  height: `${dispInfo.displayDim.displayH}px`,
-                                }}
-                              >
-                                <canvas
-                                  ref={(el) => {
-                                    if (assignedDisplayId === 'central') leftCanvasRef.current = el;
-                                    else if (assignedDisplayId === 'peripheral') rightCanvasRef.current = el;
-                                    canvasRefs.current[assignedDisplayId] = el;
-                                  }}
-                                  className="corne-oled-canvas"
-                                  style={{
-                                    width: `${dispInfo.displayDim.displayW}px`,
-                                    height: `${dispInfo.displayDim.displayH}px`,
-                                    display: 'block',
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          ) : (
-                            <div
-                              className={`preview-oled-empty-bay transition-all ${
-                                hoveredDisplayDropTarget === shield.id
-                                  ? 'border-[#00f0ff] bg-[#00f0ff]/15 ring-2 ring-[#00f0ff] shadow-[0_0_20px_rgba(0,240,255,0.4)] scale-102'
-                                  : ''
-                              }`}
-                              onDragOver={(e) => handleDisplayDragOver(e, shield.id)}
-                              onDragLeave={(e) => handleDisplayDragLeave(e, shield.id)}
-                              onDrop={(e) => handleDisplayDrop(e, shield.id)}
-                              style={{
-                                width: `${fallbackDisplayDim.displayW + OLED_BORDER_UNITS * 2}px`,
-                                minHeight: `${fallbackDisplayDim.displayH + OLED_BORDER_UNITS * 2}px`,
-                              }}
-                              title="Empty OLED Bay — Drag a display here to mount"
-                            >
-                              <Monitor size={18} className="text-muted/60" />
-                              <span className="text-[10px] text-muted font-mono font-medium">Empty OLED Bay</span>
-                              <span className="text-[9px] text-muted/50 font-mono">No display attached</span>
-                            </div>
-                          )}
-                        </div>
+                    {/* OLED Display Bay (Inner Side) */}
+                    <div className="corne-mcu-bay">
+                      <div className="mcu-pcb-socket">
+                        <OledDisplayBay
+                          shieldId={shield.id}
+                          assignedDisplayId={assignedDisplayId}
+                          dispInfo={dispInfo}
+                          fallbackDisplayDim={fallbackDisplayDim}
+                          isHoveredDropTarget={hoveredDisplayDropTarget === shield.id}
+                          onDragStart={handleDisplayDragStart}
+                          onDragEnd={handleDisplayDragEnd}
+                          onDragOver={handleDisplayDragOver}
+                          onDragLeave={handleDisplayDragLeave}
+                          onDrop={handleDisplayDrop}
+                          renderState={blitterRenderState}
+                        />
                       </div>
-
-                      {/* Right: Keys Cluster second */}
-                      {!isLeft && (
-                        <div className="corne-keys-cluster">
-                          <div className="corne-matrix">
-                            {Array.from({ length: keymapLayout.columns }, (_, colIdx) => (
-                              <div
-                                key={colIdx}
-                                className="corne-col"
-                                style={{ transform: `translateY(${getColStagger(colIdx, keymapLayout.columns, true)}px)` }}
-                              >
-                                {Array.from({ length: keymapLayout.rows }, (_, rowIdx) => {
-                                  const keyLabel = currentRightMatrix[rowIdx]?.[colIdx] || '';
-                                  const coordId = `R_${rowIdx}_${colIdx}`;
-                                  const isPressed = pressedKeys.has(coordId);
-                                  const isEmpty = !keyLabel;
-                                  return (
-                                    <div
-                                      key={rowIdx}
-                                      className={`corne-keycap ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
-                                      onClick={() => triggerKeyPress(coordId)}
-                                      title={keyLabel ? `Right [${rowIdx},${colIdx}]: ${keyLabel}` : `Right [${rowIdx},${colIdx}]`}
-                                    >
-                                      {keyLabel ? <span className="keycap-legend">{keyLabel}</span> : null}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            ))}
-                          </div>
-
-                          <div className="corne-thumbs right-thumbs">
-                            {currentRightThumbs.map((t, idx) => {
-                              const coordId = `RT_${idx}`;
-                              const isPressed = pressedKeys.has(coordId);
-                              const isEmpty = !t;
-                              return (
-                                <div
-                                  key={idx}
-                                  className={`corne-thumb-key thumb-${idx} ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
-                                  onClick={() => triggerKeyPress(coordId)}
-                                  title={t ? `Right Thumb [${idx}]: ${t}` : `Right Thumb [${idx}]`}
-                                >
-                                  {t ? <span className="thumb-legend">{t}</span> : null}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
                     </div>
+
+                    {/* Right: Keys Cluster second */}
+                    {!isLeft && (
+                      <CorneKeysCluster
+                        isLeft={false}
+                        keymapLayout={keymapLayout}
+                        matrix={currentRightMatrix}
+                        thumbs={currentRightThumbs}
+                        pressedKeys={pressedKeys}
+                        onKeyPress={triggerKeyPress}
+                        getColStagger={getColStagger}
+                      />
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -1335,324 +1136,60 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
         </div>
       )}
 
-      {/* =========================================================================
-          UNATTACHED DISPLAYS SECTION
-          Renders any display configured in layout that is NOT mounted to a shield.
-          Displays explicit warning that it won't be saved when committing.
-          ========================================================================= */}
-      {unattachedDisplayIds.length > 0 && (
-        <div
-          className={`unattached-displays-section transition-all ${
-            hoveredUnattachedDrawer && draggedDisplay?.fromShieldId
-              ? 'ring-2 ring-amber-400 bg-amber-500/10 shadow-[0_0_24px_rgba(245,158,11,0.3)]'
-              : ''
-          }`}
-          data-testid="unattached-displays-section"
-          onDragOver={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            e.dataTransfer.dropEffect = 'move';
-            if (!hoveredUnattachedDrawer) setHoveredUnattachedDrawer(true);
-          }}
-          onDragLeave={() => setHoveredUnattachedDrawer(false)}
-          onDrop={handleDropOnUnattachedDrawer}
-        >
-          <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-            <div className="flex items-center gap-2 text-amber-400">
-              <AlertTriangle size={18} />
-              <span className="font-mono font-semibold text-sm">
-                {`Unattached Displays (${unattachedDisplayIds.length})`}
-              </span>
-            </div>
-            <span className="text-xs text-amber-400/90 font-mono">
-              Display is not attached and won't be saved when committing. Drop here to detach from shield.
-            </span>
-          </div>
+      {/* UNATTACHED DISPLAYS SECTION */}
+      <UnattachedDisplaysSection
+        unattachedDisplayIds={unattachedDisplayIds}
+        getDisplayInfo={getDisplayInfo}
+        hoveredUnattachedDrawer={hoveredUnattachedDrawer}
+        hasDraggedFromShield={Boolean(draggedDisplay?.fromShieldId)}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = 'move';
+          if (!hoveredUnattachedDrawer) setHoveredUnattachedDrawer(true);
+        }}
+        onDragLeave={() => setHoveredUnattachedDrawer(false)}
+        onDrop={handleDropOnUnattachedDrawer}
+        onDragStart={(e, screenId) => handleDisplayDragStart(e, undefined, screenId)}
+        onDragEnd={handleDisplayDragEnd}
+        onAssignDisplay={handleAssignDisplay}
+        orderedShields={orderedShields}
+        reconciledAssignments={reconciledAssignments}
+        renderState={blitterRenderState}
+      />
 
-          <div className="flex flex-wrap items-center justify-center gap-6">
-            {unattachedDisplayIds.map((screenId) => {
-              const info = getDisplayInfo(screenId);
-              if (!info) return null;
-              return (
-                <div
-                  key={screenId}
-                  className="unattached-display-card cursor-grab active:cursor-grabbing"
-                  data-testid={`unattached-card-${screenId}`}
-                  draggable
-                  onDragStart={(e) => handleDisplayDragStart(e, undefined, screenId)}
-                  onDragEnd={handleDisplayDragEnd}
-                  title="Drag display to any shield bay to attach"
-                >
-                  <div className="flex items-center justify-between w-full gap-2 border-b border-amber-500/20 pb-1.5">
-                    <span className="font-mono text-xs font-semibold text-[#e2f1ff]">{info.name}</span>
-                    <div className="flex items-center gap-1.5">
-                      <label className="text-[10px] text-muted font-mono">Attach to:</label>
-                      <select
-                        className="preview-display-select"
-                        value=""
-                        onChange={(e) => {
-                          const shieldKey = e.target.value;
-                          if (shieldKey) handleAssignDisplay(shieldKey, screenId);
-                        }}
-                        aria-label={`Attach ${info.name} to shield`}
-                      >
-                        <option value="" disabled>Select shield...</option>
-                        {orderedShields.map((sh) => (
-                          <option key={sh.id} value={sh.id}>
-                            {sh.name} {reconciledAssignments[sh.id] ? `(Replaces ${reconciledAssignments[sh.id]})` : '(Empty)'}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div
-                    className="oled-glass-housing"
-                    style={{
-                      width: `${info.displayDim.displayW + OLED_BORDER_UNITS * 2}px`,
-                      height: `${info.displayDim.displayH + OLED_BORDER_UNITS * 2}px`,
-                      borderColor: 'rgba(245, 158, 11, 0.4)',
-                      boxShadow: '0 0 12px rgba(245, 158, 11, 0.15)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        position: 'relative',
-                        width: `${info.displayDim.displayW}px`,
-                        height: `${info.displayDim.displayH}px`,
-                      }}
-                    >
-                      <canvas
-                        ref={(el) => {
-                          if (screenId === 'central') leftCanvasRef.current = el;
-                          else if (screenId === 'peripheral') rightCanvasRef.current = el;
-                          canvasRefs.current[screenId] = el;
-                        }}
-                        className="corne-oled-canvas"
-                        style={{
-                          width: `${info.displayDim.displayW}px`,
-                          height: `${info.displayDim.displayH}px`,
-                          display: 'block',
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 text-[10px] text-amber-400/80 font-mono mt-1 text-center">
-                    <AlertTriangle size={11} />
-                    <span>Display is not attached and won't be saved when committing.</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* =========================================================================
-          BOTTOM: REACTIVE FIRMWARE SIMULATOR CONTROLS
-          ========================================================================= */}
-      <div className="simulator-controls-panel">
-        <div className="panel-card-inner">
-          <div className="card-header">
-            <div className="flex items-center gap-2">
-              <Sliders size={17} className="text-accent" />
-              <h3 className="card-title">Live Keyboard Simulator Controls</h3>
-            </div>
-            <span className="badge-mode">
-              {effectiveEnabledScreens.length > 2
-                ? `${effectiveEnabledScreens.length}-Screen Multi-Display`
-                : effectiveEnabledScreens.length === 1
-                ? 'Single Display'
-                : 'Dual Display Sync'}
-            </span>
-          </div>
-
-          <div className="controls-grid">
-            {/* Screen State */}
-            <div className="control-group">
-              <label>Screen State</label>
-              <div className="widget-mode-radio-group w-fit" role="radiogroup" aria-label="Screen State">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={!isIdle}
-                  className={`widget-mode-radio-btn ${!isIdle ? 'active' : ''}`}
-                  onClick={() => setIsIdle(false)}
-                >
-                  <Sun size={13} />
-                  <span>Active Mode</span>
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={isIdle}
-                  className={`widget-mode-radio-btn ${isIdle ? 'active' : ''}`}
-                  onClick={() => setIsIdle(true)}
-                >
-                  <Moon size={13} />
-                  <span>Idle Sleep</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Output Protocol */}
-            <div className="control-group">
-              <label>Output Protocol</label>
-              <div className="widget-mode-radio-group w-fit" role="radiogroup" aria-label="Output Protocol">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={outputMode === 'usb'}
-                  className={`widget-mode-radio-btn ${outputMode === 'usb' ? 'active' : ''}`}
-                  onClick={() => setOutputMode('usb')}
-                >
-                  <Usb size={13} />
-                  <span>USB</span>
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={outputMode === 'ble'}
-                  className={`widget-mode-radio-btn ${outputMode === 'ble' ? 'active' : ''}`}
-                  onClick={() => setOutputMode('ble')}
-                >
-                  <Bluetooth size={13} />
-                  <span>Bluetooth</span>
-                </button>
-              </div>
-              {outputMode === 'ble' && (
-                <div className="flex items-center gap-2 mt-1.5">
-                  <span className="text-xs text-muted">Profile:</span>
-                  <div className="widget-mode-radio-group flex-wrap w-fit" role="radiogroup" aria-label="Output Protocol Profiles">
-                    {[0, 1, 2, 3, 4, 5].map(idx => (
-                      <button
-                        key={idx}
-                        type="button"
-                        role="radio"
-                        aria-checked={bleProfileIndex === idx}
-                        className={`widget-mode-radio-btn !px-2 !py-0.5 text-xs ${bleProfileIndex === idx ? 'active' : ''}`}
-                        onClick={() => setBleProfileIndex(idx)}
-                      >
-                        <span>{idx === 0 ? 'No conn' : `P${idx}`}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Active Keyboard Layer */}
-            <div className="control-group full-width">
-              <label className="flex items-center gap-1">
-                <Layers size={14} className="text-accent" />
-                <span>Active Keyboard Layer</span>
-              </label>
-              <div className="widget-mode-radio-group flex-wrap w-fit" role="radiogroup" aria-label="Active Keyboard Layer">
-                {layerNames.map((name, idx) => (
-                  <button
-                    key={`${name}-${idx}`}
-                    type="button"
-                    role="radio"
-                    aria-checked={currentLayer === idx}
-                    className={`widget-mode-radio-btn ${currentLayer === idx ? 'active' : ''}`}
-                    onClick={() => setCurrentLayer(idx)}
-                  >
-                    <span>{formatLayerLabel(idx, name)}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Wireless Link, Caps Lock & Character Clicker Row */}
-            <div className="full-width">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {/* Split Wireless Link */}
-                <div className="control-group">
-                  <label>Split Wireless Link</label>
-                  <button
-                    className={`btn-toggle-subtle flex items-center justify-center gap-2 h-9 ${splitConnected ? 'active-accent' : 'inactive'}`}
-                    onClick={() => setSplitConnected(!splitConnected)}
-                  >
-                    <span>{splitConnected ? 'Linked (Connected)' : 'Disconnected (Unlinked)'}</span>
-                  </button>
-                </div>
-
-                {/* Caps Lock State */}
-                <div className="control-group">
-                  <label>Caps Lock State</label>
-                  <button
-                    className={`btn-toggle-subtle flex items-center justify-center gap-2 h-9 ${capsLock ? 'active-accent' : 'inactive'}`}
-                    onClick={() => setCapsLock(!capsLock)}
-                  >
-                    <span>{capsLock ? 'Caps Lock: ON' : 'Caps Lock: OFF'}</span>
-                  </button>
-                </div>
-
-                {/* Character Clicker */}
-                <div className="control-group">
-                  <label>Character Clicker</label>
-                  <button
-                    className={`btn-toggle-subtle flex items-center justify-center gap-2 h-9 ${randomClickerEnabled ? 'active-accent' : 'inactive'}`}
-                    onClick={() => setRandomClickerEnabled(prev => !prev)}
-                    title={randomClickerEnabled ? 'Click to stop character clicker' : 'Simulate random typing speeds (0 stalled to 60 WPM)'}
-                  >
-                    <Shuffle size={13} />
-                    <span>
-                      {randomClickerEnabled
-                        ? clickerSpeed === 0
-                          ? 'Clicker: Stalled (0 WPM)'
-                          : `Clicker: ~${clickerSpeed} WPM`
-                        : 'Clicker: OFF'}
-                    </span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Battery Level (Single Slider) */}
-            <div className="control-group">
-              <div className="label-with-value">
-                <label className="flex items-center gap-1">
-                  <Battery size={14} className="text-accent" />
-                  <span>Battery Level</span>
-                </label>
-                <span className="value-chip">{battery}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={battery}
-                onChange={e => setBattery(parseInt(e.target.value, 10))}
-                className="slider-range"
-              />
-            </div>
-
-            {/* Typing Speed (WPM) (Single Slider) */}
-            <div className="control-group">
-              <div className="label-with-value">
-                <label className="flex items-center gap-1">
-                  <Gauge size={14} className="text-accent" />
-                  <span>Typing Speed (WPM)</span>
-                </label>
-                <span className="value-chip font-mono">{`${wpm} WPM`}</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="160"
-                value={wpm}
-                onChange={e => {
-                  hadRecentKeystrokesRef.current = false;
-                  setWpm(parseInt(e.target.value, 10));
-                }}
-                className="slider-range"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* BOTTOM: REACTIVE FIRMWARE SIMULATOR CONTROLS */}
+      <OledSimulationPanel
+        isIdle={isIdle}
+        onSetIsIdle={setIsIdle}
+        outputMode={outputMode}
+        onSetOutputMode={setOutputMode}
+        bleProfileIndex={bleProfileIndex}
+        onSetBleProfileIndex={setBleProfileIndex}
+        currentLayer={currentLayer}
+        onSetCurrentLayer={setCurrentLayer}
+        layerNames={layerNames}
+        splitConnected={splitConnected}
+        onToggleSplitConnected={() => setSplitConnected(!splitConnected)}
+        capsLock={capsLock}
+        onToggleCapsLock={() => setCapsLock(!capsLock)}
+        randomClickerEnabled={randomClickerEnabled}
+        clickerSpeed={clickerSpeed}
+        onToggleRandomClicker={() => {
+          setRandomClickerEnabled(prev => {
+            if (prev) setClickerSpeed(0);
+            return !prev;
+          });
+        }}
+        battery={battery}
+        onSetBattery={setBattery}
+        wpm={wpm}
+        onSetWpm={(val) => {
+          hadRecentKeystrokesRef.current = false;
+          setWpm(val);
+        }}
+        screenCount={effectiveEnabledScreens.length}
+      />
     </div>
   );
 };

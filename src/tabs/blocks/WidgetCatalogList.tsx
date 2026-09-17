@@ -54,7 +54,7 @@ export const WidgetMiniPreview: React.FC<{
   instances,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const startTimeRef = useRef<number>(Date.now());
+  const startTimeRef = useRef<number>(0);
   const [animTimestamp, setAnimTimestamp] = useState<number>(0);
 
   useEffect(() => {

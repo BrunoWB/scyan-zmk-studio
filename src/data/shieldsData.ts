@@ -853,7 +853,7 @@ export function detectShieldUnitsFromRepo(
 
   // Check build.yaml content if provided
   if (buildYamlContent) {
-    const matches = Array.from(buildYamlContent.matchAll(/shield:\s*([a-zA-Z0-9_\-]+)/g));
+    const matches = Array.from(buildYamlContent.matchAll(/shield:\s*([a-zA-Z0-9_-]+)/g));
     for (const match of matches) {
       const rawName = match[1];
       const sName = rawName.toLowerCase().replace(/_/g, '-');

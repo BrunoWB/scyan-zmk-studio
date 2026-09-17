@@ -245,6 +245,7 @@ export const TopologySandboxTab: React.FC<TopologySandboxTabProps> = ({
     effectivePeripheralBlocks,
     effectiveIdleCentralBlocks,
     effectiveIdlePeripheralBlocks,
+    peripheralScreens,
   ]);
 
   return (

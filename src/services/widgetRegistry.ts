@@ -7,6 +7,8 @@ import type {
   SlotSourceType,
   WidgetSlotDefinition,
   WidgetSlotConfig,
+  WidgetInstance,
+  WidgetInstanceConfig,
 } from '../types/widget';
 
 /**
@@ -1607,3 +1609,240 @@ export function renderBlocksToGrid(
     renderWidgetById(normType, grid, destX, block.y, activeContext);
   }
 }
+
+/**
+ * Resolves the canonical initial configuration for a widget type based on available symbol slices.
+ * Ensures widget instances are initialized with valid groupIds and settings rather than blank fallbacks.
+ */
+export function getDefaultWidgetConfig(
+  widgetTypeId: string,
+  symbolSlices: SpriteSlice[] = []
+): WidgetInstanceConfig {
+  const normId = normalizeWidgetType(widgetTypeId);
+  switch (normId) {
+    case 'branding':
+      return {
+        mode: 'font',
+        fontSize: 'small',
+        textAlign: 'center',
+        align: 'center',
+        textEntries: ['ZMK'],
+      };
+
+    case 'wpm-chart':
+      return {
+        mode: 'symbol',
+        wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 },
+      };
+
+    case 'connection':
+      return {
+        mode: 'symbol',
+        groupId: 'SYMBOL_USB',
+        groupIds: [
+          'SYMBOL_BLUETOOTH',
+          'SYMBOL_BLUETOOTH',
+          'SYMBOL_BLUETOOTH',
+          'SYMBOL_BLUETOOTH',
+          'SYMBOL_BLUETOOTH',
+          'SYMBOL_BLUETOOTH',
+        ],
+        textEntries: ['USB', 'No conn', 'P1', 'P2', 'P3', 'P4', 'P5'],
+      };
+
+    case 'battery': {
+      const battSlice = symbolSlices.find(
+        (s) =>
+          (s.groupId?.toUpperCase().includes('CHARGE') ||
+            s.groupId?.toUpperCase().includes('BATT') ||
+            s.id.toUpperCase().includes('BATTERY')) &&
+          symbolSlices.filter((m) => m.groupId === s.groupId).length >= 2
+      ) || symbolSlices.find(
+        (s) =>
+          s.groupId?.toUpperCase().includes('CHARGE') ||
+          s.groupId?.toUpperCase().includes('BATT') ||
+          s.id.toUpperCase().includes('BATTERY')
+      );
+      return {
+        mode: 'symbol',
+        groupId: battSlice?.groupId || 'SYMBOL_CHARGE_0960',
+      };
+    }
+
+    case 'split': {
+      const splitSlice = symbolSlices.find(
+        (s) =>
+          s.groupId?.toUpperCase().includes('SPLIT') ||
+          s.id.toUpperCase().includes('SPLIT')
+      );
+      return {
+        mode: 'symbol',
+        groupId: splitSlice?.groupId || 'SYMBOL_SPLIT_CONNECTED',
+      };
+    }
+
+    case 'layer-banner': {
+      const bracketSlice = symbolSlices.find(
+        (s) =>
+          s.groupId?.toUpperCase().includes('BRACKET') ||
+          s.groupId?.toUpperCase().includes('LAYER') ||
+          s.id.toUpperCase().includes('BRACKET')
+      );
+      const bracketGroupId = bracketSlice?.groupId || 'SYMBOL_BRACKET_LAYER_0';
+      return {
+        mode: 'symbol',
+        groupIds: [
+          bracketGroupId,
+          bracketGroupId,
+          'SYMBOL_BRACKET_LAYER_1',
+          'SYMBOL_BRACKET_LAYER_2',
+          'SYMBOL_BRACKET_LAYER_3',
+        ],
+      };
+    }
+
+    case 'wpm':
+    case 'wpm-gauge': {
+      const speedSlice = symbolSlices.find(
+        (s) =>
+          s.groupId?.toUpperCase().includes('SPEED') ||
+          s.groupId?.toUpperCase().includes('WPM') ||
+          s.id.toUpperCase().includes('ARROW')
+      );
+      return {
+        mode: 'symbol',
+        groupId: speedSlice?.groupId || 'SYMBOL_SPEEDOMETER_8803',
+        targetValue: 70,
+      };
+    }
+
+    case 'caps-lock': {
+      const capsSlice = symbolSlices.find(
+        (s) =>
+          s.groupId?.toUpperCase().includes('CAPS') ||
+          s.id.toUpperCase().includes('CAPS')
+      );
+      return {
+        mode: 'symbol',
+        groupId: capsSlice?.groupId || 'SYMBOL_CAPSA_9310',
+        textEntries: ['a', ''],
+      };
+    }
+
+    case 'bongo': {
+      const bongoGroup = symbolSlices.find(
+        (s) =>
+          s.groupOrder === 1 &&
+          symbolSlices.filter((m) => m.groupId === s.groupId).length >= 3 &&
+          (s.id.toUpperCase().includes('BONGO') || s.groupId?.toUpperCase().includes('BONGO'))
+      ) || symbolSlices.find(
+        (s) =>
+          s.id.toUpperCase().includes('BONGO') ||
+          s.groupId?.toUpperCase().includes('BONGO') ||
+          s.id.startsWith('SYMBOL_SLICE_40_4046')
+      );
+      return {
+        mode: 'symbol',
+        groupId: bongoGroup?.groupId || 'SYMBOL_SLICE_40_4046',
+        textEntries: ['(=^.^=)'],
+        bongoTapMs: 60,
+        bongoDebounceMs: 100,
+      };
+    }
+
+    case 'screensaver': {
+      const isSystemGroup = (gid: string) => {
+        const u = gid.toUpperCase();
+        return (
+          u.includes('CHARGE') ||
+          u.includes('BATTERY') ||
+          u.includes('SPEED') ||
+          u.includes('WPM') ||
+          u.includes('BLUETOOTH') ||
+          u.includes('USB') ||
+          u.includes('SPLIT') ||
+          u.includes('LAYER') ||
+          u.includes('BRACKET')
+        );
+      };
+      const artSlice =
+        symbolSlices.find((s) => !isSystemGroup(s.groupId)) ||
+        symbolSlices.find((s) => s.id.includes('SKULL') || s.id.includes('CAMPFIRE')) ||
+        symbolSlices[0];
+      return {
+        mode: 'symbol',
+        groupId: artSlice?.groupId || 'SYMBOL_SKULL_LAYER_0',
+      };
+    }
+
+    case 'animation':
+    case 'loop': {
+      const isSystemGroup = (gid: string) => {
+        const u = gid.toUpperCase();
+        return (
+          u.includes('CHARGE') ||
+          u.includes('BATTERY') ||
+          u.includes('SPEED') ||
+          u.includes('WPM') ||
+          u.includes('BLUETOOTH') ||
+          u.includes('USB') ||
+          u.includes('SPLIT') ||
+          u.includes('LAYER') ||
+          u.includes('BRACKET')
+        );
+      };
+      const animGroup =
+        symbolSlices.find(
+          (s) =>
+            !isSystemGroup(s.groupId) &&
+            s.groupOrder === 1 &&
+            symbolSlices.filter((m) => m.groupId === s.groupId).length >= 2
+        ) ||
+        symbolSlices.find(
+          (s) => s.groupOrder === 1 && symbolSlices.filter((m) => m.groupId === s.groupId).length >= 2
+        );
+      return {
+        mode: 'symbol',
+        groupId: animGroup?.groupId || 'SYMBOL_CAMPFIRE',
+        loopSpeedMs: 150,
+        loop: true,
+      };
+    }
+
+    default:
+      return { mode: 'symbol', textAlign: 'center', align: 'center' };
+  }
+}
+
+/**
+ * Creates a fully configured widget instance with all default slots and parameters populated.
+ */
+export function createDefaultWidgetInstance(
+  widgetTypeId: string,
+  symbolSlices: SpriteSlice[] = [],
+  instanceId?: string
+): WidgetInstance {
+  const normId = normalizeWidgetType(widgetTypeId);
+  const def = getWidgetDefinition(normId);
+  const config = getDefaultWidgetConfig(normId, symbolSlices);
+  const inst: WidgetInstance = {
+    id: instanceId || `${normId}-${Date.now()}`,
+    widgetTypeId: normId,
+    label: def?.name || normId,
+    config,
+    slots: {},
+  };
+  if (def?.slots) {
+    def.slots.forEach((s) => {
+      if (s.defaultSymbolId || s.defaultText) {
+        inst.slots![s.id] = {
+          mode: s.defaultMode,
+          symbolId: s.defaultSymbolId,
+          text: s.defaultText,
+        };
+      }
+    });
+  }
+  return inst;
+}
+

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToString } from 'react-dom/server';
-import { OledDisplayModule, getCalculatedDisplayDim } from '../OledDisplayModule';
+import { OledDisplayModule } from '../OledDisplayModule';
+import { getCalculatedDisplayDim } from '../oledDisplayHelper';
 import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
 
 describe('OledDisplayModule', () => {
