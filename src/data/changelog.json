@@ -14,6 +14,14 @@
     ],
     "patches": [
       {
+        "patch": "1.0.15",
+        "date": "2026-09-17",
+        "commitHash": "5c0f878",
+        "changes": [
+          "feat(topology): shield unit detection and multi-display assignment mapping"
+        ]
+      },
+      {
         "patch": "1.0.14",
         "date": "2026-09-14",
         "commitHash": "cae647f",
