@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "1.1.2",
+        "date": "2026-09-18",
+        "commitHash": "7e4b665",
+        "changes": [
+          "refactor(blocks): remove view idle/active action from oled floating actions"
+        ]
+      },
+      {
         "patch": "1.1.1",
         "date": "2026-09-18",
         "commitHash": "7b92c2f",
