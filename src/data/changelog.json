@@ -14,6 +14,14 @@
     ],
     "patches": [
       {
+        "patch": "1.0.17",
+        "date": "2026-09-18",
+        "commitHash": "62fd716",
+        "changes": [
+          "feat(yaml): replace regex YAML operations with AST-based parser (closes #11)"
+        ]
+      },
+      {
         "patch": "1.0.16",
         "date": "2026-09-17",
         "commitHash": "fe08fcc",
