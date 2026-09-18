@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "1.1.3",
+        "date": "2026-09-18",
+        "commitHash": "46280d4",
+        "changes": [
+          "fix(compiler): ensure WIDGET_TYPE_OUTPUT_STATUS places USB symbol at index 0"
+        ]
+      },
+      {
         "patch": "1.1.2",
         "date": "2026-09-18",
         "commitHash": "7e4b665",
