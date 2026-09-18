@@ -348,7 +348,287 @@ export function formatStudioCommitMessage(message: string): string {
 }
 
 /**
- * Commits a file update to the repository.
+ * Safely encodes a UTF-8 string into Base64 (browser & Node compatible).
+ */
+export function encodeBase64Utf8(content: string): string {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(content, 'utf8').toString('base64');
+  }
+  const utf8Bytes = new TextEncoder().encode(content);
+  let binary = '';
+  const len = utf8Bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(utf8Bytes[i]);
+  }
+  return btoa(binary);
+}
+
+export interface GitFileAddition {
+  path: string;
+  content: string;
+}
+
+export interface GitFileDeletion {
+  path: string;
+}
+
+export interface AtomicCommitOptions {
+  config: GitHubRepoConfig;
+  message: string;
+  additions?: GitFileAddition[];
+  deletions?: GitFileDeletion[];
+  expectedHeadOid?: string;
+}
+
+export interface AtomicCommitResult {
+  commitSha: string;
+  commitUrl: string;
+  filesCommitted: string[];
+}
+
+/**
+ * Atomically commits multiple file additions and deletions directly on a branch
+ * in a single network roundtrip using the GitHub GraphQL `createCommitOnBranch` mutation.
+ */
+export async function commitChangesAtomicViaGraphQL(
+  options: AtomicCommitOptions
+): Promise<AtomicCommitResult> {
+  const { config, message, additions = [], deletions = [] } = options;
+  if (additions.length === 0 && deletions.length === 0) {
+    throw new Error('No file changes specified for commit.');
+  }
+
+  const octokit = getOctokit(config.token);
+  const branch = (config.branch || 'main').replace(/^refs\/heads\//, '');
+  const formattedMessage = formatStudioCommitMessage(message);
+
+  const lines = formattedMessage.split('\n');
+  const headline = lines[0];
+  const body = lines.slice(1).join('\n').trim();
+
+  // 1. Resolve expectedHeadOid if not provided
+  let headOid = options.expectedHeadOid;
+  if (!headOid) {
+    try {
+      const branchData = await octokit.graphql<{
+        repository?: {
+          ref?: {
+            target?: {
+              oid?: string;
+            };
+          };
+        };
+      }>(
+        `
+        query GetBranchHead($owner: String!, $repo: String!, $qualifiedName: String!) {
+          repository(owner: $owner, name: $repo) {
+            ref(qualifiedName: $qualifiedName) {
+              target {
+                oid
+              }
+            }
+          }
+        }
+        `,
+        {
+          owner: config.owner,
+          repo: config.repo,
+          qualifiedName: `refs/heads/${branch}`,
+        }
+      );
+      headOid = branchData?.repository?.ref?.target?.oid;
+    } catch {
+      // If GraphQL query fails, fallback to getRef below
+    }
+  }
+
+  if (!headOid) {
+    const refRes = await octokit.git.getRef({
+      owner: config.owner,
+      repo: config.repo,
+      ref: `heads/${branch}`,
+    });
+    headOid = refRes.data.object.sha;
+  }
+
+  // 2. Build file changes
+  const fileChanges: {
+    additions?: { path: string; contents: string }[];
+    deletions?: { path: string }[];
+  } = {};
+
+  if (additions.length > 0) {
+    fileChanges.additions = additions.map(a => ({
+      path: a.path,
+      contents: encodeBase64Utf8(a.content),
+    }));
+  }
+
+  if (deletions.length > 0) {
+    fileChanges.deletions = deletions.map(d => ({
+      path: d.path,
+    }));
+  }
+
+  const mutation = `
+    mutation CreateCommitOnBranch($input: CreateCommitOnBranchInput!) {
+      createCommitOnBranch(input: $input) {
+        commit {
+          oid
+          url
+        }
+      }
+    }
+  `;
+
+  const res = await octokit.graphql<{
+    createCommitOnBranch: {
+      commit: {
+        oid: string;
+        url: string;
+      };
+    };
+  }>(mutation, {
+    input: {
+      branch: {
+        repositoryNameWithOwner: `${config.owner}/${config.repo}`,
+        branchName: branch,
+      },
+      expectedHeadOid: headOid,
+      message: {
+        headline,
+        ...(body ? { body } : {}),
+      },
+      fileChanges,
+    },
+  });
+
+  const commit = res.createCommitOnBranch.commit;
+  const filesCommitted = [
+    ...additions.map(a => a.path),
+    ...deletions.map(d => `${d.path} (deleted)`),
+  ];
+
+  return {
+    commitSha: commit.oid,
+    commitUrl: commit.url,
+    filesCommitted,
+  };
+}
+
+/**
+ * Commits multiple file additions and deletions via the multi-step REST Git Trees API
+ * (getRef -> getCommit -> createTree -> createCommit -> updateRef).
+ */
+export async function commitChangesViaGitTrees(
+  options: AtomicCommitOptions
+): Promise<AtomicCommitResult> {
+  const { config, message, additions = [], deletions = [] } = options;
+  if (additions.length === 0 && deletions.length === 0) {
+    throw new Error('No file changes specified for commit.');
+  }
+
+  const octokit = getOctokit(config.token);
+  const branch = (config.branch || 'main').replace(/^refs\/heads\//, '');
+  const formattedMessage = formatStudioCommitMessage(message);
+
+  let currentCommitSha = options.expectedHeadOid;
+  if (!currentCommitSha) {
+    const refRes = await octokit.git.getRef({
+      owner: config.owner,
+      repo: config.repo,
+      ref: `heads/${branch}`,
+    });
+    currentCommitSha = refRes.data.object.sha;
+  }
+
+  const commitObjRes = await octokit.git.getCommit({
+    owner: config.owner,
+    repo: config.repo,
+    commit_sha: currentCommitSha,
+  });
+  const baseTreeSha = commitObjRes.data.tree.sha;
+
+  const treeEntries: Array<{
+    path: string;
+    mode: '100644';
+    type: 'blob';
+    sha?: string | null;
+    content?: string;
+  }> = [];
+
+  for (const a of additions) {
+    treeEntries.push({
+      path: a.path,
+      mode: '100644',
+      type: 'blob',
+      content: a.content,
+    });
+  }
+
+  for (const d of deletions) {
+    treeEntries.push({
+      path: d.path,
+      mode: '100644',
+      type: 'blob',
+      sha: null,
+    });
+  }
+
+  const treeRes = await octokit.git.createTree({
+    owner: config.owner,
+    repo: config.repo,
+    base_tree: baseTreeSha,
+    tree: treeEntries as any,
+  });
+
+  const newCommitRes = await octokit.git.createCommit({
+    owner: config.owner,
+    repo: config.repo,
+    message: formattedMessage,
+    tree: treeRes.data.sha,
+    parents: [currentCommitSha],
+  });
+
+  await octokit.git.updateRef({
+    owner: config.owner,
+    repo: config.repo,
+    ref: `heads/${branch}`,
+    sha: newCommitRes.data.sha,
+  });
+
+  const filesCommitted = [
+    ...additions.map(a => a.path),
+    ...deletions.map(d => `${d.path} (deleted)`),
+  ];
+
+  return {
+    commitSha: newCommitRes.data.sha,
+    commitUrl: newCommitRes.data.html_url,
+    filesCommitted,
+  };
+}
+
+/**
+ * Commits file additions and deletions, trying the single-roundtrip GraphQL createCommitOnBranch
+ * first, and gracefully falling back to Git Trees REST API if GraphQL fails.
+ */
+export async function commitChangesWithFallback(
+  options: AtomicCommitOptions
+): Promise<AtomicCommitResult> {
+  try {
+    return await commitChangesAtomicViaGraphQL(options);
+  } catch (graphQLErr) {
+    console.warn(
+      'GitHub GraphQL createCommitOnBranch failed, falling back to Git Trees REST API:',
+      graphQLErr
+    );
+    return await commitChangesViaGitTrees(options);
+  }
+}
+
+/**
+ * Commits a single file update to the repository (legacy/single-file fallback).
  */
 export async function commitFileToRepo(
   config: GitHubRepoConfig,
@@ -362,15 +642,7 @@ export async function commitFileToRepo(
   }
 
   const octokit = getOctokit(config.token);
-
-  // Base64 encode UTF-8 string cleanly
-  const utf8Bytes = new TextEncoder().encode(content);
-  let binary = '';
-  utf8Bytes.forEach(b => {
-    binary += String.fromCharCode(b);
-  });
-  const base64Content = btoa(binary);
-
+  const base64Content = encodeBase64Utf8(content);
   const formattedMessage = formatStudioCommitMessage(commitMessage);
 
   try {
@@ -765,9 +1037,6 @@ export async function installScyanStudioToRepo(
     throw new Error('Repository is not configured.');
   }
 
-  const octokit = getOctokit(config.token);
-  const branch = config.branch || 'main';
-
   // 1. Check prerequisites to obtain existing file contents
   const prereqs = await checkRepoPrerequisites(config);
 
@@ -806,7 +1075,7 @@ export async function installScyanStudioToRepo(
   }
 
   // 4. Collect file updates
-  const filesToCommit: { path: string; content: string }[] = [];
+  const filesToCommit: GitFileAddition[] = [];
 
   filesToCommit.push({
     path: 'config/scyan_assets.h',
@@ -827,51 +1096,16 @@ export async function installScyanStudioToRepo(
     });
   }
 
-  // 5. Git Trees API atomic commit
-  const refRes = await octokit.git.getRef({
-    owner: config.owner,
-    repo: config.repo,
-    ref: `heads/${branch}`,
-  });
-  const currentCommitSha = refRes.data.object.sha;
-
-  const commitObjRes = await octokit.git.getCommit({
-    owner: config.owner,
-    repo: config.repo,
-    commit_sha: currentCommitSha,
-  });
-  const baseTreeSha = commitObjRes.data.tree.sha;
-
-  const treeRes = await octokit.git.createTree({
-    owner: config.owner,
-    repo: config.repo,
-    base_tree: baseTreeSha,
-    tree: filesToCommit.map(f => ({
-      path: f.path,
-      mode: '100644' as const,
-      type: 'blob' as const,
-      content: f.content,
-    })),
-  });
-
-  const newCommitRes = await octokit.git.createCommit({
-    owner: config.owner,
-    repo: config.repo,
-    message: formatStudioCommitMessage('feat(display): install Scyan ZMK Studio module, config & assets'),
-    tree: treeRes.data.sha,
-    parents: [currentCommitSha],
-  });
-
-  await octokit.git.updateRef({
-    owner: config.owner,
-    repo: config.repo,
-    ref: `heads/${branch}`,
-    sha: newCommitRes.data.sha,
+  // 5. Commit changes atomically (GraphQL createCommitOnBranch with REST fallback)
+  const commitRes = await commitChangesWithFallback({
+    config,
+    message: 'feat(display): install Scyan ZMK Studio module, config & assets',
+    additions: filesToCommit,
   });
 
   return {
-    commitSha: newCommitRes.data.sha,
-    commitUrl: newCommitRes.data.html_url,
+    commitSha: commitRes.commitSha,
+    commitUrl: commitRes.commitUrl,
   };
 }
 
@@ -1083,28 +1317,18 @@ export async function uninstallScyanStudioFromRepo(
     throw new Error('Repository is not configured.');
   }
 
-  const octokit = getOctokit(config.token);
-  const branch = config.branch || 'main';
-
   // 1. Check prerequisites to locate existing files
   const prereqs = await checkRepoPrerequisites(config);
 
-  const treeEntries: Array<{
-    path: string;
-    mode: '100644';
-    type: 'blob';
-    sha?: string | null;
-    content?: string;
-  }> = [];
+  const additions: GitFileAddition[] = [];
+  const deletions: GitFileDeletion[] = [];
 
   // 2. Prepare cleaned west.yml if present
   if (prereqs.existingWestContent && prereqs.existingWestContent.includes('scyan-zmk-module')) {
     const cleanedWest = removeScyanFromWest(prereqs.existingWestContent);
     if (cleanedWest !== prereqs.existingWestContent) {
-      treeEntries.push({
+      additions.push({
         path: prereqs.westPath || 'config/west.yml',
-        mode: '100644',
-        type: 'blob',
         content: cleanedWest,
       });
     }
@@ -1114,10 +1338,8 @@ export async function uninstallScyanStudioFromRepo(
   if (prereqs.existingConfContent) {
     const cleanedConf = removeScyanFromConf(prereqs.existingConfContent);
     if (cleanedConf !== prereqs.existingConfContent) {
-      treeEntries.push({
+      additions.push({
         path: prereqs.confPath || 'config/corne.conf',
-        mode: '100644',
-        type: 'blob',
         content: cleanedConf,
       });
     }
@@ -1125,58 +1347,26 @@ export async function uninstallScyanStudioFromRepo(
 
   // 4. Remove scyan_assets.h if it exists
   if (prereqs.hasAssetsHeader) {
-    treeEntries.push({
+    deletions.push({
       path: prereqs.headerPath || 'config/scyan_assets.h',
-      mode: '100644',
-      type: 'blob',
-      sha: null as any,
     });
   }
 
-  if (treeEntries.length === 0) {
+  if (additions.length === 0 && deletions.length === 0) {
     throw new Error('No Scyan Studio assets or configurations found to uninstall.');
   }
 
-  // 5. Git Trees API atomic commit
-  const refRes = await octokit.git.getRef({
-    owner: config.owner,
-    repo: config.repo,
-    ref: `heads/${branch}`,
-  });
-  const currentCommitSha = refRes.data.object.sha;
-
-  const commitObjRes = await octokit.git.getCommit({
-    owner: config.owner,
-    repo: config.repo,
-    commit_sha: currentCommitSha,
-  });
-  const baseTreeSha = commitObjRes.data.tree.sha;
-
-  const treeRes = await octokit.git.createTree({
-    owner: config.owner,
-    repo: config.repo,
-    base_tree: baseTreeSha,
-    tree: treeEntries,
-  });
-
-  const newCommitRes = await octokit.git.createCommit({
-    owner: config.owner,
-    repo: config.repo,
-    message: formatStudioCommitMessage('chore(display): uninstall Scyan ZMK Studio module, config & assets'),
-    tree: treeRes.data.sha,
-    parents: [currentCommitSha],
-  });
-
-  await octokit.git.updateRef({
-    owner: config.owner,
-    repo: config.repo,
-    ref: `heads/${branch}`,
-    sha: newCommitRes.data.sha,
+  // 5. Commit changes atomically (GraphQL createCommitOnBranch with REST fallback)
+  const commitRes = await commitChangesWithFallback({
+    config,
+    message: 'chore(display): uninstall Scyan ZMK Studio module, config & assets',
+    additions,
+    deletions,
   });
 
   return {
-    commitSha: newCommitRes.data.sha,
-    commitUrl: newCommitRes.data.html_url,
+    commitSha: commitRes.commitSha,
+    commitUrl: commitRes.commitUrl,
   };
 }
 
@@ -1386,8 +1576,6 @@ export async function commitStudioSaveToRepo(
     throw new Error('GitHub Personal Access Token is required to commit changes.');
   }
 
-  const octokit = getOctokit(config.token);
-  const branch = config.branch || 'main';
   const formattedMessage = formatStudioCommitMessage(commitMessage);
 
   // 1. Discover .conf files and calculate required Kconfig updates
@@ -1400,61 +1588,26 @@ export async function commitStudioSaveToRepo(
   }
 
   // 2. Collect all files to commit
-  const filesToCommit: { path: string; content: string }[] = [
+  const additions: GitFileAddition[] = [
     { path: headerPath, content: headerContent },
     ...confUpdates,
   ];
 
-  // 3. Perform atomic commit via Git Trees API
+  // 3. Perform atomic commit via GraphQL createCommitOnBranch (with Git Trees REST fallback)
   try {
-    const refRes = await octokit.git.getRef({
-      owner: config.owner,
-      repo: config.repo,
-      ref: `heads/${branch}`,
-    });
-    const currentCommitSha = refRes.data.object.sha;
-
-    const commitObjRes = await octokit.git.getCommit({
-      owner: config.owner,
-      repo: config.repo,
-      commit_sha: currentCommitSha,
-    });
-    const baseTreeSha = commitObjRes.data.tree.sha;
-
-    const treeRes = await octokit.git.createTree({
-      owner: config.owner,
-      repo: config.repo,
-      base_tree: baseTreeSha,
-      tree: filesToCommit.map(f => ({
-        path: f.path,
-        mode: '100644' as const,
-        type: 'blob' as const,
-        content: f.content,
-      })),
-    });
-
-    const newCommitRes = await octokit.git.createCommit({
-      owner: config.owner,
-      repo: config.repo,
-      message: formattedMessage,
-      tree: treeRes.data.sha,
-      parents: [currentCommitSha],
-    });
-
-    await octokit.git.updateRef({
-      owner: config.owner,
-      repo: config.repo,
-      ref: `heads/${branch}`,
-      sha: newCommitRes.data.sha,
+    const commitRes = await commitChangesWithFallback({
+      config,
+      message: commitMessage,
+      additions,
     });
 
     return {
-      commitSha: newCommitRes.data.sha,
-      commitUrl: newCommitRes.data.html_url,
-      filesCommitted: filesToCommit.map(f => f.path),
+      commitSha: commitRes.commitSha,
+      commitUrl: commitRes.commitUrl,
+      filesCommitted: additions.map(f => f.path),
     };
-  } catch (gitTreeErr) {
-    console.warn('Git Trees API atomic commit failed, attempting fallback to single-file commit:', gitTreeErr);
+  } catch (gitErr) {
+    console.warn('Atomic commit failed, attempting fallback to single-file commit:', gitErr);
     // Fallback: Commit just the header file so user work is never lost
     const singleRes = await commitFileToRepo(config, headerPath, headerContent, formattedMessage);
     return {
