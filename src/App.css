@@ -1829,6 +1829,36 @@
   position: relative;
 }
 
+/* OLED Panel Footer Container */
+.oled-panel-footer {
+  margin-top: auto;
+  padding-top: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  pointer-events: auto;
+}
+
+.oled-power-metrics-bar {
+  width: auto;
+  min-width: 220px;
+  max-width: 100%;
+  background: rgba(14, 18, 27, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid #1e2538;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s ease;
+}
+
+.oled-power-metrics-bar:hover,
+.oled-power-metrics-bar:focus-visible {
+  border-color: rgba(0, 210, 255, 0.4);
+  box-shadow: 0 4px 16px rgba(0, 210, 255, 0.12), 0 0 8px rgba(0, 210, 255, 0.08);
+  outline: none;
+}
+
 .oled-screen-casing {
   background: #090c10;
   border: 2px solid #282e3b;

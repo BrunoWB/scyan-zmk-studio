@@ -828,7 +828,7 @@ static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
       { id: 'SYMBOL_BLUETOOTH', name: 'BT', groupId: 'SYMBOL_BLUETOOTH', groupOrder: 1, x: 12, y: 0, width: 10, height: 11, color: '#00d2ff' },
       { id: 'SYMBOL_BLUETOOTH_P1', name: 'BTA', groupId: 'SYMBOL_BLUETOOTH_P1', groupOrder: 1, x: 22, y: 0, width: 10, height: 11, color: '#00d2ff' },
     ];
-    const metadata: DisplayStudioMetadata = {
+    const metadata: HeaderMetadata = {
       version: 1,
       centralBlocks: [
         { id: 'block-conn', widgetType: 'connection', instanceId: 'conn-1', name: 'Output Status', x: 0, y: 0, width: 12, height: 10, enabled: true, side: 'central' }

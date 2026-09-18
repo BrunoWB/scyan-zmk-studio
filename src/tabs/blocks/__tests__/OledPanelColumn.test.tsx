@@ -58,6 +58,10 @@ describe('OledPanelColumn right-click context menu and block removal', () => {
     expect(html).toContain('oled-block-overlay');
     expect(html).toContain('selected');
     expect(html).toContain('Output Status');
+    expect(html).toContain('oled-panel-footer');
+    expect(html).toContain('oled-power-metrics-bar');
+    expect(html).toContain('px%');
+    expect(html).toContain('Hz');
     expect(html).not.toContain('oled-panel-subtitle');
     expect(html).not.toContain('Reset to default layout');
   });

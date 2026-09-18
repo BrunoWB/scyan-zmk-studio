@@ -10,6 +10,12 @@ import {
   getWidgetNaturalSize,
   resolveWidgetInstance,
 } from '../../services/widgetRegistry';
+import { OledPowerMetricsBar } from './OledPowerMetricsBar';
+import {
+  detectScreenRefresh,
+  computeScreenPixelStats,
+  calculatePowerEstimation,
+} from '../../services/powerEstimation';
 import {
   Eye,
   EyeOff,
@@ -191,6 +197,51 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
     V_WIDTH,
     V_HEIGHT,
   ]);
+
+  // Compute power and display efficiency metrics
+  const refreshInfo = React.useMemo(() => {
+    return detectScreenRefresh(blocks, screenKind, instances);
+  }, [blocks, screenKind, instances]);
+
+  const powerStats = React.useMemo(() => {
+    return computeScreenPixelStats(blocks, {
+      width: V_WIDTH,
+      height: V_HEIGHT,
+      symbolsGrid,
+      symbolSlices,
+      fontGrid,
+      fontGlyphs,
+      fontMappings,
+      customText,
+      instances,
+      side,
+      layerNames,
+      screenKind,
+    });
+  }, [
+    blocks,
+    symbolsGrid,
+    symbolSlices,
+    fontGrid,
+    fontGlyphs,
+    fontMappings,
+    customText,
+    instances,
+    side,
+    layerNames,
+    screenKind,
+    V_WIDTH,
+    V_HEIGHT,
+  ]);
+
+  const powerEstimation = React.useMemo(() => {
+    return calculatePowerEstimation(powerStats, {
+      refreshRateHz: refreshInfo.refreshRateHz,
+      hasAnimation: refreshInfo.hasAnimation,
+      refreshReason: refreshInfo.reason,
+      screenKind,
+    });
+  }, [powerStats, refreshInfo, screenKind]);
 
   // Reorder block up/down
   const moveBlockOrder = (blockId: string, direction: -1 | 1) => {
@@ -713,6 +764,18 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
           </div>
         </div>
       </div>
+
+      {/* OLED Power & Efficiency Footer */}
+      {!isCompact && (
+        <div className="oled-panel-footer mt-auto pt-2 shrink-0 flex items-center justify-center w-full z-10">
+          <OledPowerMetricsBar
+            estimation={powerEstimation}
+            screenKind={screenKind}
+            side={side}
+            isCompact={isCompact}
+          />
+        </div>
+      )}
 
       {/* Right-click Context Menu */}
       {contextMenu && typeof document !== 'undefined' && createPortal(
