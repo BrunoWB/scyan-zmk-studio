@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   getShieldUnitsForShield,
   detectShieldUnitsFromRepo,
+  extractShieldsFromYaml,
 } from '../shieldsData';
 import { generateCHeader, parseCHeader } from '../../services/cHeaderParser';
 import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
@@ -162,5 +163,60 @@ include:
     const attachedIds = new Set(Object.values(nextAssignments).filter(Boolean) as string[]);
     const unattached = enabledScreens.filter((s) => !attachedIds.has(s));
     expect(unattached).toEqual(['peripheral-2']);
+  });
+
+  it('completely ignores commented-out shields and handles multi-document build.yaml (regression)', () => {
+    // Exact structure of user build.yaml with template comments and --- separator
+    const buildYaml = `
+# This file generates the GitHub Actions matrix.
+# board: [ "nice_nano" ]
+# shield: [ "corne_left", "corne_right" ]
+# include:
+#   - board: bdn9_rev2
+#   - board: nice_nano
+#     shield: reviung41
+#   - board: nice_nano
+#     shield: corne_left
+#     snippet: studio-rpc-usb-uart
+#
+---
+include:
+  - board: nice_nano_v2
+    shield: corne_left
+    snippet: studio-rpc-usb-uart
+    cmake-args: -DCONFIG_ZMK_STUDIO=y
+  - board: nice_nano_v2
+    shield: corne_right
+# cache-bust: 2026-09-08-0300
+`;
+    const tokens = extractShieldsFromYaml(buildYaml);
+    expect(tokens).toEqual(['corne_left', 'corne_right']);
+    expect(tokens).not.toContain('reviung41');
+
+    const detected = detectShieldUnitsFromRepo('corne', ['config/corne.conf'], undefined, buildYaml);
+    expect(detected).toHaveLength(2);
+    expect(detected.map((u) => u.id)).toEqual(['corne_left', 'corne_right']);
+    expect(detected.some((u) => u.id === 'reviung41')).toBe(false);
+  });
+
+  it('extracts shields from top-level matrix arrays and composite space-delimited shield strings', () => {
+    const matrixYaml = `
+shield:
+  - corne_left
+  - corne_right
+`;
+    expect(extractShieldsFromYaml(matrixYaml)).toEqual(['corne_left', 'corne_right']);
+
+    const inlineArrayYaml = `
+shield: [ "corne_left", "corne_right" ]
+`;
+    expect(extractShieldsFromYaml(inlineArrayYaml)).toEqual(['corne_left', 'corne_right']);
+
+    const compositeYaml = `
+include:
+  - board: nice_nano_v2
+    shield: corne_left nice_view_adapter nice_view
+`;
+    expect(extractShieldsFromYaml(compositeYaml)).toEqual(['corne_left', 'nice_view_adapter', 'nice_view']);
   });
 });

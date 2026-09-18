@@ -1,4 +1,5 @@
 import { Octokit } from '@octokit/rest';
+import YAML from 'yaml';
 
 export interface GitHubRepoConfig {
   owner: string;
@@ -628,8 +629,17 @@ export async function checkRepoPrerequisites(
         const decoded = atob(res.data.content.replace(/\s/g, ''));
         westPath = p;
         existingWestContent = decoded;
-        if (decoded.includes('scyan-zmk-module')) {
-          hasWestModule = true;
+        try {
+          const parsedManifest = YAML.parse(decoded);
+          const projects = parsedManifest?.manifest?.projects;
+          if (Array.isArray(projects)) {
+            hasWestModule = projects.some((proj: any) => proj?.name === 'scyan-zmk-module');
+          } else {
+            hasWestModule = false;
+          }
+        } catch {
+          // Fallback if YAML parsing errors
+          hasWestModule = decoded.includes('scyan-zmk-module');
         }
         break;
       }
@@ -764,40 +774,7 @@ export async function installScyanStudioToRepo(
   // 2. Prepare west.yml
   let newWestContent = prereqs.existingWestContent || '';
   if (!prereqs.hasWestModule) {
-    if (newWestContent && newWestContent.includes('projects:')) {
-      if (!newWestContent.includes('scyan-zmk-module')) {
-        let remoteSnippet = '';
-        if (!newWestContent.includes('name: brunowb')) {
-          remoteSnippet = '    - name: brunowb\n      url-base: https://github.com/BrunoWB\n';
-        }
-        if (remoteSnippet && newWestContent.includes('remotes:')) {
-          newWestContent = newWestContent.replace('remotes:\n', `remotes:\n${remoteSnippet}`);
-        }
-        const moduleSnippet = '    - name: scyan-zmk-module\n      remote: brunowb\n      revision: main\n';
-        newWestContent = newWestContent.replace('projects:\n', `projects:\n${moduleSnippet}`);
-      }
-    } else {
-      newWestContent = [
-        'manifest:',
-        '  defaults:',
-        '    revision: v0.3',
-        '  remotes:',
-        '    - name: zmkfirmware',
-        '      url-base: https://github.com/zmkfirmware',
-        '    - name: brunowb',
-        '      url-base: https://github.com/BrunoWB',
-        '  projects:',
-        '    - name: zmk',
-        '      remote: zmkfirmware',
-        '      import: app/west.yml',
-        '    - name: scyan-zmk-module',
-        '      remote: brunowb',
-        '      revision: main',
-        '  self:',
-        '    path: config',
-        '',
-      ].join('\n');
-    }
+    newWestContent = injectScyanIntoWest(newWestContent);
   }
 
   // 3. Prepare .conf content
@@ -899,80 +876,179 @@ export async function installScyanStudioToRepo(
 }
 
 /**
- * Removes a named entry from a YAML list (e.g. under `projects:` or `remotes:` in west.yml),
- * safely preserving sibling items, comments, and following sections.
+ * Injects scyan-zmk-module and the brunowb remote into west.yml using YAML AST.
+ * Preserves comments, formatting, and indentation.
  */
-export function removeYamlListItem(content: string, itemName: string): string {
-  const lines = content.split(/\r?\n/);
-  const result: string[] = [];
-  let skipping = false;
-  let targetIndent = -1;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const match = line.match(/^(\s*)-\s+name:\s*['"]?([^\s'"]+)['"]?\s*(?:#.*)?$/i);
-
-    if (match && match[2].toLowerCase() === itemName.toLowerCase()) {
-      skipping = true;
-      targetIndent = match[1].length;
-      continue;
-    }
-
-    if (skipping) {
-      if (line.trim() === '') {
-        // Look ahead to check if the next non-empty line still belongs to this item
-        let nextNonEmptyIndent = -1;
-        let nextIsListItem = false;
-        for (let j = i + 1; j < lines.length; j++) {
-          if (lines[j].trim() !== '') {
-            const nextMatch = lines[j].match(/^(\s*)/);
-            nextNonEmptyIndent = nextMatch ? nextMatch[1].length : 0;
-            nextIsListItem = /^\s*-\s+/.test(lines[j]);
-            break;
-          }
-        }
-        if (nextNonEmptyIndent > targetIndent && !nextIsListItem) {
-          continue;
-        }
-        skipping = false;
-        targetIndent = -1;
-        result.push(line);
-        continue;
-      }
-
-      const indentMatch = line.match(/^(\s*)/);
-      const currentIndent = indentMatch ? indentMatch[1].length : 0;
-      const isListItem = /^\s*-\s+/.test(line);
-
-      // Lines indented strictly deeper than the '-' list bullet and not a sibling list item
-      // belong to the item being removed.
-      if (currentIndent > targetIndent && !isListItem) {
-        continue;
-      }
-
-      // Sibling list item or parent/sibling block encountered
-      skipping = false;
-      targetIndent = -1;
-    }
-
-    result.push(line);
+export function injectScyanIntoWest(content: string): string {
+  if (!content || !content.trim()) {
+    return [
+      'manifest:',
+      '  defaults:',
+      '    revision: v0.3',
+      '  remotes:',
+      '    - name: zmkfirmware',
+      '      url-base: https://github.com/zmkfirmware',
+      '    - name: brunowb',
+      '      url-base: https://github.com/BrunoWB',
+      '  projects:',
+      '    - name: zmk',
+      '      remote: zmkfirmware',
+      '      import: app/west.yml',
+      '    - name: scyan-zmk-module',
+      '      remote: brunowb',
+      '      revision: main',
+      '  self:',
+      '    path: config',
+      '',
+    ].join('\n');
   }
 
-  return result.join('\n');
+  try {
+    const doc = YAML.parseDocument(content);
+    let manifest = doc.get('manifest') as any;
+    if (!manifest) {
+      doc.set('manifest', doc.createNode({}));
+      manifest = doc.get('manifest');
+    }
+
+    // Check / add remote 'brunowb'
+    let remotes = manifest.get ? manifest.get('remotes') : manifest.remotes;
+    if (!remotes) {
+      manifest.set('remotes', doc.createNode([]));
+      remotes = manifest.get('remotes');
+    }
+
+    const hasBrunowbRemote =
+      remotes?.items &&
+      Array.isArray(remotes.items) &&
+      remotes.items.some((item: any) => {
+        const name = item?.get ? item.get('name') : item?.name;
+        return name === 'brunowb';
+      });
+
+    if (!hasBrunowbRemote) {
+      remotes.add(
+        doc.createNode({
+          name: 'brunowb',
+          'url-base': 'https://github.com/BrunoWB',
+        })
+      );
+    }
+
+    // Check / add project 'scyan-zmk-module'
+    let projects = manifest.get ? manifest.get('projects') : manifest.projects;
+    if (!projects) {
+      manifest.set('projects', doc.createNode([]));
+      projects = manifest.get('projects');
+    }
+
+    const hasModule =
+      projects?.items &&
+      Array.isArray(projects.items) &&
+      projects.items.some((item: any) => {
+        const name = item?.get ? item.get('name') : item?.name;
+        return name === 'scyan-zmk-module';
+      });
+
+    if (!hasModule) {
+      projects.add(
+        doc.createNode({
+          name: 'scyan-zmk-module',
+          remote: 'brunowb',
+          revision: 'main',
+        })
+      );
+    }
+
+    return doc.toString();
+  } catch (err) {
+    console.warn('[injectScyanIntoWest] AST manipulation failed, returning original:', err);
+    return content;
+  }
 }
 
 /**
- * Removes scyan-zmk-module and its remote (if unused by other projects) from west.yml.
+ * Removes a named entry from a YAML list (e.g. under `projects:` or `remotes:` in west.yml),
+ * safely preserving sibling items, comments, and following sections using YAML AST.
+ */
+export function removeYamlListItem(content: string, itemName: string): string {
+  try {
+    const doc = YAML.parseDocument(content);
+    if (!doc || !doc.contents) return content;
+
+    const manifest = doc.get('manifest') as any;
+    if (manifest) {
+      for (const key of ['projects', 'remotes']) {
+        const seq = manifest.get ? manifest.get(key) : manifest[key];
+        if (seq && seq.items && Array.isArray(seq.items)) {
+          const idx = seq.items.findIndex((item: any) => {
+            const name = item?.get ? item.get('name') : item?.name;
+            return typeof name === 'string' && name.toLowerCase() === itemName.toLowerCase();
+          });
+          if (idx !== -1) {
+            seq.items.splice(idx, 1);
+          }
+        }
+      }
+    }
+    return doc.toString();
+  } catch (err) {
+    console.warn('[removeYamlListItem] Failed to parse YAML AST:', err);
+    return content;
+  }
+}
+
+/**
+ * Removes scyan-zmk-module and its remote (if unused by other projects) from west.yml using YAML AST.
  */
 export function removeScyanFromWest(content: string): string {
-  let updated = removeYamlListItem(content, 'scyan-zmk-module');
+  try {
+    const doc = YAML.parseDocument(content);
+    if (!doc || !doc.contents) return content;
 
-  const hasOtherBrunowb = /remote:[ \t]*brunowb\b/i.test(updated);
-  if (!hasOtherBrunowb) {
-    updated = removeYamlListItem(updated, 'brunowb');
+    const manifest = doc.get('manifest') as any;
+    if (!manifest) return content;
+
+    // 1. Remove project scyan-zmk-module
+    const projects = manifest.get ? manifest.get('projects') : manifest.projects;
+    if (projects && projects.items && Array.isArray(projects.items)) {
+      const projIdx = projects.items.findIndex((item: any) => {
+        const name = item?.get ? item.get('name') : item?.name;
+        return typeof name === 'string' && name.toLowerCase() === 'scyan-zmk-module';
+      });
+      if (projIdx !== -1) {
+        projects.items.splice(projIdx, 1);
+      }
+    }
+
+    // 2. Check if any other project uses brunowb remote
+    let hasOtherBrunowb = false;
+    if (projects && projects.items && Array.isArray(projects.items)) {
+      hasOtherBrunowb = projects.items.some((item: any) => {
+        const remote = item?.get ? item.get('remote') : item?.remote;
+        return typeof remote === 'string' && remote.toLowerCase() === 'brunowb';
+      });
+    }
+
+    // 3. If no other project uses brunowb, remove brunowb remote
+    if (!hasOtherBrunowb) {
+      const remotes = manifest.get ? manifest.get('remotes') : manifest.remotes;
+      if (remotes && remotes.items && Array.isArray(remotes.items)) {
+        const remIdx = remotes.items.findIndex((item: any) => {
+          const name = item?.get ? item.get('name') : item?.name;
+          return typeof name === 'string' && name.toLowerCase() === 'brunowb';
+        });
+        if (remIdx !== -1) {
+          remotes.items.splice(remIdx, 1);
+        }
+      }
+    }
+
+    return doc.toString();
+  } catch (err) {
+    console.warn('[removeScyanFromWest] Failed to parse YAML AST:', err);
+    return content;
   }
-
-  return updated.replace(/\n{3,}/g, '\n\n');
 }
 
 /**

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   updateKconfigSetting,
   resolveConfUpdates,
+  injectScyanIntoWest,
   removeScyanFromWest,
   removeScyanFromConf,
   formatStudioCommitMessage,
@@ -261,6 +262,60 @@ describe('githubService Kconfig timeout synchronization', () => {
       expect(result).not.toContain('scyan-zmk-module');
       expect(result).toContain('name: brunowb');
       expect(result).toContain('name: other-module');
+    });
+  });
+
+  describe('injectScyanIntoWest', () => {
+    it('creates default west.yml content if empty', () => {
+      const res = injectScyanIntoWest('');
+      expect(res).toContain('name: scyan-zmk-module');
+      expect(res).toContain('name: brunowb');
+      expect(res).toContain('url-base: https://github.com/BrunoWB');
+    });
+
+    it('injects brunowb remote and scyan-zmk-module project while preserving comments and other projects', () => {
+      const west = [
+        'manifest:',
+        '  remotes:',
+        '    # Primary remote',
+        '    - name: zmkfirmware',
+        '      url-base: https://github.com/zmkfirmware',
+        '  projects:',
+        '    - name: zmk',
+        '      remote: zmkfirmware',
+        '      import: app/west.yml',
+        '  self:',
+        '    path: config',
+      ].join('\n');
+
+      const res = injectScyanIntoWest(west);
+      expect(res).toContain('name: scyan-zmk-module');
+      expect(res).toContain('remote: brunowb');
+      expect(res).toContain('revision: main');
+      expect(res).toContain('name: brunowb');
+      expect(res).toContain('url-base: https://github.com/BrunoWB');
+      expect(res).toContain('# Primary remote');
+      expect(res).toContain('name: zmk');
+      expect(res).toContain('self:');
+    });
+
+    it('does not duplicate remote or project if already present', () => {
+      const west = [
+        'manifest:',
+        '  remotes:',
+        '    - name: brunowb',
+        '      url-base: https://github.com/BrunoWB',
+        '  projects:',
+        '    - name: scyan-zmk-module',
+        '      remote: brunowb',
+        '      revision: main',
+      ].join('\n');
+
+      const res = injectScyanIntoWest(west);
+      const brunowbMatches = res.match(/name:\s*brunowb/g) || [];
+      const moduleMatches = res.match(/name:\s*scyan-zmk-module/g) || [];
+      expect(brunowbMatches.length).toBe(1);
+      expect(moduleMatches.length).toBe(1);
     });
   });
 

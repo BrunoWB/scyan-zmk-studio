@@ -1,3 +1,5 @@
+import YAML from 'yaml';
+
 export interface ShieldDisplayConfig {
   screenCount: 1 | 2;
   nativeResolution: { width: number; height: number };
@@ -841,6 +843,58 @@ export function getShieldUnitsForShield(shieldId?: string | null): LoadedShieldU
   }
 }
 
+/**
+ * Robust AST-based extraction of shield names from build.yaml content.
+ * Automatically ignores comments, handles multi-document streams (separated by ---),
+ * matrix arrays, multi-line lists, and space-delimited composite shields.
+ */
+export function extractShieldsFromYaml(yamlContent?: string): string[] {
+  if (!yamlContent || !yamlContent.trim()) return [];
+  try {
+    const docs = YAML.parseAllDocuments(yamlContent);
+    const result: string[] = [];
+
+    const collectTokens = (val: unknown) => {
+      if (typeof val === 'string') {
+        const parts = val.trim().split(/\s+/);
+        for (const p of parts) {
+          if (p && !result.includes(p)) {
+            result.push(p);
+          }
+        }
+      } else if (Array.isArray(val)) {
+        for (const item of val) {
+          collectTokens(item);
+        }
+      }
+    };
+
+    for (const doc of docs) {
+      const data = doc.toJSON();
+      if (!data || typeof data !== 'object') continue;
+
+      // 1. Top-level shield matrix (string or array)
+      if ('shield' in data) {
+        collectTokens((data as Record<string, unknown>).shield);
+      }
+
+      // 2. Include list: include: [ { shield: ... }, ... ]
+      if ('include' in data && Array.isArray((data as Record<string, unknown>).include)) {
+        for (const entry of (data as Record<string, unknown>).include as unknown[]) {
+          if (entry && typeof entry === 'object' && 'shield' in entry) {
+            collectTokens((entry as Record<string, unknown>).shield);
+          }
+        }
+      }
+    }
+
+    return result;
+  } catch (err) {
+    console.warn('[extractShieldsFromYaml] Error parsing YAML content:', err);
+    return [];
+  }
+}
+
 export function detectShieldUnitsFromRepo(
   primaryShieldId: string = 'corne',
   candidateConfFiles?: string[],
@@ -851,11 +905,10 @@ export function detectShieldUnitsFromRepo(
   const seenIds = new Set<string>();
   const seenShieldIds = new Set<string>();
 
-  // Check build.yaml content if provided
+  // Check build.yaml content if provided (using robust YAML AST parser)
   if (buildYamlContent) {
-    const matches = Array.from(buildYamlContent.matchAll(/shield:\s*([a-zA-Z0-9_-]+)/g));
-    for (const match of matches) {
-      const rawName = match[1];
+    const rawShieldNames = extractShieldsFromYaml(buildYamlContent);
+    for (const rawName of rawShieldNames) {
       const sName = rawName.toLowerCase().replace(/_/g, '-');
       if (sName === 'settings-reset') continue;
       const baseName = sName.replace(/-(left|right)$/, '');
