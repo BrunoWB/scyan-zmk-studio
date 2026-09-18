@@ -55,7 +55,6 @@ export interface OledPanelColumnProps {
   layerNames?: string[];
   isCompact?: boolean;
   onExpand?: () => void;
-  onSwitchMode?: () => void;
 }
 
 const BLOCK_COLORS: Record<string, string> = {
@@ -101,7 +100,6 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
   layerNames,
   isCompact = false,
   onExpand,
-  onSwitchMode,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const screenContainerRef = useRef<HTMLDivElement | null>(null);
@@ -516,20 +514,6 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
         <div
           className="oled-floating-actions absolute top-3 right-3 z-20 flex items-center gap-1 p-1 rounded-lg bg-[#0b0d13]/85 backdrop-blur-md border border-[#1e2538] shadow-lg transition-all pointer-events-auto"
         >
-          {onSwitchMode && (
-            <button
-              type="button"
-              className="btn-block-action text-[10px] font-mono px-2 py-0.5 rounded text-[#94a3b8] hover:text-[#00f0ff] hover:bg-[#00f0ff]/10 border border-transparent hover:border-[#00f0ff]/30 transition-all cursor-pointer flex items-center gap-1"
-              onClick={e => {
-                e.stopPropagation();
-                onSwitchMode();
-              }}
-              title={screenKind === 'active' ? 'Switch this display to Idle screen' : 'Switch this display to Active screen'}
-              tabIndex={0}
-            >
-              <span>{screenKind === 'active' ? 'View Idle' : 'View Active'}</span>
-            </button>
-          )}
           {onToggleSettings && (
             <button
               className={`btn-block-action ${isSettingsOpen ? (isCentral ? 'active' : 'active-purple') : ''}`}

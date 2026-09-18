@@ -230,8 +230,8 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
       />
     );
 
-    // Central has idle enabled: renders "View Idle" button and "Central Idle"
-    expect(html).toContain('View Idle');
+    // Central has idle enabled: renders "Central Idle" panel without "View Idle" button in floating actions
+    expect(html).not.toContain('View Idle');
     expect(html).toContain('Central Idle');
 
     // Peripheral has idle disabled: renders Peripheral as idle-disabled without idle panel

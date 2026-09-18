@@ -1457,7 +1457,6 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
           layerNames={layerNames}
           isCompact={centralCfg.idleEnabled && centralMode === 'idle'}
           onExpand={() => setScreenMode(activeCentralSide, 'active')}
-          onSwitchMode={centralCfg.idleEnabled ? () => setScreenMode(activeCentralSide, 'idle') : undefined}
         />
 
         {centralCfg.idleEnabled && (
@@ -1496,7 +1495,6 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
             layerNames={layerNames}
             isCompact={centralMode === 'active'}
             onExpand={() => setScreenMode(activeCentralSide, 'idle')}
-            onSwitchMode={() => setScreenMode(activeCentralSide, 'active')}
           />
         )}
 
@@ -1553,7 +1551,6 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
             layerNames={layerNames}
             isCompact={cfg.idleEnabled && sideMode === 'idle'}
             onExpand={() => setScreenMode(side, 'active')}
-            onSwitchMode={cfg.idleEnabled ? () => setScreenMode(side, 'idle') : undefined}
           />
 
           {cfg.idleEnabled && (
@@ -1592,7 +1589,6 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
               layerNames={layerNames}
               isCompact={sideMode === 'active'}
               onExpand={() => setScreenMode(side, 'idle')}
-              onSwitchMode={() => setScreenMode(side, 'active')}
             />
           )}
 
