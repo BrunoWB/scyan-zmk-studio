@@ -1,5 +1,30 @@
 [
   {
+    "version": "1.1.0",
+    "type": "minor",
+    "title": "Multi-Display Topologies, AST YAML Engine & Modular Store Architecture",
+    "description": "Introduces full Central/Peripheral multi-display topology routing, shield unit detection with authentic physical keyboard previews, comment-preserving AST YAML manipulation for west manifests and build configs, and a modularized state architecture with enhanced pixel editor navigation.",
+    "date": "2026-09-17",
+    "highlights": [
+      "Multi-display topologies with Central and Peripheral display assignment mapping",
+      "Automated keyboard shield detection with 10+ authentic physical shield previews",
+      "Proportional coordinate remapping and collision resolution across screen geometry and orientation changes",
+      "AST-based YAML parser (yaml package) replacing regex operations for resilient config and manifest manipulation",
+      "Modularized Zustand stores decoupling preview, display config, and settings",
+      "High-performance pixel editor with integer zoom clamping, arrow-key selection dragging, and dual-canvas rendering"
+    ],
+    "patches": [
+      {
+        "patch": "1.1.0",
+        "date": "2026-09-17",
+        "commitHash": "62fd716",
+        "changes": [
+          "feat(yaml): replace regex YAML operations with AST-based parser (closes #11)"
+        ]
+      }
+    ]
+  },
+  {
     "version": "1.0.0",
     "type": "major",
     "title": "Public Release",

@@ -51,7 +51,7 @@ export default defineConfig({
   base: process.env.VITE_BASE_PATH ?? './',
   plugins: [tailwindcss(), react(), devFaviconPlugin(), ...(isNightly ? [nightlyFaviconPlugin()] : [])],
   define: {
-    __APP_VERSION__: JSON.stringify(packageJson.version || '1.0.0'),
+    __APP_VERSION__: JSON.stringify(packageJson.version || '1.1.0'),
     __GIT_COMMIT_HASH__: JSON.stringify(gitHash),
     __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
   },
