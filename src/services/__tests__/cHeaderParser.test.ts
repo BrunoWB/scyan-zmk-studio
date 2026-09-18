@@ -820,6 +820,42 @@ static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
     const parsedCustomRot = parseCHeader(rawConfigMacro);
     expect(parsedCustomRot.metadata?.rotation).toBe(270);
   });
+
+  it('correctly orders symbol_ids for WIDGET_TYPE_OUTPUT_STATUS with USB at index 0 followed by BLE profiles', () => {
+    const testGrid = new BwpxGrid(32, 32);
+    const symbolSlices: SpriteSlice[] = [
+      { id: 'SYMBOL_USB', name: 'USB', groupId: 'SYMBOL_USB', groupOrder: 1, x: 0, y: 0, width: 12, height: 10, color: '#38bdf8' },
+      { id: 'SYMBOL_BLUETOOTH', name: 'BT', groupId: 'SYMBOL_BLUETOOTH', groupOrder: 1, x: 12, y: 0, width: 10, height: 11, color: '#00d2ff' },
+      { id: 'SYMBOL_BLUETOOTH_P1', name: 'BTA', groupId: 'SYMBOL_BLUETOOTH_P1', groupOrder: 1, x: 22, y: 0, width: 10, height: 11, color: '#00d2ff' },
+    ];
+    const metadata: DisplayStudioMetadata = {
+      version: 1,
+      centralBlocks: [
+        { id: 'block-conn', widgetType: 'connection', instanceId: 'conn-1', name: 'Output Status', x: 0, y: 0, width: 12, height: 10, enabled: true, side: 'central' }
+      ],
+      widgetInstances: {
+        connection: [
+          {
+            id: 'conn-1',
+            widgetTypeId: 'connection',
+            label: 'Connection',
+            config: {
+              mode: 'symbol',
+              groupId: 'SYMBOL_USB',
+              groupIds: ['SYMBOL_BLUETOOTH', 'SYMBOL_BLUETOOTH_P1', 'SYMBOL_BLUETOOTH_P2', 'SYMBOL_BLUETOOTH_P3', 'SYMBOL_BLUETOOTH_P4', 'SYMBOL_BLUETOOTH_P5'],
+            },
+            slots: {},
+          }
+        ]
+      }
+    };
+
+    const cCode = generateCHeader(testGrid, symbolSlices, testGrid, [], metadata);
+    expect(cCode).toContain('WIDGET_TYPE_OUTPUT_STATUS');
+    // Ensure SYMBOL_USB is at index 0 of symbol_ids and symbol_id is SYMBOL_USB
+    expect(cCode).toMatch(/\.symbol_ids\s*=\s*\{\s*SYMBOL_USB,\s*SYMBOL_BLUETOOTH_P1/);
+    expect(cCode).toContain('.symbol_id = SYMBOL_USB');
+  });
 });
 
 

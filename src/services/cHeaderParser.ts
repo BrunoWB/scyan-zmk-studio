@@ -1404,7 +1404,36 @@ static const struct display_font font_default = {
 
       const symbolIds: string[] = [];
       let loopTotalFrames = 0;
-      if (instance?.config?.groupIds && instance.config.groupIds.length > 0) {
+      if (enumType === 'WIDGET_TYPE_OUTPUT_STATUS') {
+        const usbGid = instance?.config?.groupId || 'SYMBOL_USB';
+        const usbMatch = symbolSlices.find(s => (s.groupId === usbGid && s.groupOrder === 1) || s.groupId === usbGid || s.id === usbGid)
+          || symbolSlices.find(s => s.id.includes('USB') || s.groupId?.includes('USB'));
+        if (usbMatch) {
+          symbolIds.push(usbMatch.id);
+        }
+        if (instance?.config?.groupIds && instance.config.groupIds.length > 0) {
+          const bleIds = instance.config.groupIds.length >= 6
+            ? instance.config.groupIds.slice(1)
+            : instance.config.groupIds;
+          for (const gid of bleIds) {
+            const match = symbolSlices.find(s => (s.groupId === gid && s.groupOrder === 1) || s.groupId === gid || s.id === gid);
+            if (match && symbolIds.length < 16) {
+              symbolIds.push(match.id);
+            }
+          }
+        } else {
+          const btMatch = symbolSlices.find(s => s.id.includes('BLUETOOTH') || s.id.includes('BLE') || s.groupId?.includes('BLUETOOTH'));
+          if (btMatch && symbolIds.length < 16) {
+            symbolIds.push(btMatch.id);
+          }
+        }
+        if (symbolIds.length === 1) {
+          const btMatch = symbolSlices.find(s => s.id.includes('BLUETOOTH') || s.id.includes('BLE') || s.groupId?.includes('BLUETOOTH'));
+          if (btMatch && symbolIds.length < 16) {
+            symbolIds.push(btMatch.id);
+          }
+        }
+      } else if (instance?.config?.groupIds && instance.config.groupIds.length > 0) {
         for (const gid of instance.config.groupIds) {
           const match = symbolSlices.find(s => (s.groupId === gid && s.groupOrder === 1) || s.groupId === gid || s.id === gid);
           if (match && symbolIds.length < 16) {
@@ -1491,7 +1520,18 @@ static const struct display_font font_default = {
       const symbolIdsStr = symbolIds.length > 0 ? `{ ${symbolIds.join(', ')} }` : `{ 0 }`;
 
       const textEntries: string[] = [];
-      if (instance?.config?.textEntries && instance.config.textEntries.length > 0) {
+      if (enumType === 'WIDGET_TYPE_OUTPUT_STATUS' && instance?.config?.textEntries && instance.config.textEntries.length > 0) {
+        if (instance.config.textEntries.length >= 7) {
+          textEntries.push(JSON.stringify(instance.config.textEntries[0]));
+          for (let i = 2; i < instance.config.textEntries.length && textEntries.length < 16; i++) {
+            textEntries.push(JSON.stringify(instance.config.textEntries[i]));
+          }
+        } else {
+          for (const t of instance.config.textEntries) {
+            if (textEntries.length < 16) textEntries.push(JSON.stringify(t));
+          }
+        }
+      } else if (instance?.config?.textEntries && instance.config.textEntries.length > 0) {
         for (const t of instance.config.textEntries) {
           if (textEntries.length < 16) {
             textEntries.push(JSON.stringify(t));
