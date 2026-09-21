@@ -1937,22 +1937,36 @@ static const struct display_font font_default = {
     });
 
     c += `/* Clean Aliases for ZMK Firmware Engine */\n`;
-    c += `#if defined(CONFIG_SCYAN_DISPLAY_SLOT_2)\n`;
-    c += `    #define SCYAN_ACTIVE_BLOCKS LAYOUT_DISPLAY_2_ACTIVE_BLOCKS\n`;
-    c += `    #define SCYAN_ACTIVE_COUNT  LAYOUT_DISPLAY_2_ACTIVE_COUNT\n`;
-    c += `    #define SCYAN_IDLE_BLOCKS   LAYOUT_DISPLAY_2_IDLE_BLOCKS\n`;
-    c += `    #define SCYAN_IDLE_COUNT    LAYOUT_DISPLAY_2_IDLE_COUNT\n`;
-    c += `#elif defined(CONFIG_SCYAN_DISPLAY_SLOT_3)\n`;
-    c += `    #define SCYAN_ACTIVE_BLOCKS LAYOUT_DISPLAY_3_ACTIVE_BLOCKS\n`;
-    c += `    #define SCYAN_ACTIVE_COUNT  LAYOUT_DISPLAY_3_ACTIVE_COUNT\n`;
-    c += `    #define SCYAN_IDLE_BLOCKS   LAYOUT_DISPLAY_3_IDLE_BLOCKS\n`;
-    c += `    #define SCYAN_IDLE_COUNT    LAYOUT_DISPLAY_3_IDLE_COUNT\n`;
-    c += `#else\n`;
-    c += `    #define SCYAN_ACTIVE_BLOCKS LAYOUT_DISPLAY_1_ACTIVE_BLOCKS\n`;
-    c += `    #define SCYAN_ACTIVE_COUNT  LAYOUT_DISPLAY_1_ACTIVE_COUNT\n`;
-    c += `    #define SCYAN_IDLE_BLOCKS   LAYOUT_DISPLAY_1_IDLE_BLOCKS\n`;
-    c += `    #define SCYAN_IDLE_COUNT    LAYOUT_DISPLAY_1_IDLE_COUNT\n`;
-    c += `#endif\n\n`;
+    const slotKeys = Object.keys(resolvedDisplays)
+      .map(k => {
+        const m = k.match(/\d+/);
+        return m ? parseInt(m[0], 10) : 0;
+      })
+      .filter(n => n > 1)
+      .sort((a, b) => a - b);
+
+    if (slotKeys.length > 0) {
+      slotKeys.forEach((slot, idx) => {
+        const directive = idx === 0 ? '#if' : '#elif';
+        c += `${directive} defined(CONFIG_SCYAN_DISPLAY_SLOT_${slot})\n`;
+        c += `    #define SCYAN_ACTIVE_BLOCKS LAYOUT_DISPLAY_${slot}_ACTIVE_BLOCKS\n`;
+        c += `    #define SCYAN_ACTIVE_COUNT  LAYOUT_DISPLAY_${slot}_ACTIVE_COUNT\n`;
+        c += `    #define SCYAN_IDLE_BLOCKS   LAYOUT_DISPLAY_${slot}_IDLE_BLOCKS\n`;
+        c += `    #define SCYAN_IDLE_COUNT    LAYOUT_DISPLAY_${slot}_IDLE_COUNT\n`;
+      });
+      c += `#else\n`;
+      c += `    #define SCYAN_ACTIVE_BLOCKS LAYOUT_DISPLAY_1_ACTIVE_BLOCKS\n`;
+      c += `    #define SCYAN_ACTIVE_COUNT  LAYOUT_DISPLAY_1_ACTIVE_COUNT\n`;
+      c += `    #define SCYAN_IDLE_BLOCKS   LAYOUT_DISPLAY_1_IDLE_BLOCKS\n`;
+      c += `    #define SCYAN_IDLE_COUNT    LAYOUT_DISPLAY_1_IDLE_COUNT\n`;
+      c += `#endif\n\n`;
+    } else {
+      c += `#define SCYAN_ACTIVE_BLOCKS LAYOUT_DISPLAY_1_ACTIVE_BLOCKS\n`;
+      c += `#define SCYAN_ACTIVE_COUNT  LAYOUT_DISPLAY_1_ACTIVE_COUNT\n`;
+      c += `#define SCYAN_IDLE_BLOCKS   LAYOUT_DISPLAY_1_IDLE_BLOCKS\n`;
+      c += `#define SCYAN_IDLE_COUNT    LAYOUT_DISPLAY_1_IDLE_COUNT\n\n`;
+    }
+
 
     const d1ActiveLen = resolvedDisplays['display-1']?.blocks?.length ?? 0;
     const d1IdleLen = resolvedDisplays['display-1']?.idleBlocks?.length ?? 0;
