@@ -1068,7 +1068,6 @@ export async function installScyanStudioToRepo(
       'CONFIG_SCYAN_ROTATION_270=n',
       'CONFIG_SCYAN_INVERT=y',
       'CONFIG_SCYAN_IDLE_TIMEOUT_MS=10000',
-      'CONFIG_SCYAN_USER_NAME="SCYAN"',
       '',
     ].join('\n');
 

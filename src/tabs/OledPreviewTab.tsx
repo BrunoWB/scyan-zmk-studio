@@ -1293,7 +1293,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
           TOP: KEYBOARD / SHIELD VISUALIZATION WITH OLED DISPLAYS
           ========================================================================= */}
       {activeShield.layoutGeometry.type === 'unknown' ? (
-        <div className="flex items-center justify-center gap-0 my-6 relative">
+        <div className="flex items-center justify-center gap-0 pt-10 pb-4 my-2 relative">
           {renderShieldDropZone(0)}
           {orderedShields.map((shield, index) => {
             const assignedDisplayId = reconciledAssignments[shield.id];
