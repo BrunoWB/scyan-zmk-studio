@@ -246,4 +246,73 @@ static const struct display_layout_block LAYOUT_DISPLAY_3_IDLE_BLOCKS[1] = {
     expect(parsed.metadata?.displays?.['display-3'].blocks).toHaveLength(1);
     expect(parsed.metadata?.displays?.['display-3'].idleBlocks).toHaveLength(1);
   });
+
+  it('generates and parses 4 slotted displays dynamically including slot 4 alias', () => {
+    const assets = getDefaultAssets();
+    const metadata: HeaderMetadata = {
+      version: 2,
+      shieldId: 'quad_split',
+      displays: {
+        'display-1': {
+          id: 'display-1',
+          name: 'Left',
+          dimensions: { width: 32, height: 128 },
+          rotation: 90,
+          blocks: [{ id: 'b1', widgetType: 'layer-banner', instanceId: 'layer-default', name: 'Layer', x: 0, y: 0, width: 32, height: 10, enabled: true }],
+          idleBlocks: [],
+          idleTimeoutSec: 30,
+          screenOffTimeoutSec: 60,
+          idleScreensEnabled: false,
+        },
+        'display-2': {
+          id: 'display-2',
+          name: 'Right',
+          dimensions: { width: 32, height: 128 },
+          rotation: 90,
+          blocks: [{ id: 'b2', widgetType: 'battery', instanceId: 'battery-default', name: 'Battery', x: 0, y: 0, width: 32, height: 10, enabled: true }],
+          idleBlocks: [],
+          idleTimeoutSec: 30,
+          screenOffTimeoutSec: 60,
+          idleScreensEnabled: false,
+        },
+        'display-3': {
+          id: 'display-3',
+          name: 'Dongle',
+          dimensions: { width: 128, height: 32 },
+          rotation: 0,
+          blocks: [{ id: 'b3', widgetType: 'wpm', instanceId: 'wpm-default', name: 'WPM', x: 0, y: 0, width: 27, height: 5, enabled: true }],
+          idleBlocks: [],
+          idleTimeoutSec: 30,
+          screenOffTimeoutSec: 60,
+          idleScreensEnabled: false,
+        },
+        'display-4': {
+          id: 'display-4',
+          name: 'Auxiliary',
+          dimensions: { width: 64, height: 32 },
+          rotation: 0,
+          blocks: [{ id: 'b4', widgetType: 'bongo-cat', instanceId: 'bongo-default', name: 'Bongo', x: 0, y: 0, width: 32, height: 32, enabled: true }],
+          idleBlocks: [],
+          idleTimeoutSec: 30,
+          screenOffTimeoutSec: 60,
+          idleScreensEnabled: false,
+        },
+      },
+    };
+
+    const cCode = generateCHeader(assets.symbolsGrid, assets.symbolSlices, assets.fontGrid, assets.fontMappings, metadata);
+
+    expect(cCode).toContain('#define HAS_DISPLAY_4 1');
+    expect(cCode).toContain('LAYOUT_DISPLAY_4_ACTIVE_BLOCKS');
+    expect(cCode).toContain('#if defined(CONFIG_SCYAN_DISPLAY_SLOT_2)');
+    expect(cCode).toContain('#elif defined(CONFIG_SCYAN_DISPLAY_SLOT_3)');
+    expect(cCode).toContain('#elif defined(CONFIG_SCYAN_DISPLAY_SLOT_4)');
+    expect(cCode).toContain('#define SCYAN_ACTIVE_BLOCKS LAYOUT_DISPLAY_4_ACTIVE_BLOCKS');
+
+    const parsed = parseCHeader(cCode);
+    expect(Object.keys(parsed.metadata?.displays || {})).toHaveLength(4);
+    expect(parsed.metadata?.displays?.['display-4'].name).toBe('Auxiliary');
+    expect(parsed.metadata?.displays?.['display-4'].dimensions).toEqual({ width: 64, height: 32 });
+  });
 });
+
