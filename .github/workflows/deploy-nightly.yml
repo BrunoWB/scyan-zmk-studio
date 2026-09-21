@@ -61,5 +61,5 @@ jobs:
           echo "=== Staged files ==="
           git diff --cached --name-only | head -20
           git diff --cached --quiet && echo "No changes" && exit 0
-          git commit -m "chore(nightly): deploy scyan-zmk-studio ${{ github.sha }} [skip ci]"
+          git commit -m "chore(nightly): deploy scyan-zmk-studio ${{ github.sha }}"
           git push origin main
