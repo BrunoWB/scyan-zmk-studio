@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "1.1.7",
+        "date": "2026-09-21",
+        "commitHash": "909284c",
+        "changes": [
+          "feat(compiler): dynamically emit display slot aliases for arbitrary N displays"
+        ]
+      },
+      {
         "patch": "1.1.6",
         "date": "2026-09-21",
         "commitHash": "25cda61",
