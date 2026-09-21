@@ -1079,8 +1079,6 @@ export async function installScyanStudioToRepo(
       'CONFIG_ZMK_DISPLAY_STATUS_SCREEN_BUILT_IN=n',
       'CONFIG_LV_USE_CANVAS=y',
       'CONFIG_LV_USE_IMG=y',
-      'CONFIG_SCYAN_ROTATION_90=y',
-      'CONFIG_SCYAN_ROTATION_270=n',
       'CONFIG_SCYAN_INVERT=y',
       'CONFIG_SCYAN_IDLE_TIMEOUT_MS=10000',
       '',
