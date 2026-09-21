@@ -42,6 +42,11 @@ export const CorneKeysCluster: React.FC<CorneKeysClusterProps> = ({
                   key={rowIdx}
                   className={`corne-keycap ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
                   onClick={() => onKeyPress(coordId)}
+                  draggable={false}
+                  onDragStart={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
                   title={keyLabel ? `${isLeft ? 'Left' : 'Right'} [${rowIdx},${colIdx}]: ${keyLabel}` : `${isLeft ? 'Left' : 'Right'} [${rowIdx},${colIdx}]`}
                 >
                   {keyLabel ? <span className="keycap-legend">{keyLabel}</span> : null}
@@ -62,6 +67,11 @@ export const CorneKeysCluster: React.FC<CorneKeysClusterProps> = ({
               key={idx}
               className={`corne-thumb-key thumb-${idx} ${isEmpty ? 'empty' : ''} ${isPressed ? 'pressed' : ''}`}
               onClick={() => onKeyPress(coordId)}
+              draggable={false}
+              onDragStart={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
               title={t ? `${isLeft ? 'Left' : 'Right'} Thumb [${idx}]: ${t}` : `${isLeft ? 'Left' : 'Right'} Thumb [${idx}]`}
             >
               {t ? <span className="thumb-legend">{t}</span> : null}

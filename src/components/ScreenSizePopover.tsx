@@ -54,6 +54,12 @@ export interface BlockSettingsSectionProps {
   rightScreenOffTimeoutSec?: number;
   onRightScreenOffTimeoutSecChange?: (sec: number) => void;
 
+  // Modern displays architecture support
+  displays?: Record<string, import('../types/zmk').DisplayScreen>;
+  activeDisplayId?: string;
+  onUpdateDisplay?: (displayId: string, updater: Partial<import('../types/zmk').DisplayScreen>) => void;
+  onActiveDisplayChange?: (displayId: string) => void;
+
   className?: string;
 }
 
@@ -82,6 +88,10 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
   onRightIdleTimeoutSecChange,
   rightScreenOffTimeoutSec,
   onRightScreenOffTimeoutSecChange,
+  displays,
+  activeDisplayId,
+  onUpdateDisplay,
+  onActiveDisplayChange,
   className = '',
 }) => {
   // Listen for Escape key to close settings drawer
@@ -95,6 +105,16 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
+
+  // Local active display tracking
+  const [localActiveId, setLocalActiveId] = useState<string>('display-1');
+  const currentActiveId = activeDisplayId ?? (displays && displays[localActiveId] ? localActiveId : displays ? Object.keys(displays)[0] : 'display-1');
+  const activeDisplay = displays ? (displays[currentActiveId] ?? displays['display-1'] ?? Object.values(displays)[0]) : undefined;
+
+  const handleSelectDisplay = (dId: string) => {
+    setLocalActiveId(dId);
+    onActiveDisplayChange?.(dId);
+  };
 
   // Local fallback for symmetric toggle
   const [localSymmetric, setLocalSymmetric] = useState(true);
@@ -114,35 +134,53 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
       if (onRightIdleScreensEnabledChange) onRightIdleScreensEnabledChange(idleScreensEnabled);
       if (onRightIdleTimeoutSecChange) onRightIdleTimeoutSecChange(idleTimeoutSec);
       if (onRightScreenOffTimeoutSecChange) onRightScreenOffTimeoutSecChange(screenOffTimeoutSec);
+      if (displays && onUpdateDisplay) {
+        Object.keys(displays).forEach((dId) => {
+          onUpdateDisplay(dId, {
+            dimensions: screenDimensions,
+            rotation: rotation ?? 90,
+            idleScreensEnabled,
+            idleTimeoutSec,
+            screenOffTimeoutSec,
+          });
+        });
+      }
     }
   };
 
   // Right side values with fallbacks to left side values
   const effectiveRightDimensions = effectiveSymmetric
     ? screenDimensions
-    : (rightScreenDimensions ?? screenDimensions);
+    : (rightScreenDimensions ?? displays?.['display-2']?.dimensions ?? screenDimensions);
 
   const effectiveRightRotation = effectiveSymmetric
     ? rotation
-    : (rightRotation !== undefined ? rightRotation : rotation);
+    : (rightRotation !== undefined ? rightRotation : (displays?.['display-2']?.rotation ?? rotation));
 
   const effectiveRightIdleEnabled = effectiveSymmetric
     ? idleScreensEnabled
-    : (rightIdleScreensEnabled !== undefined ? rightIdleScreensEnabled : idleScreensEnabled);
+    : (rightIdleScreensEnabled !== undefined ? rightIdleScreensEnabled : (displays?.['display-2']?.idleScreensEnabled ?? idleScreensEnabled));
 
   const effectiveRightIdleTimeout = effectiveSymmetric
     ? idleTimeoutSec
-    : (rightIdleTimeoutSec !== undefined ? rightIdleTimeoutSec : idleTimeoutSec);
+    : (rightIdleTimeoutSec !== undefined ? rightIdleTimeoutSec : (displays?.['display-2']?.idleTimeoutSec ?? idleTimeoutSec));
 
   const effectiveRightScreenOffTimeout = effectiveSymmetric
     ? screenOffTimeoutSec
-    : (rightScreenOffTimeoutSec !== undefined ? rightScreenOffTimeoutSec : screenOffTimeoutSec);
+    : (rightScreenOffTimeoutSec !== undefined ? rightScreenOffTimeoutSec : (displays?.['display-2']?.screenOffTimeoutSec ?? screenOffTimeoutSec));
 
   // Left/Unified change handlers
   const handleLeftDimensionsChange = (dims: { width: number; height: number }) => {
     onScreenDimensionsChange(dims);
     if (effectiveSymmetric && onRightScreenDimensionsChange) {
       onRightScreenDimensionsChange(dims);
+    }
+    if (displays && onUpdateDisplay) {
+      if (effectiveSymmetric) {
+        Object.keys(displays).forEach((dId) => onUpdateDisplay(dId, { dimensions: dims }));
+      } else {
+        onUpdateDisplay('display-1', { dimensions: dims });
+      }
     }
   };
 
@@ -151,12 +189,26 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
     if (effectiveSymmetric && onRightRotationChange) {
       onRightRotationChange(rot);
     }
+    if (displays && onUpdateDisplay) {
+      if (effectiveSymmetric) {
+        Object.keys(displays).forEach((dId) => onUpdateDisplay(dId, { rotation: rot }));
+      } else {
+        onUpdateDisplay('display-1', { rotation: rot });
+      }
+    }
   };
 
   const handleLeftIdleEnabledChange = (enabled: boolean) => {
     if (onIdleScreensEnabledChange) onIdleScreensEnabledChange(enabled);
     if (effectiveSymmetric && onRightIdleScreensEnabledChange) {
       onRightIdleScreensEnabledChange(enabled);
+    }
+    if (displays && onUpdateDisplay) {
+      if (effectiveSymmetric) {
+        Object.keys(displays).forEach((dId) => onUpdateDisplay(dId, { idleScreensEnabled: enabled }));
+      } else {
+        onUpdateDisplay('display-1', { idleScreensEnabled: enabled });
+      }
     }
   };
 
@@ -165,12 +217,72 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
     if (effectiveSymmetric && onRightIdleTimeoutSecChange) {
       onRightIdleTimeoutSecChange(sec);
     }
+    if (displays && onUpdateDisplay) {
+      if (effectiveSymmetric) {
+        Object.keys(displays).forEach((dId) => onUpdateDisplay(dId, { idleTimeoutSec: sec }));
+      } else {
+        onUpdateDisplay('display-1', { idleTimeoutSec: sec });
+      }
+    }
   };
 
   const handleLeftScreenOffTimeoutChange = (sec: number) => {
     if (onScreenOffTimeoutSecChange) onScreenOffTimeoutSecChange(sec);
     if (effectiveSymmetric && onRightScreenOffTimeoutSecChange) {
       onRightScreenOffTimeoutSecChange(sec);
+    }
+    if (displays && onUpdateDisplay) {
+      if (effectiveSymmetric) {
+        Object.keys(displays).forEach((dId) => onUpdateDisplay(dId, { screenOffTimeoutSec: sec }));
+      } else {
+        onUpdateDisplay('display-1', { screenOffTimeoutSec: sec });
+      }
+    }
+  };
+
+  // Active display change handlers (used when displays map is provided)
+  const handleActiveDimensionsChange = (dims: { width: number; height: number }) => {
+    onUpdateDisplay?.(currentActiveId, { dimensions: dims });
+    if (currentActiveId === 'display-1' || currentActiveId === 'central') {
+      onScreenDimensionsChange(dims);
+    } else if (currentActiveId === 'display-2' || currentActiveId === 'peripheral') {
+      onRightScreenDimensionsChange?.(dims);
+    }
+  };
+
+  const handleActiveRotationChange = (rot: 0 | 90 | 180 | 270) => {
+    onUpdateDisplay?.(currentActiveId, { rotation: rot });
+    if (currentActiveId === 'display-1' || currentActiveId === 'central') {
+      onRotationChange?.(rot);
+    } else if (currentActiveId === 'display-2' || currentActiveId === 'peripheral') {
+      onRightRotationChange?.(rot);
+    }
+  };
+
+  const handleActiveIdleEnabledChange = (enabled: boolean) => {
+    onUpdateDisplay?.(currentActiveId, { idleScreensEnabled: enabled });
+    if (currentActiveId === 'display-1' || currentActiveId === 'central') {
+      onIdleScreensEnabledChange?.(enabled);
+    } else if (currentActiveId === 'display-2' || currentActiveId === 'peripheral') {
+      onRightIdleScreensEnabledChange?.(enabled);
+    }
+  };
+
+  const handleActiveIdleTimeoutChange = (sec: number) => {
+    onUpdateDisplay?.(currentActiveId, { idleTimeoutSec: sec });
+    if (currentActiveId === 'display-1' || currentActiveId === 'central') {
+      onIdleTimeoutSecChange?.(sec);
+    } else if (currentActiveId === 'display-2' || currentActiveId === 'peripheral') {
+      onRightIdleTimeoutSecChange?.(sec);
+    }
+  };
+
+  const handleActiveScreenOffTimeoutChange = (sec: number) => {
+    onUpdateDisplay?.(currentActiveId, { screenOffTimeoutSec: sec });
+    if (currentActiveId === 'display-1' || currentActiveId === 'central') {
+      onScreenOffTimeoutSecChange?.(sec);
+    } else if (currentActiveId === 'display-2' || currentActiveId === 'peripheral') {
+      onRightScreenOffTimeoutSecChange?.(sec);
     }
   };
 
@@ -249,23 +361,64 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
             </div>
           </div>
 
-          {/* Settings Section: Unified (Symmetric) OR Split (Asymmetric Left + Right) */}
+          {/* Display selector tabs when displays are provided */}
+          {displays && Object.keys(displays).length > 1 && (
+            <div className="flex items-center gap-1.5 p-1 bg-[#0b0d13] border border-[#1e2538] rounded-xl mb-3 overflow-x-auto">
+              {Object.entries(displays).map(([dId, d]) => (
+                <button
+                  key={dId}
+                  type="button"
+                  onClick={() => handleSelectDisplay(dId)}
+                  className={`px-3 py-1 text-xs font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+                    currentActiveId === dId
+                      ? 'bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/30 shadow-sm'
+                      : 'text-[#94a3b8] hover:text-white hover:bg-white/5 border border-transparent'
+                  }`}
+                >
+                  {d.name || dId}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Settings Section: Unified (Symmetric) OR Active Display (displays provided) OR Legacy Split */}
           {effectiveSymmetric ? (
             <SideSettingsBlock
               sideName="Unified"
               themeColor="cyan"
-              screenDimensions={screenDimensions}
+              screenDimensions={activeDisplay?.dimensions ?? screenDimensions}
               onScreenDimensionsChange={handleLeftDimensionsChange}
-              rotation={rotation}
+              rotation={activeDisplay?.rotation ?? rotation}
               onRotationChange={handleLeftRotationChange}
-              idleScreensEnabled={idleScreensEnabled}
+              idleScreensEnabled={activeDisplay?.idleScreensEnabled ?? idleScreensEnabled}
               onIdleScreensEnabledChange={handleLeftIdleEnabledChange}
-              idleTimeoutSec={idleTimeoutSec}
+              idleTimeoutSec={activeDisplay?.idleTimeoutSec ?? idleTimeoutSec}
               onIdleTimeoutSecChange={handleLeftIdleTimeoutChange}
-              screenOffTimeoutSec={screenOffTimeoutSec}
+              screenOffTimeoutSec={activeDisplay?.screenOffTimeoutSec ?? screenOffTimeoutSec}
               onScreenOffTimeoutSecChange={handleLeftScreenOffTimeoutChange}
             />
+          ) : displays && Object.keys(displays).length > 0 ? (
+            /* Modern architecture: drive settings directly from active display */
+            <div className="space-y-4">
+              <SideSettingsBlock
+                title={`${activeDisplay?.name || currentActiveId} Display & Power Settings`}
+                badge={activeDisplay?.name || currentActiveId}
+                sideName={activeDisplay?.name || currentActiveId}
+                themeColor={currentActiveId === 'display-1' ? 'cyan' : 'purple'}
+                screenDimensions={activeDisplay?.dimensions ?? screenDimensions}
+                onScreenDimensionsChange={handleActiveDimensionsChange}
+                rotation={activeDisplay?.rotation ?? rotation}
+                onRotationChange={handleActiveRotationChange}
+                idleScreensEnabled={activeDisplay?.idleScreensEnabled ?? idleScreensEnabled}
+                onIdleScreensEnabledChange={handleActiveIdleEnabledChange}
+                idleTimeoutSec={activeDisplay?.idleTimeoutSec ?? idleTimeoutSec}
+                onIdleTimeoutSecChange={handleActiveIdleTimeoutChange}
+                screenOffTimeoutSec={activeDisplay?.screenOffTimeoutSec ?? screenOffTimeoutSec}
+                onScreenOffTimeoutSecChange={handleActiveScreenOffTimeoutChange}
+              />
+            </div>
           ) : (
+            /* Legacy fallback when displays dictionary is omitted */
             <div className="space-y-4">
               {/* Block 1: Central Display & Power Settings */}
               <SideSettingsBlock
@@ -308,9 +461,9 @@ export const BlockSettingsSection: React.FC<BlockSettingsSectionProps> = ({
           {/* Timeline Visualizer Footer */}
           <SettingsTimelineVisualizer
             effectiveSymmetric={effectiveSymmetric}
-            idleScreensEnabled={idleScreensEnabled}
-            idleTimeoutSec={idleTimeoutSec}
-            screenOffTimeoutSec={screenOffTimeoutSec}
+            idleScreensEnabled={activeDisplay?.idleScreensEnabled ?? idleScreensEnabled}
+            idleTimeoutSec={activeDisplay?.idleTimeoutSec ?? idleTimeoutSec}
+            screenOffTimeoutSec={activeDisplay?.screenOffTimeoutSec ?? screenOffTimeoutSec}
             effectiveRightIdleEnabled={effectiveRightIdleEnabled}
             effectiveRightIdleTimeout={effectiveRightIdleTimeout}
             effectiveRightScreenOffTimeout={effectiveRightScreenOffTimeout}
@@ -367,6 +520,9 @@ export interface SideSettingsPanelProps {
   /** When true (e.g. totalDisplays > 2), displays overlay directly over the screen instead of pushing horizontally */
   isOverlay?: boolean;
 
+  /** Associated display screen object if available */
+  display?: import('../types/zmk').DisplayScreen;
+
   className?: string;
 }
 
@@ -403,6 +559,7 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
   onDeleteDisplay,
   canDeleteDisplay = true,
   isOverlay = false,
+  display,
   className = '',
 }) => {
   // Listen for Escape key to close settings panel
@@ -440,22 +597,22 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
   // Right side values with fallbacks to left side values
   const effectiveRightDimensions = effectiveSymmetric
     ? screenDimensions
-    : (rightScreenDimensions ?? screenDimensions);
+    : (rightScreenDimensions ?? display?.dimensions ?? screenDimensions);
 
   const effectiveRightRotation = effectiveSymmetric
     ? rotation
-    : (rightRotation !== undefined ? rightRotation : rotation);
+    : (rightRotation !== undefined ? rightRotation : (display?.rotation ?? rotation));
 
   // Idle toggles are independent per display
-  const effectiveRightIdleEnabled = rightIdleScreensEnabled !== undefined ? rightIdleScreensEnabled : idleScreensEnabled;
+  const effectiveRightIdleEnabled = rightIdleScreensEnabled !== undefined ? rightIdleScreensEnabled : (display?.idleScreensEnabled ?? idleScreensEnabled);
 
   const effectiveRightIdleTimeout = effectiveSymmetric
     ? idleTimeoutSec
-    : (rightIdleTimeoutSec !== undefined ? rightIdleTimeoutSec : idleTimeoutSec);
+    : (rightIdleTimeoutSec !== undefined ? rightIdleTimeoutSec : (display?.idleTimeoutSec ?? idleTimeoutSec));
 
   const effectiveRightScreenOffTimeout = effectiveSymmetric
     ? screenOffTimeoutSec
-    : (rightScreenOffTimeoutSec !== undefined ? rightScreenOffTimeoutSec : screenOffTimeoutSec);
+    : (rightScreenOffTimeoutSec !== undefined ? rightScreenOffTimeoutSec : (display?.screenOffTimeoutSec ?? screenOffTimeoutSec));
 
   // Left/Unified change handlers
   const handleLeftDimensionsChange = (dims: { width: number; height: number }) => {
@@ -490,8 +647,10 @@ export const SideSettingsPanel: React.FC<SideSettingsPanelProps> = ({
     }
   };
 
-  const isCentral = isPeripheral !== undefined ? !isPeripheral : (side === 'central' || side === 'left');
-  const peripheralIndex = side.startsWith('peripheral-') ? side.replace('peripheral-', '') : null;
+  const isCentral = isPeripheral !== undefined ? !isPeripheral : (side === 'central' || side === 'left' || side === 'display-1');
+  const peripheralIndex = side.startsWith('peripheral-')
+    ? side.replace('peripheral-', '')
+    : (side.startsWith('display-') && side !== 'display-1' ? side.replace('display-', '') : null);
   const sideTitle = isCentral ? 'Central Settings' : peripheralIndex ? `Peripheral ${peripheralIndex} Settings` : 'Peripheral Settings';
   const sideBadge = isCentral ? 'Central' : peripheralIndex ? `Peripheral ${peripheralIndex}` : 'Peripheral';
 

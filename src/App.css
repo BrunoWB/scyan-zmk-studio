@@ -25,10 +25,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 36px;
+  gap: 0;
   position: relative;
   max-width: 100%;
-  padding: 28px 24px 16px;
+  padding: 50px 24px 16px;
   flex-shrink: 0;
 }
 
@@ -258,6 +258,166 @@
   border-width: 4px;
   border-style: solid;
   border-color: #131722 transparent transparent transparent;
+}
+
+/* Shield Wrapper (Relative container for shield and its centered drag handle) */
+.preview-shield-wrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 32px;
+  margin-top: -32px;
+  padding-bottom: 32px;
+  margin-bottom: -32px;
+  margin-left: 18px;
+  margin-right: 18px;
+  flex-shrink: 0;
+  z-index: 20;
+  transition: opacity 0.2s ease, transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.preview-shield-wrapper:hover {
+  z-index: 35;
+}
+
+/* Shield Drag Handle (Preview Topology) */
+.preview-shield-drag-handle {
+  position: absolute;
+  top: 0px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 96px;
+  height: 28px;
+  border-radius: 9999px;
+  background: rgba(16, 22, 34, 0.98);
+  border: 2px solid rgba(0, 240, 255, 0.55);
+  color: #00f0ff;
+  cursor: grab !important;
+  user-select: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease,
+              background 0.15s ease,
+              border-color 0.15s ease,
+              box-shadow 0.15s ease,
+              transform 0.15s ease;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.75), 0 0 16px rgba(0, 240, 255, 0.3);
+}
+
+.preview-shield-wrapper:hover .preview-shield-drag-handle,
+.preview-shield-drag-handle.is-visible {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  z-index: 60;
+}
+
+.preview-shield-drag-handle:hover {
+  background: rgba(22, 30, 48, 1);
+  border-color: #00f0ff;
+  color: #00f0ff;
+  cursor: grab !important;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.85), 0 0 24px rgba(0, 240, 255, 0.7);
+  transform: translateX(-50%) scale(1.08);
+  z-index: 70;
+}
+
+.preview-shield-drag-handle:active {
+  cursor: grabbing !important;
+  transform: translateX(-50%) scale(0.96);
+  z-index: 70;
+}
+
+/* Shield Topology Drop Zone (Visible strictly during active shield dragging) */
+.shield-drop-zone {
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 204px !important;
+  min-height: 204px !important;
+  width: 42px;
+  max-width: 42px;
+  margin: 0 4px;
+  border-radius: 9999px !important;
+  flex-shrink: 0 !important;
+  user-select: none;
+  box-sizing: border-box;
+  transition:
+    width 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    max-width 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    margin 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.25s ease;
+}
+
+.shield-drop-zone * {
+  pointer-events: none !important;
+}
+
+/* Active drop zone: smooth expansion animation */
+.shield-drop-zone.is-active {
+  opacity: 1;
+  pointer-events: auto;
+  cursor: pointer;
+  animation: dropZoneExpand 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes dropZoneExpand {
+  0% {
+    width: 0px;
+    max-width: 0px;
+    margin-left: 0px;
+    margin-right: 0px;
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  100% {
+    width: 42px;
+    max-width: 42px;
+    margin-left: 4px;
+    margin-right: 4px;
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Invisible balancer: identical width & expansion to keep layout center perfectly locked in place */
+.shield-drop-zone.is-balancer {
+  width: 42px;
+  max-width: 42px;
+  margin: 0 4px;
+  opacity: 0;
+  pointer-events: none;
+  border-radius: 9999px;
+  animation: balancerExpand 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes balancerExpand {
+  0% {
+    width: 0px;
+    max-width: 0px;
+    margin-left: 0px;
+    margin-right: 0px;
+  }
+  100% {
+    width: 42px;
+    max-width: 42px;
+    margin-left: 4px;
+    margin-right: 4px;
+  }
+}
+
+/* When dragged over: expands width to 64px with outer and inner ambient glow */
+.shield-drop-zone.is-active.is-hovered {
+  width: 64px !important;
+  max-width: 64px !important;
+  margin: 0 8px !important;
+  box-shadow: 0 0 28px rgba(0, 240, 255, 0.55), inset 0 0 16px rgba(0, 240, 255, 0.2) !important;
 }
 
 .preview-display-select {

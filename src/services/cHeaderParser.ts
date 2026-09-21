@@ -1,10 +1,18 @@
 import { BwpxGrid } from '../bwpx/core/BwpxGrid';
-import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../types/zmk';
+import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock, DisplayScreen } from '../types/zmk';
 import type { WidgetInstanceMap } from '../types/widget';
-import { DEFAULT_SYMBOL_SLICES, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS } from '../types/zmk';
+import {
+  DEFAULT_SYMBOL_SLICES,
+  DEFAULT_FONT_GLYPHS,
+  DEFAULT_FONT_MAPPINGS,
+  DEFAULT_CENTRAL_LAYOUT_BLOCKS,
+  DEFAULT_PERIPHERAL_LAYOUT_BLOCKS,
+  DEFAULT_IDLE_CENTRAL_BLOCKS,
+  DEFAULT_IDLE_PERIPHERAL_BLOCKS,
+} from '../types/zmk';
 import defaultInstallHeader from '../assets/scyan_assets.install.h?raw';
 import { measureTextWidth, getWidgetNaturalSize, getWidgetDefinition, normalizeWidgetType, resolveWidgetInstance } from './widgetRegistry';
-import { getShieldDefaultRotation } from '../data/shieldsData';
+import { getShieldDefaultRotation, type LoadedShieldUnit } from '../data/shieldsData';
 
 export interface PeripheralScreenData {
   name?: string;
@@ -18,7 +26,15 @@ export interface PeripheralScreenData {
 }
 
 export interface HeaderMetadata {
-  version: 1;
+  version: 1 | 2;
+  /** Decoupled display screens dictionary (keyed e.g. 'display-1', 'display-2') */
+  displays?: Record<string, DisplayScreen>;
+  /** Physical shield units loaded in the workspace */
+  shields?: LoadedShieldUnit[];
+  /** Mapping of shield unit ID to mounted display ID (e.g. { 'corne_left': 'display-1', 'corne_right': 'display-2' }) */
+  displayAssignments?: Record<string, string | null>;
+  /** Active keyboard shield ID (e.g. 'corne', 'lily58', 'sofle', etc.) */
+  shieldId?: string;
   /** Canonical Central & Peripheral display block tables */
   centralBlocks?: LayoutBlock[];
   peripheralBlocks?: LayoutBlock[];
@@ -50,10 +66,6 @@ export interface HeaderMetadata {
   peripheralScreenOffTimeoutSec?: number;
   /** List of currently enabled screens (e.g. ['central', 'peripheral']) */
   enabledScreens?: string[];
-  /** Active keyboard shield ID (e.g. 'corne', 'lily58', 'sofle', etc.) */
-  shieldId?: string;
-  /** Mapping of shield unit ID to mounted display ID (e.g. { 'corne_left': 'central', 'corne_right': 'peripheral' }) */
-  displayAssignments?: Record<string, string | null>;
   /** Bongo Cat tap animation duration in milliseconds (default 60, matches CONFIG_SCYAN_BONGO_TAP_MS) */
   bongoTapMs?: number;
   /** Bongo Cat debounce interval in milliseconds (default 100) */
@@ -355,12 +367,117 @@ export function parseCHeader(cCode: string): ParsedAssets {
 
     // 5. Parse optional ZMK_DISPLAY_STUDIO_METADATA JSON block
     const metaMatch = cCode.match(/\/\*\s*ZMK_DISPLAY_STUDIO_METADATA\s*([\s\S]*?)\*\//);
+    const hasMetadataComment = !!(metaMatch && metaMatch[1]);
     if (metaMatch && metaMatch[1]) {
       try {
         const parsedMeta = JSON.parse(metaMatch[1].trim());
         if (parsedMeta && typeof parsedMeta === 'object') {
           metadata = parsedMeta;
           if (metadata) {
+            if (metadata.displays && Object.keys(metadata.displays).length > 0) {
+              const d1 = metadata.displays['display-1'];
+              const d2 = metadata.displays['display-2'];
+              if (d1) {
+                metadata.centralBlocks = d1.blocks;
+                metadata.idleCentralBlocks = d1.idleBlocks;
+                metadata.screenDimensions = d1.dimensions;
+                metadata.rotation = d1.rotation;
+                metadata.idleTimeoutSec = d1.idleTimeoutSec;
+                metadata.screenOffTimeoutSec = d1.screenOffTimeoutSec;
+                metadata.idleScreensEnabled = d1.idleScreensEnabled;
+              }
+              if (d2) {
+                metadata.peripheralBlocks = d2.blocks;
+                metadata.idlePeripheralBlocks = d2.idleBlocks;
+                metadata.peripheralScreenDimensions = d2.dimensions;
+                metadata.rightScreenDimensions = d2.dimensions;
+                metadata.peripheralRotation = d2.rotation;
+                metadata.rightRotation = d2.rotation;
+                metadata.peripheralIdleTimeoutSec = d2.idleTimeoutSec;
+                metadata.rightIdleTimeoutSec = d2.idleTimeoutSec;
+                metadata.peripheralScreenOffTimeoutSec = d2.screenOffTimeoutSec;
+                metadata.rightScreenOffTimeoutSec = d2.screenOffTimeoutSec;
+                metadata.peripheralIdleScreensEnabled = d2.idleScreensEnabled;
+                metadata.rightIdleScreensEnabled = d2.idleScreensEnabled;
+              }
+              if (!metadata.peripheralScreens) {
+                const pScreens: Record<string, PeripheralScreenData> = {};
+                Object.entries(metadata.displays).forEach(([dId, d]) => {
+                  if (dId !== 'display-1' && dId !== 'display-2') {
+                    const pKey = dId.startsWith('display-') ? `peripheral-${parseInt(dId.replace('display-', ''), 10) - 1}` : dId;
+                    pScreens[pKey] = {
+                      name: d.name,
+                      blocks: d.blocks,
+                      idleBlocks: d.idleBlocks,
+                      screenDimensions: d.dimensions,
+                      rotation: d.rotation,
+                      idleScreensEnabled: d.idleScreensEnabled,
+                      idleTimeoutSec: d.idleTimeoutSec,
+                      screenOffTimeoutSec: d.screenOffTimeoutSec,
+                    };
+                  }
+                });
+                if (Object.keys(pScreens).length > 0) {
+                  metadata.peripheralScreens = pScreens;
+                }
+              }
+            } else {
+              // Backward compatibility: build displays dictionary from v1 fields
+              const d1Blocks = metadata.centralBlocks || (metadata as any).leftBlocks || DEFAULT_CENTRAL_LAYOUT_BLOCKS;
+              const d1Idle = metadata.idleCentralBlocks || (metadata as any).idleLeftBlocks || DEFAULT_IDLE_CENTRAL_BLOCKS;
+              const d2Blocks = metadata.peripheralBlocks || (metadata as any).rightBlocks;
+              const d2Idle = metadata.idlePeripheralBlocks || (metadata as any).idleRightBlocks;
+
+              const displaysDict: Record<string, DisplayScreen> = {
+                'display-1': {
+                  id: 'display-1',
+                  name: 'Display 1',
+                  dimensions: metadata.screenDimensions || { width: 32, height: 128 },
+                  rotation: metadata.rotation ?? 90,
+                  blocks: d1Blocks,
+                  idleBlocks: d1Idle,
+                  idleTimeoutSec: metadata.idleTimeoutSec ?? 30,
+                  screenOffTimeoutSec: metadata.screenOffTimeoutSec ?? 60,
+                  idleScreensEnabled: metadata.idleScreensEnabled ?? true,
+                },
+              };
+
+              if (d2Blocks || d2Idle || metadata.enabledScreens?.includes('peripheral')) {
+                const pDims = metadata.peripheralScreenDimensions || (metadata as any).rightScreenDimensions || metadata.screenDimensions || { width: 32, height: 128 };
+                displaysDict['display-2'] = {
+                  id: 'display-2',
+                  name: 'Display 2',
+                  dimensions: pDims,
+                  rotation: metadata.peripheralRotation ?? metadata.rightRotation ?? metadata.rotation ?? 90,
+                  blocks: d2Blocks || DEFAULT_PERIPHERAL_LAYOUT_BLOCKS,
+                  idleBlocks: d2Idle || DEFAULT_IDLE_PERIPHERAL_BLOCKS,
+                  idleTimeoutSec: metadata.peripheralIdleTimeoutSec ?? (metadata as any).rightIdleTimeoutSec ?? metadata.idleTimeoutSec ?? 30,
+                  screenOffTimeoutSec: metadata.peripheralScreenOffTimeoutSec ?? (metadata as any).rightScreenOffTimeoutSec ?? metadata.screenOffTimeoutSec ?? 60,
+                  idleScreensEnabled: metadata.peripheralIdleScreensEnabled ?? (metadata as any).rightIdleScreensEnabled ?? metadata.idleScreensEnabled ?? true,
+                };
+              }
+
+              if (metadata.peripheralScreens) {
+                let slot = 3;
+                Object.entries(metadata.peripheralScreens).forEach(([, p]) => {
+                  const dId = `display-${slot++}`;
+                  displaysDict[dId] = {
+                    id: dId,
+                    name: p.name || `Display ${slot - 1}`,
+                    dimensions: p.screenDimensions || { width: 32, height: 128 },
+                    rotation: p.rotation ?? 90,
+                    blocks: p.blocks || [],
+                    idleBlocks: p.idleBlocks || [],
+                    idleTimeoutSec: p.idleTimeoutSec ?? 30,
+                    screenOffTimeoutSec: p.screenOffTimeoutSec ?? 60,
+                    idleScreensEnabled: p.idleScreensEnabled ?? false,
+                  };
+                });
+              }
+
+              metadata.displays = displaysDict;
+            }
+
             if (metadata.leftBlocks && !metadata.centralBlocks) {
               metadata.centralBlocks = metadata.leftBlocks;
             } else if (metadata.centralBlocks && !metadata.leftBlocks) {
@@ -391,7 +508,9 @@ export function parseCHeader(cCode: string): ParsedAssets {
                 .map((s: string) => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
                 .filter((s: string) => s !== 'dongle');
             } else {
-              metadata.enabledScreens = ['central', 'peripheral'];
+              metadata.enabledScreens = (metadata.version === 2 && metadata.displays)
+                ? Object.keys(metadata.displays)
+                : ['central', 'peripheral'];
             }
             if (metadata.widgetInstances) {
               const instMap = { ...metadata.widgetInstances };
@@ -462,7 +581,7 @@ export function parseCHeader(cCode: string): ParsedAssets {
     const isAsymmetricC = !!(rightScreenDims || parsedRightRotation !== undefined || parsedRightIdleTimeoutSec !== undefined || parsedRightScreenOffTimeoutSec !== undefined || parsedRightIdleScreensEnabled !== undefined);
 
     // 7. If metadata JSON was missing or incomplete, reconstruct from C layout block arrays
-    if (!metadata || (!metadata.centralBlocks && !metadata.peripheralBlocks && !(metadata as any).leftBlocks && !metadata.peripheralScreens)) {
+    if (!hasMetadataComment || !metadata || (!metadata.displays && !metadata.centralBlocks && !metadata.peripheralBlocks && !(metadata as any).leftBlocks && !metadata.peripheralScreens)) {
       const parseCBlocks = (arrayName: string, side: 'central' | 'peripheral' | string) => {
         const arrMatch = cCode.match(new RegExp(`${arrayName}\\[[^\\]]*\\]\\s*=\\s*\\{([\\s\\S]*?)\\};`));
         if (!arrMatch || !arrMatch[1]) return undefined;
@@ -481,7 +600,7 @@ export function parseCHeader(cCode: string): ParsedAssets {
               const body = content.slice(start + 1, i);
               const typeMatch = body.match(/\.type\s*=\s*([A-Za-z0-9_]+)/);
               const rawType = typeMatch ? typeMatch[1] : '';
-              if (rawType && rawType !== 'WIDGET_TYPE_NONE') {
+              if (rawType && rawType !== 'WIDGET_TYPE_NONE' && rawType !== '0') {
                 const xMatch = body.match(/\.x\s*=\s*(-?\d+)/);
                 const yMatch = body.match(/\.y\s*=\s*(-?\d+)/);
                 const wMatch = body.match(/\.width\s*=\s*(\d+)/);
@@ -492,46 +611,57 @@ export function parseCHeader(cCode: string): ParsedAssets {
                 let widgetType = 'branding';
                 let defaultName = 'Block';
                 switch (rawType) {
+                  case '1':
                   case 'WIDGET_TYPE_OUTPUT_STATUS':
                     widgetType = 'connection';
                     defaultName = 'Output Status';
                     break;
+                  case '2':
                   case 'WIDGET_TYPE_BATTERY':
                     widgetType = 'battery';
                     defaultName = 'Battery Meter';
                     break;
+                  case '3':
                   case 'WIDGET_TYPE_LAYER':
                     widgetType = 'layer-banner';
                     defaultName = 'Layer Banner';
                     break;
+                  case '4':
                   case 'WIDGET_TYPE_WPM':
                     widgetType = 'wpm';
                     defaultName = 'WPM Gauge';
                     break;
+                  case '5':
                   case 'WIDGET_TYPE_WPM_CHART':
                     widgetType = 'wpm-chart';
                     defaultName = 'WPM Chart';
                     break;
+                  case '6':
                   case 'WIDGET_TYPE_BRANDING':
                     widgetType = 'branding';
                     defaultName = 'Custom Text';
                     break;
+                  case '7':
                   case 'WIDGET_TYPE_SPLIT':
                     widgetType = 'split';
                     defaultName = 'Split Link';
                     break;
+                  case '8':
                   case 'WIDGET_TYPE_SCREENSAVER':
                     widgetType = 'screensaver';
                     defaultName = 'Mascot Image';
                     break;
+                  case '9':
                   case 'WIDGET_TYPE_CAPS_LOCK':
                     widgetType = 'caps-lock';
                     defaultName = 'Caps Lock';
                     break;
+                  case '10':
                   case 'WIDGET_TYPE_BONGO':
                     widgetType = 'bongo';
                     defaultName = 'Bongo Cat';
                     break;
+                  case '11':
                   case 'WIDGET_TYPE_LOOP':
                     widgetType = 'animation';
                     defaultName = 'Animation';
@@ -667,59 +797,131 @@ export function parseCHeader(cCode: string): ParsedAssets {
         return blocks.length > 0 ? blocks : undefined;
       };
 
-      const centralBlocks = parseCBlocks('LAYOUT_CENTRAL_ACTIVE_BLOCKS', 'central') || parseCBlocks('LAYOUT_LEFT_ACTIVE_BLOCKS', 'central');
-      const peripheralBlocks = parseCBlocks('LAYOUT_PERIPHERAL_ACTIVE_BLOCKS', 'peripheral') || parseCBlocks('LAYOUT_RIGHT_ACTIVE_BLOCKS', 'peripheral');
-      const idleCentralBlocks = parseCBlocks('LAYOUT_CENTRAL_IDLE_BLOCKS', 'central') || parseCBlocks('LAYOUT_LEFT_IDLE_BLOCKS', 'central');
-      const idlePeripheralBlocks = parseCBlocks('LAYOUT_PERIPHERAL_IDLE_BLOCKS', 'peripheral') || parseCBlocks('LAYOUT_RIGHT_IDLE_BLOCKS', 'peripheral');
+      const centralBlocks = parseCBlocks('LAYOUT_DISPLAY_1_ACTIVE_BLOCKS', 'display-1') || parseCBlocks('LAYOUT_CENTRAL_ACTIVE_BLOCKS', 'central') || parseCBlocks('LAYOUT_LEFT_ACTIVE_BLOCKS', 'central');
+      const peripheralBlocks = parseCBlocks('LAYOUT_DISPLAY_2_ACTIVE_BLOCKS', 'display-2') || parseCBlocks('LAYOUT_PERIPHERAL_ACTIVE_BLOCKS', 'peripheral') || parseCBlocks('LAYOUT_RIGHT_ACTIVE_BLOCKS', 'peripheral');
+      const idleCentralBlocks = parseCBlocks('LAYOUT_DISPLAY_1_IDLE_BLOCKS', 'display-1') || parseCBlocks('LAYOUT_CENTRAL_IDLE_BLOCKS', 'central') || parseCBlocks('LAYOUT_LEFT_IDLE_BLOCKS', 'central');
+      const idlePeripheralBlocks = parseCBlocks('LAYOUT_DISPLAY_2_IDLE_BLOCKS', 'display-2') || parseCBlocks('LAYOUT_PERIPHERAL_IDLE_BLOCKS', 'peripheral') || parseCBlocks('LAYOUT_RIGHT_IDLE_BLOCKS', 'peripheral');
 
-      if (centralBlocks || peripheralBlocks || idleCentralBlocks || idlePeripheralBlocks || screenDims) {
-        const resolvedCentral = centralBlocks || metadata?.centralBlocks;
-        const resolvedPeripheral = peripheralBlocks || metadata?.peripheralBlocks;
-        const resolvedIdleCentral = idleCentralBlocks || metadata?.idleCentralBlocks;
-        const resolvedIdlePeripheral = idlePeripheralBlocks || metadata?.idlePeripheralBlocks;
-        const resolvedPeripheralDims = rightScreenDims || metadata?.peripheralScreenDimensions;
-          const resolvedRotation = metadata?.rotation ?? parsedRotation ?? (metadata?.shieldId ? getShieldDefaultRotation(metadata.shieldId) : (screenDims && screenDims.width < screenDims.height ? 90 : 0));
-          const resolvedPeripheralRot = metadata?.peripheralRotation ?? metadata?.rightRotation ?? parsedRightRotation ?? (isAsymmetricC && rightScreenDims ? (rightScreenDims.width < rightScreenDims.height ? 90 : 0) : resolvedRotation);
-          metadata = {
-            version: 1,
-            centralBlocks: resolvedCentral,
-            peripheralBlocks: resolvedPeripheral,
-            idleCentralBlocks: resolvedIdleCentral,
-            idlePeripheralBlocks: resolvedIdlePeripheral,
-            leftBlocks: resolvedCentral,
-            rightBlocks: resolvedPeripheral,
-            idleLeftBlocks: resolvedIdleCentral,
-            idleRightBlocks: resolvedIdlePeripheral,
-            screenDimensions: screenDims || metadata?.screenDimensions,
-            peripheralScreens: metadata?.peripheralScreens,
-            widgetInstances: metadata?.widgetInstances,
-            idleTimeoutSec: metadata?.idleTimeoutSec ?? parsedIdleTimeoutSec,
-            screenOffTimeoutSec: metadata?.screenOffTimeoutSec ?? parsedScreenOffTimeoutSec,
-            idleScreensEnabled: metadata?.idleScreensEnabled ?? parsedIdleScreensEnabled,
-            symmetricSettings: metadata?.symmetricSettings ?? (!isAsymmetricC),
+      const tertiaryActive = parseCBlocks('LAYOUT_DISPLAY_3_ACTIVE_BLOCKS', 'display-3') || parseCBlocks('LAYOUT_PERIPHERAL_2_ACTIVE_BLOCKS', 'display-3');
+      const tertiaryIdle = parseCBlocks('LAYOUT_DISPLAY_3_IDLE_BLOCKS', 'display-3') || parseCBlocks('LAYOUT_PERIPHERAL_2_IDLE_BLOCKS', 'display-3');
+
+      if (centralBlocks || peripheralBlocks || idleCentralBlocks || idlePeripheralBlocks || tertiaryActive || tertiaryIdle || screenDims) {
+        const resolvedCentral = centralBlocks || (hasMetadataComment ? metadata?.centralBlocks : undefined);
+        const resolvedPeripheral = peripheralBlocks || (hasMetadataComment ? metadata?.peripheralBlocks : undefined);
+        const resolvedIdleCentral = idleCentralBlocks || (hasMetadataComment ? metadata?.idleCentralBlocks : undefined);
+        const resolvedIdlePeripheral = idlePeripheralBlocks || (hasMetadataComment ? metadata?.idlePeripheralBlocks : undefined);
+        const resolvedPeripheralDims = rightScreenDims || (hasMetadataComment ? metadata?.peripheralScreenDimensions : undefined);
+        const resolvedRotation = (hasMetadataComment ? metadata?.rotation : undefined) ?? parsedRotation ?? (metadata?.shieldId ? getShieldDefaultRotation(metadata.shieldId) : (screenDims && screenDims.width < screenDims.height ? 90 : 0));
+        const resolvedPeripheralRot = (hasMetadataComment ? (metadata?.peripheralRotation ?? metadata?.rightRotation) : undefined) ?? parsedRightRotation ?? (isAsymmetricC && rightScreenDims ? (rightScreenDims.width < rightScreenDims.height ? 90 : 0) : resolvedRotation);
+
+        const fallbackDisplays: Record<string, DisplayScreen> = {
+          'display-1': {
+            id: 'display-1',
+            name: 'Display 1',
+            dimensions: screenDims || metadata?.screenDimensions || { width: 32, height: 128 },
             rotation: resolvedRotation,
-            peripheralScreenDimensions: resolvedPeripheralDims,
-            peripheralRotation: resolvedPeripheralRot,
-            rightScreenDimensions: resolvedPeripheralDims,
-            rightRotation: resolvedPeripheralRot,
-          peripheralIdleTimeoutSec: metadata?.peripheralIdleTimeoutSec ?? parsedRightIdleTimeoutSec,
-          rightIdleTimeoutSec: metadata?.peripheralIdleTimeoutSec ?? parsedRightIdleTimeoutSec,
-          peripheralScreenOffTimeoutSec: metadata?.peripheralScreenOffTimeoutSec ?? parsedRightScreenOffTimeoutSec,
-          rightScreenOffTimeoutSec: metadata?.peripheralScreenOffTimeoutSec ?? parsedRightScreenOffTimeoutSec,
-          peripheralIdleScreensEnabled: metadata?.peripheralIdleScreensEnabled ?? parsedRightIdleScreensEnabled,
-          rightIdleScreensEnabled: metadata?.peripheralIdleScreensEnabled ?? parsedRightIdleScreensEnabled,
-          enabledScreens: metadata?.enabledScreens
+            blocks: resolvedCentral || DEFAULT_CENTRAL_LAYOUT_BLOCKS,
+            idleBlocks: resolvedIdleCentral || DEFAULT_IDLE_CENTRAL_BLOCKS,
+            idleTimeoutSec: (hasMetadataComment ? metadata?.idleTimeoutSec : undefined) ?? parsedIdleTimeoutSec ?? 30,
+            screenOffTimeoutSec: (hasMetadataComment ? metadata?.screenOffTimeoutSec : undefined) ?? parsedScreenOffTimeoutSec ?? 60,
+            idleScreensEnabled: (hasMetadataComment ? metadata?.idleScreensEnabled : undefined) ?? parsedIdleScreensEnabled ?? true,
+          },
+        };
+
+        if (resolvedPeripheral || resolvedIdlePeripheral) {
+          fallbackDisplays['display-2'] = {
+            id: 'display-2',
+            name: 'Display 2',
+            dimensions: resolvedPeripheralDims || screenDims || { width: 32, height: 128 },
+            rotation: resolvedPeripheralRot,
+            blocks: resolvedPeripheral || DEFAULT_PERIPHERAL_LAYOUT_BLOCKS,
+            idleBlocks: resolvedIdlePeripheral || DEFAULT_IDLE_PERIPHERAL_BLOCKS,
+            idleTimeoutSec: (hasMetadataComment ? metadata?.peripheralIdleTimeoutSec : undefined) ?? parsedRightIdleTimeoutSec ?? 30,
+            screenOffTimeoutSec: (hasMetadataComment ? metadata?.peripheralScreenOffTimeoutSec : undefined) ?? parsedRightScreenOffTimeoutSec ?? 60,
+            idleScreensEnabled: (hasMetadataComment ? metadata?.peripheralIdleScreensEnabled : undefined) ?? parsedRightIdleScreensEnabled ?? true,
+          };
+        }
+
+        if (tertiaryActive || tertiaryIdle) {
+          fallbackDisplays['display-3'] = {
+            id: 'display-3',
+            name: 'Display 3',
+            dimensions: resolvedPeripheralDims || screenDims || { width: 32, height: 128 },
+            rotation: resolvedPeripheralRot,
+            blocks: tertiaryActive || [],
+            idleBlocks: tertiaryIdle || [],
+            idleTimeoutSec: (hasMetadataComment ? metadata?.peripheralIdleTimeoutSec : undefined) ?? parsedRightIdleTimeoutSec ?? 30,
+            screenOffTimeoutSec: (hasMetadataComment ? metadata?.peripheralScreenOffTimeoutSec : undefined) ?? parsedRightScreenOffTimeoutSec ?? 60,
+            idleScreensEnabled: (hasMetadataComment ? metadata?.peripheralIdleScreensEnabled : undefined) ?? parsedRightIdleScreensEnabled ?? false,
+          };
+        }
+
+        // Dynamically detect higher slotted display arrays (LAYOUT_DISPLAY_4_*, etc.)
+        const slotRegex = /LAYOUT_DISPLAY_(\d+)_ACTIVE_BLOCKS/g;
+        let slotMatch: RegExpExecArray | null;
+        while ((slotMatch = slotRegex.exec(cCode)) !== null) {
+          const slotNum = parseInt(slotMatch[1], 10);
+          if (slotNum >= 4) {
+            const dId = `display-${slotNum}`;
+            const sActive = parseCBlocks(`LAYOUT_DISPLAY_${slotNum}_ACTIVE_BLOCKS`, dId);
+            const sIdle = parseCBlocks(`LAYOUT_DISPLAY_${slotNum}_IDLE_BLOCKS`, dId);
+            if (sActive || sIdle) {
+              fallbackDisplays[dId] = {
+                id: dId,
+                name: `Display ${slotNum}`,
+                dimensions: resolvedPeripheralDims || screenDims || { width: 32, height: 128 },
+                rotation: resolvedPeripheralRot,
+                blocks: sActive || [],
+                idleBlocks: sIdle || [],
+                idleTimeoutSec: 30,
+                screenOffTimeoutSec: 60,
+                idleScreensEnabled: false,
+              };
+            }
+          }
+        }
+
+        metadata = {
+          version: hasMetadataComment && metadata?.version ? metadata.version : 2,
+          shields: hasMetadataComment ? metadata?.shields : undefined,
+          displayAssignments: hasMetadataComment ? metadata?.displayAssignments : undefined,
+          displays: fallbackDisplays,
+          centralBlocks: resolvedCentral,
+          peripheralBlocks: resolvedPeripheral,
+          idleCentralBlocks: resolvedIdleCentral,
+          idlePeripheralBlocks: resolvedIdlePeripheral,
+          leftBlocks: resolvedCentral,
+          rightBlocks: resolvedPeripheral,
+          idleLeftBlocks: resolvedIdleCentral,
+          idleRightBlocks: resolvedIdlePeripheral,
+          screenDimensions: screenDims || metadata?.screenDimensions,
+          peripheralScreens: hasMetadataComment ? metadata?.peripheralScreens : undefined,
+          widgetInstances: metadata?.widgetInstances,
+          idleTimeoutSec: (hasMetadataComment ? metadata?.idleTimeoutSec : undefined) ?? parsedIdleTimeoutSec,
+          screenOffTimeoutSec: (hasMetadataComment ? metadata?.screenOffTimeoutSec : undefined) ?? parsedScreenOffTimeoutSec,
+          idleScreensEnabled: (hasMetadataComment ? metadata?.idleScreensEnabled : undefined) ?? parsedIdleScreensEnabled,
+          symmetricSettings: (hasMetadataComment ? metadata?.symmetricSettings : undefined) ?? (!isAsymmetricC),
+          rotation: resolvedRotation,
+          peripheralScreenDimensions: resolvedPeripheralDims,
+          peripheralRotation: resolvedPeripheralRot,
+          rightScreenDimensions: resolvedPeripheralDims,
+          rightRotation: resolvedPeripheralRot,
+          peripheralIdleTimeoutSec: (hasMetadataComment ? metadata?.peripheralIdleTimeoutSec : undefined) ?? parsedRightIdleTimeoutSec,
+          rightIdleTimeoutSec: (hasMetadataComment ? metadata?.peripheralIdleTimeoutSec : undefined) ?? parsedRightIdleTimeoutSec,
+          peripheralScreenOffTimeoutSec: (hasMetadataComment ? metadata?.peripheralScreenOffTimeoutSec : undefined) ?? parsedRightScreenOffTimeoutSec,
+          rightScreenOffTimeoutSec: (hasMetadataComment ? metadata?.peripheralScreenOffTimeoutSec : undefined) ?? parsedRightScreenOffTimeoutSec,
+          peripheralIdleScreensEnabled: (hasMetadataComment ? metadata?.peripheralIdleScreensEnabled : undefined) ?? parsedRightIdleScreensEnabled,
+          rightIdleScreensEnabled: (hasMetadataComment ? metadata?.peripheralIdleScreensEnabled : undefined) ?? parsedRightIdleScreensEnabled,
+          enabledScreens: (hasMetadataComment && metadata?.enabledScreens)
             ? metadata.enabledScreens
                 .map(s => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
                 .filter(s => s !== 'dongle')
-            : ['central', 'peripheral'],
-          shieldId: metadata?.shieldId,
-          displayAssignments: metadata?.displayAssignments,
+            : ((resolvedPeripheral || resolvedIdlePeripheral) ? ['central', 'peripheral'] : ['central']),
+          shieldId: hasMetadataComment ? metadata?.shieldId : undefined,
         };
       }
     }
 
-    const hasMetadataComment = !!(metaMatch && metaMatch[1]);
     if (!hasMetadataComment) {
       if (screenDims) {
         if (!metadata) metadata = { version: 1 };
@@ -1195,8 +1397,10 @@ static const uint8_t FONT_ATLAS[${fontAtlasHeight} * ${fontStride}] = {
   c += `/* Small Font Glyphs (${smallGlyphs.length}) */\n`;
   c += `static const struct font_glyph FONT_GLYPHS_SMALL[${Math.max(1, smallGlyphs.length)}] = {\n`;
   smallGlyphs.forEach(g => {
-    const cpStr = g.codepoint <= 127 && g.char !== "'" && g.char !== '\\' ? `'${g.char}'` : `0x${g.codepoint.toString(16).toUpperCase().padStart(4, '0')}`;
-    c += `    { .codepoint = ${cpStr.padEnd(8, ' ')}, .x = ${(g.x + fontOffsetX).toString().padStart(3, ' ')}, .y = ${(g.y + fontOffsetY).toString().padStart(2, ' ')}, .width = ${g.width.toString().padStart(2, ' ')}, .height = ${g.height.toString().padStart(2, ' ')}, .advance_x = ${g.advanceX.toString().padStart(2, ' ')} }, // ${g.char}\n`;
+    const cp = g.codepoint ?? (g.char ? g.char.charCodeAt(0) : 0);
+    const cpStr = cp <= 127 && g.char !== "'" && g.char !== '\\' ? `'${g.char}'` : `0x${cp.toString(16).toUpperCase().padStart(4, '0')}`;
+    const commentChar = g.char === '\\' ? '\\ (backslash)' : g.char;
+    c += `    { .codepoint = ${cpStr.padEnd(8, ' ')}, .x = ${(g.x + fontOffsetX).toString().padStart(3, ' ')}, .y = ${(g.y + fontOffsetY).toString().padStart(2, ' ')}, .width = ${g.width.toString().padStart(2, ' ')}, .height = ${g.height.toString().padStart(2, ' ')}, .advance_x = ${g.advanceX.toString().padStart(2, ' ')} }, // ${commentChar}\n`;
   });
   if (smallGlyphs.length === 0) {
     c += `    { .codepoint = 0, .x = 0, .y = 0, .width = 0, .height = 0, .advance_x = 0 },\n`;
@@ -1207,8 +1411,10 @@ static const uint8_t FONT_ATLAS[${fontAtlasHeight} * ${fontStride}] = {
   c += `/* Big Font Glyphs (${bigGlyphs.length}) */\n`;
   c += `static const struct font_glyph FONT_GLYPHS_BIG[${Math.max(1, bigGlyphs.length)}] = {\n`;
   bigGlyphs.forEach(g => {
-    const cpStr = g.codepoint <= 127 && g.char !== "'" && g.char !== '\\' ? `'${g.char}'` : `0x${g.codepoint.toString(16).toUpperCase().padStart(4, '0')}`;
-    c += `    { .codepoint = ${cpStr.padEnd(8, ' ')}, .x = ${(g.x + fontOffsetX).toString().padStart(3, ' ')}, .y = ${(g.y + fontOffsetY).toString().padStart(2, ' ')}, .width = ${g.width.toString().padStart(2, ' ')}, .height = ${g.height.toString().padStart(2, ' ')}, .advance_x = ${g.advanceX.toString().padStart(2, ' ')} }, // ${g.char}\n`;
+    const cp = g.codepoint ?? (g.char ? g.char.charCodeAt(0) : 0);
+    const cpStr = cp <= 127 && g.char !== "'" && g.char !== '\\' ? `'${g.char}'` : `0x${cp.toString(16).toUpperCase().padStart(4, '0')}`;
+    const commentChar = g.char === '\\' ? '\\ (backslash)' : g.char;
+    c += `    { .codepoint = ${cpStr.padEnd(8, ' ')}, .x = ${(g.x + fontOffsetX).toString().padStart(3, ' ')}, .y = ${(g.y + fontOffsetY).toString().padStart(2, ' ')}, .width = ${g.width.toString().padStart(2, ' ')}, .height = ${g.height.toString().padStart(2, ' ')}, .advance_x = ${g.advanceX.toString().padStart(2, ' ')} }, // ${commentChar}\n`;
   });
   if (bigGlyphs.length === 0) {
     c += `    { .codepoint = 0, .x = 0, .y = 0, .width = 0, .height = 0, .advance_x = 0 },\n`;
@@ -1218,8 +1424,10 @@ static const uint8_t FONT_ATLAS[${fontAtlasHeight} * ${fontStride}] = {
   // Backward compatibility: Digits glyph table
   c += `static const struct font_glyph FONT_GLYPHS_DIGITS[${Math.max(1, digitsGlyphs.length)}] = {\n`;
   digitsGlyphs.forEach(g => {
-    const cpStr = g.codepoint >= 48 && g.codepoint <= 57 ? `'0' + ${(g.codepoint - 48)}` : `0x${g.codepoint.toString(16).toUpperCase().padStart(4, '0')}`;
-    c += `    { .codepoint = ${cpStr.padEnd(8, ' ')}, .x = ${(g.x + fontOffsetX).toString().padStart(3, ' ')}, .y = ${(g.y + fontOffsetY).toString().padStart(2, ' ')}, .width = ${g.width.toString().padStart(2, ' ')}, .height = ${g.height.toString().padStart(2, ' ')}, .advance_x = ${g.advanceX.toString().padStart(2, ' ')} }, // ${g.char}\n`;
+    const cp = g.codepoint ?? (g.char ? g.char.charCodeAt(0) : 0);
+    const cpStr = cp >= 48 && cp <= 57 ? `'0' + ${(cp - 48)}` : `0x${cp.toString(16).toUpperCase().padStart(4, '0')}`;
+    const commentChar = g.char === '\\' ? '\\ (backslash)' : g.char;
+    c += `    { .codepoint = ${cpStr.padEnd(8, ' ')}, .x = ${(g.x + fontOffsetX).toString().padStart(3, ' ')}, .y = ${(g.y + fontOffsetY).toString().padStart(2, ' ')}, .width = ${g.width.toString().padStart(2, ' ')}, .height = ${g.height.toString().padStart(2, ' ')}, .advance_x = ${g.advanceX.toString().padStart(2, ' ')} }, // ${commentChar}\n`;
   });
   if (digitsGlyphs.length === 0) {
     c += `    { .codepoint = 0, .x = 0, .y = 0, .width = 0, .height = 0, .advance_x = 0 },\n`;
@@ -1229,8 +1437,10 @@ static const uint8_t FONT_ATLAS[${fontAtlasHeight} * ${fontStride}] = {
   // Backward compatibility: Text glyph table
   c += `static const struct font_glyph FONT_GLYPHS_TEXT[${Math.max(1, textGlyphs.length)}] = {\n`;
   textGlyphs.forEach(g => {
-    const cpStr = g.codepoint <= 127 && g.char !== "'" && g.char !== '\\' ? `'${g.char}'` : `0x${g.codepoint.toString(16).toUpperCase().padStart(4, '0')}`;
-    c += `    { .codepoint = ${cpStr.padEnd(8, ' ')}, .x = ${(g.x + fontOffsetX).toString().padStart(3, ' ')}, .y = ${(g.y + fontOffsetY).toString().padStart(2, ' ')}, .width = ${g.width.toString().padStart(2, ' ')}, .height = ${g.height.toString().padStart(2, ' ')}, .advance_x = ${g.advanceX.toString().padStart(2, ' ')} }, // ${g.char}\n`;
+    const cp = g.codepoint ?? (g.char ? g.char.charCodeAt(0) : 0);
+    const cpStr = cp <= 127 && g.char !== "'" && g.char !== '\\' ? `'${g.char}'` : `0x${cp.toString(16).toUpperCase().padStart(4, '0')}`;
+    const commentChar = g.char === '\\' ? '\\ (backslash)' : g.char;
+    c += `    { .codepoint = ${cpStr.padEnd(8, ' ')}, .x = ${(g.x + fontOffsetX).toString().padStart(3, ' ')}, .y = ${(g.y + fontOffsetY).toString().padStart(2, ' ')}, .width = ${g.width.toString().padStart(2, ' ')}, .height = ${g.height.toString().padStart(2, ' ')}, .advance_x = ${g.advanceX.toString().padStart(2, ' ')} }, // ${commentChar}\n`;
   });
   if (textGlyphs.length === 0) {
     c += `    { .codepoint = 0, .x = 0, .y = 0, .width = 0, .height = 0, .advance_x = 0 },\n`;
@@ -1240,10 +1450,12 @@ static const uint8_t FONT_ATLAS[${fontAtlasHeight} * ${fontStride}] = {
   // All glyphs table
   c += `static const struct font_glyph FONT_GLYPHS_ALL[${Math.max(1, allGlyphs.length)}] = {\n`;
   allGlyphs.forEach(g => {
-    const cpStr = (g.codepoint >= 48 && g.codepoint <= 57)
-      ? `'0' + ${(g.codepoint - 48)}`
-      : (g.codepoint <= 127 && g.char !== "'" && g.char !== '\\' ? `'${g.char}'` : `0x${g.codepoint.toString(16).toUpperCase().padStart(4, '0')}`);
-    c += `    { .codepoint = ${cpStr.padEnd(8, ' ')}, .x = ${(g.x + fontOffsetX).toString().padStart(3, ' ')}, .y = ${(g.y + fontOffsetY).toString().padStart(2, ' ')}, .width = ${g.width.toString().padStart(2, ' ')}, .height = ${g.height.toString().padStart(2, ' ')}, .advance_x = ${g.advanceX.toString().padStart(2, ' ')} }, // ${g.char}\n`;
+    const cp = g.codepoint ?? (g.char ? g.char.charCodeAt(0) : 0);
+    const cpStr = (cp >= 48 && cp <= 57)
+      ? `'0' + ${(cp - 48)}`
+      : (cp <= 127 && g.char !== "'" && g.char !== '\\' ? `'${g.char}'` : `0x${cp.toString(16).toUpperCase().padStart(4, '0')}`);
+    const commentChar = g.char === '\\' ? '\\ (backslash)' : g.char;
+    c += `    { .codepoint = ${cpStr.padEnd(8, ' ')}, .x = ${(g.x + fontOffsetX).toString().padStart(3, ' ')}, .y = ${(g.y + fontOffsetY).toString().padStart(2, ' ')}, .width = ${g.width.toString().padStart(2, ' ')}, .height = ${g.height.toString().padStart(2, ' ')}, .advance_x = ${g.advanceX.toString().padStart(2, ' ')} }, // ${commentChar}\n`;
   });
   if (allGlyphs.length === 0) {
     c += `    { .codepoint = 0, .x = 0, .y = 0, .width = 0, .height = 0, .advance_x = 0 },\n`;
@@ -1307,11 +1519,76 @@ static const struct display_font font_default = {
 };
 `;
 
+  const resolvedDisplays: Record<string, DisplayScreen> = {};
+  if (metadata) {
+    if (metadata.displays && Object.keys(metadata.displays).length > 0) {
+      Object.entries(metadata.displays).forEach(([k, v]) => {
+        resolvedDisplays[k] = v;
+      });
+    } else {
+      const centralActive = metadata.centralBlocks || (metadata as any).leftBlocks || DEFAULT_CENTRAL_LAYOUT_BLOCKS;
+      const centralIdle = metadata.idleCentralBlocks || (metadata as any).idleLeftBlocks || DEFAULT_IDLE_CENTRAL_BLOCKS;
+      const peripheralActive = metadata.peripheralBlocks || (metadata as any).rightBlocks;
+      const peripheralIdle = metadata.idlePeripheralBlocks || (metadata as any).idleRightBlocks;
+
+      resolvedDisplays['display-1'] = {
+        id: 'display-1',
+        name: 'Display 1',
+        dimensions: metadata.screenDimensions || { width: 32, height: 128 },
+        rotation: metadata.rotation ?? 90,
+        blocks: centralActive,
+        idleBlocks: centralIdle,
+        idleTimeoutSec: metadata.idleTimeoutSec ?? 30,
+        screenOffTimeoutSec: metadata.screenOffTimeoutSec ?? 60,
+        idleScreensEnabled: metadata.idleScreensEnabled ?? true,
+      };
+
+      if (
+        peripheralActive ||
+        peripheralIdle ||
+        metadata.peripheralScreenDimensions ||
+        (metadata as any).rightScreenDimensions ||
+        metadata.symmetricSettings === false ||
+        metadata.enabledScreens?.includes('peripheral')
+      ) {
+        resolvedDisplays['display-2'] = {
+          id: 'display-2',
+          name: 'Display 2',
+          dimensions: metadata.peripheralScreenDimensions || (metadata as any).rightScreenDimensions || metadata.screenDimensions || { width: 32, height: 128 },
+          rotation: metadata.peripheralRotation ?? metadata.rightRotation ?? metadata.rotation ?? 90,
+          blocks: peripheralActive || DEFAULT_PERIPHERAL_LAYOUT_BLOCKS,
+          idleBlocks: peripheralIdle || DEFAULT_IDLE_PERIPHERAL_BLOCKS,
+          idleTimeoutSec: metadata.peripheralIdleTimeoutSec ?? (metadata as any).rightIdleTimeoutSec ?? metadata.idleTimeoutSec ?? 30,
+          screenOffTimeoutSec: metadata.peripheralScreenOffTimeoutSec ?? (metadata as any).rightScreenOffTimeoutSec ?? metadata.screenOffTimeoutSec ?? 60,
+          idleScreensEnabled: metadata.peripheralIdleScreensEnabled ?? (metadata as any).rightIdleScreensEnabled ?? metadata.idleScreensEnabled ?? true,
+        };
+      }
+
+      if (metadata.peripheralScreens) {
+        let slot = 3;
+        Object.entries(metadata.peripheralScreens).forEach(([, p]) => {
+          const dId = `display-${slot++}`;
+          resolvedDisplays[dId] = {
+            id: dId,
+            name: p.name || `Display ${slot - 1}`,
+            dimensions: p.screenDimensions || { width: 32, height: 128 },
+            rotation: p.rotation ?? 90,
+            blocks: p.blocks || [],
+            idleBlocks: p.idleBlocks || [],
+            idleTimeoutSec: p.idleTimeoutSec ?? 30,
+            screenOffTimeoutSec: p.screenOffTimeoutSec ?? 60,
+            idleScreensEnabled: p.idleScreensEnabled ?? false,
+          };
+        });
+      }
+    }
+  }
+
   if (metadata && (
     metadata.centralBlocks?.length || metadata.peripheralBlocks?.length ||
     metadata.idleCentralBlocks?.length || metadata.idlePeripheralBlocks?.length ||
     (metadata as any).leftBlocks?.length || (metadata as any).rightBlocks?.length ||
-    metadata.enabledScreens?.length
+    metadata.enabledScreens?.length || (metadata.displays && Object.keys(metadata.displays).length > 0)
   )) {
     c += `\n/* Interactive Screen Layout & Widget Architecture */\n`;
     c += `#define HAS_CUSTOM_LAYOUT_BLOCKS 1\n\n`;
@@ -1647,61 +1924,90 @@ static const struct display_font font_default = {
       c += `#define ${countName} ${all.length}\n\n`;
     };
 
-    const centralActive = metadata.centralBlocks || (metadata as any).leftBlocks;
-    const centralIdle = metadata.idleCentralBlocks || (metadata as any).idleLeftBlocks;
-    const peripheralActive = metadata.peripheralBlocks || (metadata as any).rightBlocks;
-    const peripheralIdle = metadata.idlePeripheralBlocks || (metadata as any).idleRightBlocks;
+    // Emit slotted display arrays
+    Object.entries(resolvedDisplays).forEach(([dId, disp]) => {
+      const slotMatch = dId.match(/\d+/);
+      const slotNum = slotMatch ? slotMatch[0] : dId.toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+      c += `/* ========================================================================== */\n`;
+      c += `/* DISPLAY ${slotNum} (${disp.name || 'Display ' + slotNum})                  */\n`;
+      c += `/* ========================================================================== */\n`;
+      c += `#define HAS_DISPLAY_${slotNum} 1\n`;
+      emitBlockArray(`LAYOUT_DISPLAY_${slotNum}_ACTIVE_BLOCKS`, `LAYOUT_DISPLAY_${slotNum}_ACTIVE_COUNT`, disp.blocks);
+      emitBlockArray(`LAYOUT_DISPLAY_${slotNum}_IDLE_BLOCKS`, `LAYOUT_DISPLAY_${slotNum}_IDLE_COUNT`, disp.idleBlocks);
+    });
 
-    emitBlockArray('LAYOUT_CENTRAL_ACTIVE_BLOCKS', 'LAYOUT_CENTRAL_ACTIVE_COUNT', centralActive);
-    emitBlockArray('LAYOUT_CENTRAL_IDLE_BLOCKS', 'LAYOUT_CENTRAL_IDLE_COUNT', centralIdle);
-    emitBlockArray('LAYOUT_PERIPHERAL_ACTIVE_BLOCKS', 'LAYOUT_PERIPHERAL_ACTIVE_COUNT', peripheralActive);
-    emitBlockArray('LAYOUT_PERIPHERAL_IDLE_BLOCKS', 'LAYOUT_PERIPHERAL_IDLE_COUNT', peripheralIdle);
+    c += `/* Clean Aliases for ZMK Firmware Engine */\n`;
+    c += `#if defined(CONFIG_SCYAN_DISPLAY_SLOT_2)\n`;
+    c += `    #define SCYAN_ACTIVE_BLOCKS LAYOUT_DISPLAY_2_ACTIVE_BLOCKS\n`;
+    c += `    #define SCYAN_ACTIVE_COUNT  LAYOUT_DISPLAY_2_ACTIVE_COUNT\n`;
+    c += `    #define SCYAN_IDLE_BLOCKS   LAYOUT_DISPLAY_2_IDLE_BLOCKS\n`;
+    c += `    #define SCYAN_IDLE_COUNT    LAYOUT_DISPLAY_2_IDLE_COUNT\n`;
+    c += `#elif defined(CONFIG_SCYAN_DISPLAY_SLOT_3)\n`;
+    c += `    #define SCYAN_ACTIVE_BLOCKS LAYOUT_DISPLAY_3_ACTIVE_BLOCKS\n`;
+    c += `    #define SCYAN_ACTIVE_COUNT  LAYOUT_DISPLAY_3_ACTIVE_COUNT\n`;
+    c += `    #define SCYAN_IDLE_BLOCKS   LAYOUT_DISPLAY_3_IDLE_BLOCKS\n`;
+    c += `    #define SCYAN_IDLE_COUNT    LAYOUT_DISPLAY_3_IDLE_COUNT\n`;
+    c += `#else\n`;
+    c += `    #define SCYAN_ACTIVE_BLOCKS LAYOUT_DISPLAY_1_ACTIVE_BLOCKS\n`;
+    c += `    #define SCYAN_ACTIVE_COUNT  LAYOUT_DISPLAY_1_ACTIVE_COUNT\n`;
+    c += `    #define SCYAN_IDLE_BLOCKS   LAYOUT_DISPLAY_1_IDLE_BLOCKS\n`;
+    c += `    #define SCYAN_IDLE_COUNT    LAYOUT_DISPLAY_1_IDLE_COUNT\n`;
+    c += `#endif\n\n`;
+
+    const d1ActiveLen = resolvedDisplays['display-1']?.blocks?.length ?? 0;
+    const d1IdleLen = resolvedDisplays['display-1']?.idleBlocks?.length ?? 0;
+    const d2ActiveLen = resolvedDisplays['display-2']?.blocks?.length ?? 0;
+    const d2IdleLen = resolvedDisplays['display-2']?.idleBlocks?.length ?? 0;
+    const d3ActiveLen = resolvedDisplays['display-3']?.blocks?.length ?? 0;
+    const d3IdleLen = resolvedDisplays['display-3']?.idleBlocks?.length ?? 0;
 
     c += `/* Backward-compatible aliases for legacy firmware builds */\n`;
+    c += `#define LAYOUT_CENTRAL_ACTIVE_BLOCKS LAYOUT_DISPLAY_1_ACTIVE_BLOCKS\n`;
+    c += `#define LAYOUT_CENTRAL_ACTIVE_COUNT ${d1ActiveLen}\n`;
+    c += `#define LAYOUT_CENTRAL_IDLE_BLOCKS  LAYOUT_DISPLAY_1_IDLE_BLOCKS\n`;
+    c += `#define LAYOUT_CENTRAL_IDLE_COUNT   ${d1IdleLen}\n`;
     c += `#define LAYOUT_LEFT_ACTIVE_BLOCKS   LAYOUT_CENTRAL_ACTIVE_BLOCKS\n`;
     c += `#define LAYOUT_LEFT_ACTIVE_COUNT    LAYOUT_CENTRAL_ACTIVE_COUNT\n`;
     c += `#define LAYOUT_LEFT_IDLE_BLOCKS     LAYOUT_CENTRAL_IDLE_BLOCKS\n`;
     c += `#define LAYOUT_LEFT_IDLE_COUNT      LAYOUT_CENTRAL_IDLE_COUNT\n`;
+    c += `#if defined(HAS_DISPLAY_2)\n`;
+    c += `#define LAYOUT_PERIPHERAL_ACTIVE_BLOCKS LAYOUT_DISPLAY_2_ACTIVE_BLOCKS\n`;
+    c += `#define LAYOUT_PERIPHERAL_ACTIVE_COUNT ${d2ActiveLen}\n`;
+    c += `#define LAYOUT_PERIPHERAL_IDLE_BLOCKS  LAYOUT_DISPLAY_2_IDLE_BLOCKS\n`;
+    c += `#define LAYOUT_PERIPHERAL_IDLE_COUNT   ${d2IdleLen}\n`;
+    c += `#else\n`;
+    c += `#define LAYOUT_PERIPHERAL_ACTIVE_BLOCKS LAYOUT_DISPLAY_1_ACTIVE_BLOCKS\n`;
+    c += `#define LAYOUT_PERIPHERAL_ACTIVE_COUNT 0\n`;
+    c += `#define LAYOUT_PERIPHERAL_IDLE_BLOCKS  LAYOUT_DISPLAY_1_IDLE_BLOCKS\n`;
+    c += `#define LAYOUT_PERIPHERAL_IDLE_COUNT   0\n`;
+    c += `#endif\n`;
     c += `#define LAYOUT_RIGHT_ACTIVE_BLOCKS  LAYOUT_PERIPHERAL_ACTIVE_BLOCKS\n`;
     c += `#define LAYOUT_RIGHT_ACTIVE_COUNT   LAYOUT_PERIPHERAL_ACTIVE_COUNT\n`;
     c += `#define LAYOUT_RIGHT_IDLE_BLOCKS    LAYOUT_PERIPHERAL_IDLE_BLOCKS\n`;
     c += `#define LAYOUT_RIGHT_IDLE_COUNT     LAYOUT_PERIPHERAL_IDLE_COUNT\n\n`;
 
-    if (metadata.peripheralScreens) {
-      Object.entries(metadata.peripheralScreens).forEach(([id, screen]) => {
-        const sanitized = id.toUpperCase().replace(/[^A-Z0-9_]/g, '_');
-        emitBlockArray(`LAYOUT_${sanitized}_ACTIVE_BLOCKS`, `LAYOUT_${sanitized}_ACTIVE_COUNT`, screen.blocks);
-        emitBlockArray(`LAYOUT_${sanitized}_IDLE_BLOCKS`, `LAYOUT_${sanitized}_IDLE_COUNT`, screen.idleBlocks);
-      });
-    }
+    c += `#if defined(HAS_DISPLAY_3)\n`;
+    c += `#define LAYOUT_PERIPHERAL_2_ACTIVE_BLOCKS LAYOUT_DISPLAY_3_ACTIVE_BLOCKS\n`;
+    c += `#define LAYOUT_PERIPHERAL_2_ACTIVE_COUNT ${d3ActiveLen}\n`;
+    c += `#define LAYOUT_PERIPHERAL_2_IDLE_BLOCKS  LAYOUT_DISPLAY_3_IDLE_BLOCKS\n`;
+    c += `#define LAYOUT_PERIPHERAL_2_IDLE_COUNT   ${d3IdleLen}\n`;
+    c += `#endif\n\n`;
   }
 
   if (metadata) {
+    const displaysToEmit = metadata.displays || (Object.keys(resolvedDisplays).length > 0 ? resolvedDisplays : undefined);
     const cleanMeta: HeaderMetadata = {
-      version: 1,
-      centralBlocks: metadata.centralBlocks || (metadata as any).leftBlocks,
-      peripheralBlocks: metadata.peripheralBlocks || (metadata as any).rightBlocks,
-      idleCentralBlocks: metadata.idleCentralBlocks || (metadata as any).idleLeftBlocks,
-      idlePeripheralBlocks: metadata.idlePeripheralBlocks || (metadata as any).idleRightBlocks,
+      version: 2,
+      shieldId: metadata.shieldId,
+      shields: metadata.shields,
+      displayAssignments: metadata.displayAssignments,
+      displays: displaysToEmit,
       peripheralScreens: metadata.peripheralScreens,
-      screenDimensions: metadata.screenDimensions,
-      rotation: metadata.rotation,
       widgetInstances: metadata.widgetInstances,
-      idleTimeoutSec: metadata.idleTimeoutSec,
-      screenOffTimeoutSec: metadata.screenOffTimeoutSec,
-      idleScreensEnabled: metadata.idleScreensEnabled,
       symmetricSettings: metadata.symmetricSettings,
-      peripheralScreenDimensions: metadata.peripheralScreenDimensions || (metadata as any).rightScreenDimensions,
-      peripheralRotation: metadata.peripheralRotation || metadata.rightRotation,
-      rightRotation: metadata.peripheralRotation || metadata.rightRotation,
-      peripheralIdleScreensEnabled: metadata.peripheralIdleScreensEnabled || (metadata as any).rightIdleScreensEnabled,
-      peripheralIdleTimeoutSec: metadata.peripheralIdleTimeoutSec || (metadata as any).rightIdleTimeoutSec,
-      peripheralScreenOffTimeoutSec: metadata.peripheralScreenOffTimeoutSec || (metadata as any).rightScreenOffTimeoutSec,
-      enabledScreens: (metadata.enabledScreens || ['central', 'peripheral'])
+      enabledScreens: (metadata.enabledScreens || (displaysToEmit ? Object.keys(displaysToEmit) : ['central', 'peripheral']))
         .map(s => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
         .filter(s => s !== 'dongle'),
-      shieldId: metadata.shieldId,
-      displayAssignments: metadata.displayAssignments,
       bongoTapMs: metadata.bongoTapMs,
       bongoDebounceMs: metadata.bongoDebounceMs,
       layerNames: metadata.layerNames,

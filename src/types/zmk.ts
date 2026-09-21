@@ -50,6 +50,18 @@ export interface LayoutBlock {
   textAlign?: 'left' | 'center' | 'right';
 }
 
+export interface DisplayScreen {
+  id: string;
+  name: string;
+  dimensions: { width: number; height: number };
+  rotation: 0 | 90 | 180 | 270;
+  blocks: LayoutBlock[];
+  idleBlocks: LayoutBlock[];
+  idleTimeoutSec: number;
+  screenOffTimeoutSec: number;
+  idleScreensEnabled: boolean;
+}
+
 export interface DisplaySettings {
   rotation: '90' | '270';
   invert: boolean;
@@ -124,6 +136,24 @@ export const DEFAULT_IDLE_LEFT_BLOCKS: LayoutBlock[] = DEFAULT_IDLE_CENTRAL_BLOC
 export const DEFAULT_IDLE_RIGHT_BLOCKS: LayoutBlock[] = DEFAULT_IDLE_PERIPHERAL_BLOCKS;
 
 export const DEFAULT_LAYOUT_BLOCKS: LayoutBlock[] = DEFAULT_CENTRAL_LAYOUT_BLOCKS;
+
+export function createDefaultDisplayScreen(
+  id: string = 'display-1',
+  name: string = 'Display 1',
+  isCentralRole: boolean = true
+): DisplayScreen {
+  return {
+    id,
+    name,
+    dimensions: { width: 32, height: 128 },
+    rotation: 90,
+    blocks: isCentralRole ? [...DEFAULT_CENTRAL_LAYOUT_BLOCKS] : [...DEFAULT_PERIPHERAL_LAYOUT_BLOCKS],
+    idleBlocks: isCentralRole ? [...DEFAULT_IDLE_CENTRAL_BLOCKS] : [...DEFAULT_IDLE_PERIPHERAL_BLOCKS],
+    idleTimeoutSec: 30,
+    screenOffTimeoutSec: 60,
+    idleScreensEnabled: true,
+  };
+}
 
 export const DEFAULT_FONT_MAPPINGS: FontCharMapping[] = [
   { id: 'FONT_CHAR_0', chars: '0', small: { x: 3, y: 16, width: 3, height: 5, advanceX: 4 }, big: { x: 2, y: 3, width: 8, height: 10, advanceX: 10 } },
@@ -514,3 +544,5 @@ export const DEFAULT_FONT_GLYPHS: FontGlyph[] = [
   { char: 'ヲ', codepoint: 12530, x: 233, y: 123, width: 10, height: 10, advanceX: 11 },
   { char: 'ン', codepoint: 12531, x: 244, y: 123, width: 10, height: 10, advanceX: 11 },
 ];
+
+export type { HeaderMetadata } from '../services/cHeaderParser';

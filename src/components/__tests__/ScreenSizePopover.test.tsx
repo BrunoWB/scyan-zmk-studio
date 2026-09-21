@@ -498,6 +498,66 @@ describe('SideSettingsPanel (Side-Docked Display & Power Panels)', () => {
     const uniqueNames = new Set(nameMatches);
     expect(uniqueNames.size).toBeGreaterThanOrEqual(2);
   });
+
+  it('drives settings directly from active display and renders display tabs when displays is provided', () => {
+    const displays = {
+      'display-1': {
+        id: 'display-1',
+        name: 'Master Left',
+        dimensions: { width: 32, height: 128 },
+        rotation: 90 as const,
+        blocks: [],
+        idleBlocks: [],
+        idleTimeoutSec: 30,
+        screenOffTimeoutSec: 60,
+        idleScreensEnabled: true,
+      },
+      'display-2': {
+        id: 'display-2',
+        name: 'Peripheral Right',
+        dimensions: { width: 68, height: 160 },
+        rotation: 0 as const,
+        blocks: [],
+        idleBlocks: [],
+        idleTimeoutSec: 15,
+        screenOffTimeoutSec: 45,
+        idleScreensEnabled: false,
+      },
+      'display-3': {
+        id: 'display-3',
+        name: 'Status Dongle',
+        dimensions: { width: 128, height: 32 },
+        rotation: 0 as const,
+        blocks: [],
+        idleBlocks: [],
+        idleTimeoutSec: 10,
+        screenOffTimeoutSec: 30,
+        idleScreensEnabled: true,
+      },
+    };
+
+    // Render with activeDisplayId = 'display-2' in asymmetric mode
+    const html = renderToString(
+      <BlockSettingsSection
+        isOpen={true}
+        onClose={() => {}}
+        screenDimensions={{ width: 32, height: 128 }}
+        onScreenDimensionsChange={() => {}}
+        symmetricSettings={false}
+        displays={displays}
+        activeDisplayId="display-2"
+      />
+    );
+
+    // Verify all 3 display tabs are rendered
+    expect(html).toContain('Master Left');
+    expect(html).toContain('Peripheral Right');
+    expect(html).toContain('Status Dongle');
+
+    // Active tab (display-2) styling
+    expect(html).toContain('Peripheral Right Display &amp; Power Settings');
+    expect(html).toContain('68×160px');
+  });
 });
 
 describe('Shield Dictionary Orientation & Screen Resolution', () => {

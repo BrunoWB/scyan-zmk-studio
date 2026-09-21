@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   updateKconfigSetting,
   resolveConfUpdates,
+  resolveConfTimeoutUpdates,
   injectScyanIntoWest,
   removeScyanFromWest,
   removeScyanFromConf,
@@ -173,6 +174,61 @@ describe('githubService Kconfig timeout synchronization', () => {
       expect(updates.some(u => u.path === 'config/corne_right.conf')).toBe(true);
       const rightConf = updates.find(u => u.path === 'config/corne_right.conf');
       expect(rightConf?.content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=25000');
+    });
+
+    it('directly maps shields with mounted displays to their display screenOffTimeoutSec', () => {
+      const confFiles = [
+        {
+          path: 'config/corne_left.conf',
+          content: 'CONFIG_ZMK_IDLE_TIMEOUT=60000\n',
+        },
+        {
+          path: 'config/corne_right.conf',
+          content: 'CONFIG_ZMK_IDLE_TIMEOUT=60000\n',
+        },
+      ];
+
+      const updates = resolveConfTimeoutUpdates(
+        confFiles,
+        {
+          screenOffTimeoutSec: 40,
+          symmetricSettings: false,
+        },
+        {
+          displayAssignments: {
+            corne_left: 'display-1',
+            corne_right: 'display-2',
+          },
+          displays: {
+            'display-1': {
+              id: 'display-1',
+              name: 'Left',
+              dimensions: { width: 32, height: 128 },
+              rotation: 90,
+              blocks: [],
+              idleBlocks: [],
+              idleTimeoutSec: 30,
+              screenOffTimeoutSec: 40,
+              idleScreensEnabled: true,
+            },
+            'display-2': {
+              id: 'display-2',
+              name: 'Right',
+              dimensions: { width: 32, height: 128 },
+              rotation: 90,
+              blocks: [],
+              idleBlocks: [],
+              idleTimeoutSec: 15,
+              screenOffTimeoutSec: 15,
+              idleScreensEnabled: true,
+            },
+          },
+        }
+      );
+
+      expect(updates).toHaveLength(2);
+      expect(updates.find(u => u.path === 'config/corne_left.conf')?.content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=40000');
+      expect(updates.find(u => u.path === 'config/corne_right.conf')?.content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=15000');
     });
   });
 

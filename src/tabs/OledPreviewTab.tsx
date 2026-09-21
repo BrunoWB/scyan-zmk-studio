@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { BwpxGrid } from '../bwpx/core/BwpxGrid';
 import type { SpriteSlice, FontGlyph, LayoutBlock, FontCharMapping } from '../types/zmk';
-import { Cpu } from 'lucide-react';
+import { Cpu, GripHorizontal, ArrowLeftRight } from 'lucide-react';
 import type { GitHubRepoConfig, GitHubConnectionState } from '../services/githubService';
 import type { PeripheralScreenData } from '../services/cHeaderParser';
 import {
@@ -89,6 +89,7 @@ export interface OledPreviewTabProps {
   displayAssignments?: Record<string, string | null>;
   onDisplayAssignmentsChange?: (assignments: Record<string, string | null>) => void;
   loadedShields?: LoadedShieldUnit[];
+  onLoadedShieldsChange?: (shields: LoadedShieldUnit[]) => void;
   peripheralScreens?: Record<string, PeripheralScreenData>;
   customText?: string;
   onCustomTextChange?: (text: string) => void;
@@ -144,6 +145,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   displayAssignments: propsDisplayAssignments,
   onDisplayAssignmentsChange: propsOnDisplayAssignmentsChange,
   loadedShields: propsLoadedShields,
+  onLoadedShieldsChange: propsOnLoadedShieldsChange,
   peripheralScreens: propsPeripheralScreens,
   customText: propsCustomText,
   onCustomTextChange: _onCustomTextChange,
@@ -175,6 +177,8 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   const storeDisplayAssignments = useLayoutStore((s) => s.displayAssignments);
   const storeSetDisplayAssignments = useLayoutStore((s) => s.setDisplayAssignments);
   const storeLoadedShields = useLayoutStore((s) => s.loadedShields);
+  const storeSetLoadedShields = useLayoutStore((s) => s.setLoadedShields);
+  const storeDisplays = useLayoutStore((s) => s.displays);
   const storePeripheralScreens = useLayoutStore((s) => s.peripheralScreens);
   const storeWidgetInstances = useLayoutStore((s) => s.widgetInstances);
 
@@ -202,11 +206,36 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   const enabledScreens = propsEnabledScreens ?? storeEnabledScreens;
   const displayAssignments = propsDisplayAssignments ?? storeDisplayAssignments;
   const onDisplayAssignmentsChange = propsOnDisplayAssignmentsChange ?? storeSetDisplayAssignments;
+  const onLoadedShieldsChange = propsOnLoadedShieldsChange ?? storeSetLoadedShields;
   const loadedShields = propsLoadedShields !== undefined
     ? propsLoadedShields
     : (propsShieldId === undefined || propsShieldId === storeShieldId)
       ? storeLoadedShields
       : undefined;
+
+  const [localShieldsOverride, setLocalShieldsOverride] = useState<{ key: string; shields: LoadedShieldUnit[] } | null>(null);
+  const currentShieldsKey = `${shieldId}_${loadedShields?.map((s) => s.id).join(',')}`;
+
+  const effectiveShields = useMemo<LoadedShieldUnit[]>(() => {
+    if (localShieldsOverride && localShieldsOverride.key === currentShieldsKey) {
+      return localShieldsOverride.shields;
+    }
+    if (loadedShields && loadedShields.length > 0) {
+      return loadedShields;
+    }
+    return getShieldUnitsForShield(shieldId);
+  }, [localShieldsOverride, currentShieldsKey, loadedShields, shieldId]);
+
+  const updateLoadedShields = useCallback(
+    (newShields: LoadedShieldUnit[]) => {
+      if (onLoadedShieldsChange) {
+        onLoadedShieldsChange(newShields);
+      }
+      setLocalShieldsOverride({ key: currentShieldsKey, shields: newShields });
+    },
+    [onLoadedShieldsChange, currentShieldsKey]
+  );
+
   const peripheralScreens = propsPeripheralScreens ?? storePeripheralScreens;
   const customText = propsCustomText ?? storeCustomText;
   const instances = propsInstances ?? storeWidgetInstances;
@@ -240,13 +269,6 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     }
     return list.length > 0 ? list : ['central', 'peripheral'];
   }, [effectiveEnabledScreens]);
-
-  const effectiveShields = useMemo<LoadedShieldUnit[]>(() => {
-    if (loadedShields && loadedShields.length > 0) {
-      return loadedShields;
-    }
-    return getShieldUnitsForShield(shieldId);
-  }, [loadedShields, shieldId]);
 
   const [localDisplayAssignments, setLocalDisplayAssignments] = useState<Record<string, string | null>>(() => {
     const init: Record<string, string | null> = {};
@@ -364,23 +386,26 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   }, []);
 
   const handleDisplayDragOver = useCallback((e: React.DragEvent, targetShieldId: string) => {
+    if (!draggedDisplay) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
     if (hoveredDisplayDropTarget !== targetShieldId) {
       setHoveredDisplayDropTarget(targetShieldId);
     }
-  }, [hoveredDisplayDropTarget]);
+  }, [draggedDisplay, hoveredDisplayDropTarget]);
 
   const handleDisplayDragLeave = useCallback((e: React.DragEvent, shieldId: string) => {
+    if (!draggedDisplay) return;
     const related = e.relatedTarget as HTMLElement | null;
     if (related && (e.currentTarget as HTMLElement).contains(related)) {
       return;
     }
     setHoveredDisplayDropTarget((curr) => (curr === shieldId ? null : curr));
-  }, []);
+  }, [draggedDisplay]);
 
   const handleDisplayDrop = useCallback((e: React.DragEvent, targetShieldId: string) => {
+    if (!draggedDisplay) return;
     e.preventDefault();
     e.stopPropagation();
     setHoveredDisplayDropTarget(null);
@@ -434,6 +459,275 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
       console.warn('Display drop error:', err);
     }
   }, [reconciledAssignments, draggedDisplay, updateDisplayAssignments, onShowToast]);
+
+  // Shield Topology Drag & Drop state (reorder shields purely for user aesthetic preference)
+  const [draggedShield, setDraggedShield] = useState<{ shieldId: string; sourceIndex: number } | null>(null);
+  const [hoveredShieldDropIndex, setHoveredShieldDropIndex] = useState<number | null>(null);
+  const [hoveredShieldWrapperId, setHoveredShieldWrapperId] = useState<string | null>(null);
+
+  // FLIP animation for smooth shield transitions when reordered
+  const shieldElementsRef = useRef<Map<string, HTMLElement>>(new Map());
+  const previousPositionsRef = useRef<Map<string, number>>(new Map());
+  const prevShieldOrderRef = useRef<string>(effectiveShields.map((s) => s.id).join(','));
+
+  const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
+
+  useIsomorphicLayoutEffect(() => {
+    const currentOrder = effectiveShields.map((s) => s.id).join(',');
+    if (prevShieldOrderRef.current !== currentOrder) {
+      shieldElementsRef.current.forEach((el, id) => {
+        const prevLeft = previousPositionsRef.current.get(id);
+        if (prevLeft !== undefined && el) {
+          const currentLeft = el.getBoundingClientRect().left;
+          const deltaX = prevLeft - currentLeft;
+          if (Math.abs(deltaX) > 1) {
+            el.style.transform = `translateX(${deltaX}px)`;
+            el.style.transition = 'none';
+
+            requestAnimationFrame(() => {
+              el.style.transition = 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
+              el.style.transform = '';
+            });
+          }
+        }
+      });
+      prevShieldOrderRef.current = currentOrder;
+    }
+
+    shieldElementsRef.current.forEach((el, id) => {
+      if (el) {
+        previousPositionsRef.current.set(id, el.getBoundingClientRect().left);
+      }
+    });
+  }, [effectiveShields]);
+
+  const handleShieldDragStart = useCallback((e: React.DragEvent, shieldId: string, sourceIndex: number) => {
+    e.stopPropagation();
+    e.dataTransfer.setData('text/plain', shieldId);
+    e.dataTransfer.setData(
+      'application/json',
+      JSON.stringify({
+        type: 'preview-shield',
+        shieldId,
+        sourceIndex,
+      })
+    );
+    e.dataTransfer.effectAllowed = 'move';
+
+    // Set ghost drag image to the entire shield casing wrapper
+    const target = e.currentTarget as HTMLElement | null;
+    const wrapper = target?.closest('.preview-shield-wrapper') as HTMLElement | null;
+    if (wrapper && e.dataTransfer.setDragImage) {
+      const rect = wrapper.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const clickY = e.clientY - rect.top;
+      e.dataTransfer.setDragImage(
+        wrapper,
+        clickX >= 0 && clickX <= rect.width ? clickX : rect.width / 2,
+        clickY >= 0 && clickY <= rect.height ? clickY : 12
+      );
+    }
+
+    setTimeout(() => {
+      setDraggedShield({ shieldId, sourceIndex });
+    }, 0);
+  }, []);
+
+  const handleShieldDragEnd = useCallback(() => {
+    setDraggedShield(null);
+    setHoveredShieldDropIndex(null);
+    setHoveredShieldWrapperId(null);
+  }, []);
+
+  const handleShieldDropZoneDragOver = useCallback((e: React.DragEvent, zoneIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    if (hoveredShieldDropIndex !== zoneIndex) {
+      setHoveredShieldDropIndex(zoneIndex);
+    }
+  }, [hoveredShieldDropIndex]);
+
+  const handleShieldDropZoneDragEnter = useCallback((e: React.DragEvent, zoneIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    setHoveredShieldDropIndex(zoneIndex);
+  }, []);
+
+  const handleShieldDropZoneDragLeave = useCallback((e: React.DragEvent, zoneIndex: number) => {
+    const related = e.relatedTarget as HTMLElement | null;
+    if (related && (e.currentTarget as HTMLElement).contains(related)) {
+      return;
+    }
+    setHoveredShieldDropIndex((curr) => (curr === zoneIndex ? null : curr));
+  }, []);
+
+  const handleShieldDropZoneDrop = useCallback((e: React.DragEvent, targetZoneIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setHoveredShieldDropIndex(null);
+
+    let sourceIndex = draggedShield?.sourceIndex ?? -1;
+    let shieldId = draggedShield?.shieldId;
+
+    const raw = e.dataTransfer.getData('application/json');
+    if (raw) {
+      try {
+        const data = JSON.parse(raw);
+        if (data.type === 'preview-shield') {
+          shieldId = data.shieldId;
+          sourceIndex = data.sourceIndex;
+        }
+      } catch {}
+    }
+
+    setDraggedShield(null);
+
+    if (sourceIndex === -1 || !shieldId) return;
+    if (targetZoneIndex === sourceIndex || targetZoneIndex === sourceIndex + 1) return;
+
+    const nextShields = [...effectiveShields];
+    const [moved] = nextShields.splice(sourceIndex, 1);
+    if (!moved) return;
+    const insertAt = sourceIndex < targetZoneIndex ? targetZoneIndex - 1 : targetZoneIndex;
+    nextShields.splice(insertAt, 0, moved);
+
+    updateLoadedShields(nextShields);
+
+    const positionName =
+      targetZoneIndex === 0
+        ? 'the left side'
+        : targetZoneIndex === effectiveShields.length
+        ? 'the right side'
+        : `position ${insertAt + 1}`;
+    onShowToast?.('success', `Moved ${moved.name} to ${positionName}`);
+  }, [draggedShield, effectiveShields, updateLoadedShields, onShowToast]);
+
+  const handleShieldCaseDragOver = useCallback((e: React.DragEvent, targetShieldId: string) => {
+    if (draggedDisplay) {
+      handleDisplayDragOver(e, targetShieldId);
+    }
+  }, [draggedDisplay, handleDisplayDragOver]);
+
+  const handleShieldCaseDragLeave = useCallback((e: React.DragEvent, targetShieldId: string) => {
+    if (draggedDisplay) {
+      handleDisplayDragLeave(e, targetShieldId);
+    }
+  }, [draggedDisplay, handleDisplayDragLeave]);
+
+  const handleShieldCaseDrop = useCallback((e: React.DragEvent, targetShieldId: string) => {
+    if (draggedDisplay) {
+      handleDisplayDrop(e, targetShieldId);
+    }
+  }, [draggedDisplay, handleDisplayDrop]);
+
+  const isDropZoneActive = useCallback(
+    (zoneIndex: number) => {
+      if (!draggedShield) return false;
+      return (
+        zoneIndex !== draggedShield.sourceIndex &&
+        zoneIndex !== draggedShield.sourceIndex + 1
+      );
+    },
+    [draggedShield]
+  );
+
+  const isDropZoneBalancer = useCallback(
+    (zoneIndex: number) => {
+      if (!draggedShield) return false;
+      if (isDropZoneActive(zoneIndex)) return false;
+      const counterpart = effectiveShields.length - zoneIndex;
+      return isDropZoneActive(counterpart);
+    },
+    [draggedShield, effectiveShields.length, isDropZoneActive]
+  );
+
+  const renderShieldDropZone = useCallback(
+    (zoneIndex: number) => {
+      if (!draggedShield) return null;
+
+      const isActive = isDropZoneActive(zoneIndex);
+      const isBalancer = isDropZoneBalancer(zoneIndex);
+
+      if (!isActive && !isBalancer) return null;
+
+      const isHovered = isActive && hoveredShieldDropIndex === zoneIndex;
+
+      return (
+        <div
+          key={`shield-drop-zone-${zoneIndex}`}
+          className={`shield-drop-zone relative h-[204px] min-h-[204px] shrink-0 flex flex-col items-center justify-center ${
+            isActive ? 'is-active' : 'is-balancer'
+          } ${isHovered ? 'is-hovered' : ''}`}
+          style={{
+            position: 'relative',
+            height: '204px',
+            minHeight: '204px',
+            width: isHovered ? '64px' : '42px',
+            maxWidth: isHovered ? '64px' : '42px',
+            margin: isHovered ? '0 8px' : '0 4px',
+            flexShrink: 0,
+            transition:
+              'width 0.25s cubic-bezier(0.16, 1, 0.3, 1), max-width 0.25s cubic-bezier(0.16, 1, 0.3, 1), margin 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease',
+          }}
+          onDragEnter={isActive ? (e) => handleShieldDropZoneDragEnter(e, zoneIndex) : undefined}
+          onDragOver={isActive ? (e) => handleShieldDropZoneDragOver(e, zoneIndex) : undefined}
+          onDragLeave={isActive ? (e) => handleShieldDropZoneDragLeave(e, zoneIndex) : undefined}
+          onDrop={isActive ? (e) => handleShieldDropZoneDrop(e, zoneIndex) : undefined}
+          data-testid={`shield-drop-zone-${zoneIndex}`}
+          title={isActive ? 'Drop shield here' : undefined}
+          aria-hidden={!isActive}
+        >
+          {isActive && (
+            <>
+              {/* Reliable SVG Dashed Capsule Border (cross-browser pixel-perfect render) */}
+              <svg
+                className="absolute inset-[1px] w-[calc(100%-2px)] h-[calc(100%-2px)] pointer-events-none overflow-visible"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <rect
+                  width="100%"
+                  height="100%"
+                  rx={isHovered ? 31 : 20}
+                  fill={isHovered ? 'rgba(0, 240, 255, 0.16)' : 'rgba(0, 240, 255, 0.04)'}
+                  stroke="#00f0ff"
+                  strokeWidth="2"
+                  strokeDasharray="6, 4"
+                  strokeOpacity={isHovered ? 1 : 0.85}
+                  style={{
+                    filter: isHovered
+                      ? 'drop-shadow(0 0 8px rgba(0, 240, 255, 0.8))'
+                      : 'drop-shadow(0 0 3px rgba(0, 240, 255, 0.35))',
+                    transition: 'all 0.2s ease',
+                  }}
+                />
+              </svg>
+
+              <ArrowLeftRight
+                size={isHovered ? 22 : 18}
+                className={`relative z-10 transition-all shrink-0 ${
+                  isHovered
+                    ? 'text-[#00f0ff] scale-110 drop-shadow-[0_0_8px_rgba(0,240,255,0.8)]'
+                    : 'text-[#00f0ff]/80'
+                }`}
+              />
+            </>
+          )}
+        </div>
+      );
+    },
+    [
+      draggedShield,
+      isDropZoneActive,
+      isDropZoneBalancer,
+      hoveredShieldDropIndex,
+      handleShieldDropZoneDragEnter,
+      handleShieldDropZoneDragOver,
+      handleShieldDropZoneDragLeave,
+      handleShieldDropZoneDrop,
+    ]
+  );
 
   const handleDropOnUnattachedDrawer = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -893,6 +1187,18 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   const getDisplayInfo = useCallback(
     (displayId: string | null | undefined) => {
       if (!displayId) return null;
+
+      // 1. Resolve from modern decoupled displays dictionary (display-1, display-2, etc.)
+      if (storeDisplays && storeDisplays[displayId]) {
+        const d = storeDisplays[displayId];
+        const blocks = isIdle ? (d.idleBlocks || []) : (d.blocks || []);
+        const width = d.dimensions?.width || 32;
+        const height = d.dimensions?.height || 128;
+        const name = d.name || displayId;
+        const displayDim = getOledDisplayDimensions(width, height);
+        return { blocks, width, height, name, isMaster: false, displayDim };
+      }
+
       const isMaster = displayId === 'central' || displayId === 'left';
       const isPeripheral = displayId === 'peripheral' || displayId === 'right';
 
@@ -923,6 +1229,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
       return { blocks, width, height, name, isMaster, displayDim };
     },
     [
+      storeDisplays,
       leftDisplayBlocks,
       rightDisplayBlocks,
       leftVWidth,
@@ -986,126 +1293,179 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
           TOP: KEYBOARD / SHIELD VISUALIZATION WITH OLED DISPLAYS
           ========================================================================= */}
       {activeShield.layoutGeometry.type === 'unknown' ? (
-        <div className="flex items-center justify-center gap-8 my-6 relative">
-          {orderedShields.map((shield) => {
+        <div className="flex items-center justify-center gap-0 pt-10 pb-4 my-2 relative">
+          {renderShieldDropZone(0)}
+          {orderedShields.map((shield, index) => {
             const assignedDisplayId = reconciledAssignments[shield.id];
             const dispInfo = getDisplayInfo(assignedDisplayId);
-            const isLeft = shield.side === 'left' || shield.isMaster;
+
+            const isShieldHovered = hoveredShieldWrapperId === shield.id;
 
             return (
-              <div
-                key={shield.id}
-                className={`preview-shield-wrapper relative transition-all ${
-                  hoveredDisplayDropTarget === shield.id
-                    ? 'ring-2 ring-[#00f0ff] shadow-[0_0_24px_rgba(0,240,255,0.4)] rounded-2xl'
-                    : ''
-                }`}
-                onDragOver={(e) => handleDisplayDragOver(e, shield.id)}
-                onDragLeave={(e) => handleDisplayDragLeave(e, shield.id)}
-                onDrop={(e) => handleDisplayDrop(e, shield.id)}
-              >
-                <div className="unknown-shield-unit-case">
-                  <div className="unknown-shield-body relative">
-                    <div className="unknown-shield-header-badge">
-                      <span className="live-dot" />
-                      <span>{shield.name}</span>
-                    </div>
+              <React.Fragment key={shield.id}>
+                <div
+                  ref={(el) => {
+                    if (el) shieldElementsRef.current.set(shield.id, el);
+                    else shieldElementsRef.current.delete(shield.id);
+                  }}
+                  className={`preview-shield-wrapper group/shield relative flex flex-col items-center transition-all ${
+                    draggedShield?.shieldId === shield.id
+                      ? 'opacity-50'
+                      : (draggedDisplay && hoveredDisplayDropTarget === shield.id)
+                      ? 'ring-2 ring-[#00f0ff] shadow-[0_0_24px_rgba(0,240,255,0.4)] rounded-2xl'
+                      : ''
+                  }`}
+                  onMouseEnter={() => setHoveredShieldWrapperId(shield.id)}
+                  onMouseLeave={() => setHoveredShieldWrapperId((curr) => (curr === shield.id ? null : curr))}
+                  onDragOver={(e) => handleShieldCaseDragOver(e, shield.id)}
+                  onDragLeave={(e) => handleShieldCaseDragLeave(e, shield.id)}
+                  onDrop={(e) => handleShieldCaseDrop(e, shield.id)}
+                >
+                  {/* Shield Drag Handle (Only visible on shield hover) */}
+                  <div
+                    className={`preview-shield-drag-handle group/handle cursor-grab active:cursor-grabbing select-none transition-opacity duration-150 ${
+                      isShieldHovered ? 'is-visible' : ''
+                    }`}
+                    style={{
+                      opacity: isShieldHovered ? 1 : 0,
+                      pointerEvents: isShieldHovered ? 'auto' : 'none',
+                    }}
+                    draggable={true}
+                    onDragStart={(e) => handleShieldDragStart(e, shield.id, index)}
+                    onDragEnd={handleShieldDragEnd}
+                    title={`Drag to reposition ${shield.name}`}
+                    data-testid={`shield-drag-handle-${shield.id}`}
+                  >
+                    <GripHorizontal size={22} className="shrink-0 text-[#00f0ff] group-hover/handle:text-[#ffffff] pointer-events-none" />
+                  </div>
 
-                    {/* Central Shield Badge with tooltip */}
-                    {isLeft && (
-                      <div
-                        className="central-shield-badge"
-                        title="Central Shield"
-                        data-testid="central-shield-badge"
-                      >
-                        <div className="central-shield-badge-dot">
-                          <Cpu size={10} className="shrink-0" />
-                        </div>
-                        <div className="central-shield-tooltip">
-                          Central Shield
-                        </div>
+                  <div className="unknown-shield-unit-case">
+                    <div className="unknown-shield-body relative">
+                      <div className="unknown-shield-header-badge">
+                        <span className="live-dot" />
+                        <span>{shield.name}</span>
                       </div>
-                    )}
 
-                    <OledDisplayBay
-                      shieldId={shield.id}
-                      assignedDisplayId={assignedDisplayId}
-                      dispInfo={dispInfo}
-                      fallbackDisplayDim={leftDisplayDim}
-                      isHoveredDropTarget={hoveredDisplayDropTarget === shield.id}
-                      onDragStart={handleDisplayDragStart}
-                      onDragEnd={handleDisplayDragEnd}
-                      onDragOver={handleDisplayDragOver}
-                      onDragLeave={handleDisplayDragLeave}
-                      onDrop={handleDisplayDrop}
-                      renderState={blitterRenderState}
-                    />
+                      {/* Central Shield Badge with tooltip */}
+                      {shield.isMaster && (
+                        <div
+                          className="central-shield-badge"
+                          title="Central Shield"
+                          data-testid="central-shield-badge"
+                        >
+                          <div className="central-shield-badge-dot">
+                            <Cpu size={10} className="shrink-0" />
+                          </div>
+                          <div className="central-shield-tooltip">
+                            Central Shield
+                          </div>
+                        </div>
+                      )}
+
+                      <OledDisplayBay
+                        shieldId={shield.id}
+                        assignedDisplayId={assignedDisplayId}
+                        dispInfo={dispInfo}
+                        fallbackDisplayDim={leftDisplayDim}
+                        isHoveredDropTarget={Boolean(draggedDisplay) && hoveredDisplayDropTarget === shield.id}
+                        onDragStart={handleDisplayDragStart}
+                        onDragEnd={handleDisplayDragEnd}
+                        onDragOver={handleDisplayDragOver}
+                        onDragLeave={handleDisplayDragLeave}
+                        onDrop={handleDisplayDrop}
+                        renderState={blitterRenderState}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
+
+                {renderShieldDropZone(index + 1)}
+              </React.Fragment>
             );
           })}
         </div>
       ) : (
         <div className="corne-keyboard-split">
-          {orderedShields.map((shield) => {
+          {renderShieldDropZone(0)}
+          {orderedShields.map((shield, index) => {
             const assignedDisplayId = reconciledAssignments[shield.id];
             const dispInfo = getDisplayInfo(assignedDisplayId);
             const isLeft = shield.side === 'left' || shield.isMaster;
             const fallbackDisplayDim = isLeft ? leftDisplayDim : rightDisplayDim;
 
+            const isShieldHovered = hoveredShieldWrapperId === shield.id;
+
             return (
-              <div
-                key={shield.id}
-                className={`preview-shield-wrapper relative transition-all ${
-                  hoveredDisplayDropTarget === shield.id
-                    ? 'ring-2 ring-[#00f0ff] shadow-[0_0_24px_rgba(0,240,255,0.4)] rounded-2xl'
-                    : ''
-                }`}
-                onDragOver={(e) => handleDisplayDragOver(e, shield.id)}
-                onDragLeave={(e) => handleDisplayDragLeave(e, shield.id)}
-                onDrop={(e) => handleDisplayDrop(e, shield.id)}
-              >
-                <div className={`corne-half-case ${isLeft ? 'left-half' : 'right-half'}`}>
-                  {/* Central Shield Badge with tooltip */}
-                  {isLeft && (
-                    <div
-                      className="central-shield-badge"
-                      title="Central Shield"
-                      data-testid="central-shield-badge"
-                    >
-                      <div className="central-shield-badge-dot">
-                        <Cpu size={10} className="shrink-0" />
-                      </div>
-                      <div className="central-shield-tooltip">
-                        Central Shield
-                      </div>
-                    </div>
-                  )}
+              <React.Fragment key={shield.id}>
+                <div
+                  ref={(el) => {
+                    if (el) shieldElementsRef.current.set(shield.id, el);
+                    else shieldElementsRef.current.delete(shield.id);
+                  }}
+                  className={`preview-shield-wrapper group/shield relative flex flex-col items-center transition-all ${
+                    draggedShield?.shieldId === shield.id
+                      ? 'opacity-50'
+                      : (draggedDisplay && hoveredDisplayDropTarget === shield.id)
+                      ? 'ring-2 ring-[#00f0ff] shadow-[0_0_24px_rgba(0,240,255,0.4)] rounded-2xl'
+                      : ''
+                  }`}
+                  onMouseEnter={() => setHoveredShieldWrapperId(shield.id)}
+                  onMouseLeave={() => setHoveredShieldWrapperId((curr) => (curr === shield.id ? null : curr))}
+                  onDragOver={(e) => handleShieldCaseDragOver(e, shield.id)}
+                  onDragLeave={(e) => handleShieldCaseDragLeave(e, shield.id)}
+                  onDrop={(e) => handleShieldCaseDrop(e, shield.id)}
+                >
+                  {/* Shield Drag Handle (Only visible on shield hover) */}
+                  <div
+                    className={`preview-shield-drag-handle group/handle cursor-grab active:cursor-grabbing select-none transition-opacity duration-150 ${
+                      isShieldHovered ? 'is-visible' : ''
+                    }`}
+                    style={{
+                      opacity: isShieldHovered ? 1 : 0,
+                      pointerEvents: isShieldHovered ? 'auto' : 'none',
+                    }}
+                    draggable={true}
+                    onDragStart={(e) => handleShieldDragStart(e, shield.id, index)}
+                    onDragEnd={handleShieldDragEnd}
+                    title={`Drag to reposition ${shield.name}`}
+                    data-testid={`shield-drag-handle-${shield.id}`}
+                  >
+                    <GripHorizontal size={22} className="shrink-0 text-[#00f0ff] group-hover/handle:text-[#ffffff] pointer-events-none" />
+                  </div>
 
-                  <div className={`half-inner-layout ${!isLeft ? 'mirrored' : ''}`}>
-                    {/* Left: Keys Cluster first */}
-                    {isLeft && (
-                      <CorneKeysCluster
-                        isLeft={true}
-                        keymapLayout={keymapLayout}
-                        matrix={currentLeftMatrix}
-                        thumbs={currentLeftThumbs}
-                        pressedKeys={pressedKeys}
-                        onKeyPress={triggerKeyPress}
-                        getColStagger={getColStagger}
-                      />
-                    )}
-
-                    {/* OLED Display Bay (Inner Side) */}
-                    <div className="corne-mcu-bay">
-                      <div className="mcu-pcb-socket">
+                  {shield.side === 'dongle' ? (
+                    <div className="dongle-unit-case">
+                      <div className="dongle-usb-connector">
+                        <div className="dongle-usb-metal">
+                          <div className="dongle-usb-pin" />
+                          <div className="dongle-usb-pin" />
+                        </div>
+                      </div>
+                      <div className="dongle-body">
+                        <div className="dongle-header-badge">
+                          <span className="live-dot" />
+                          <span>{shield.name}</span>
+                        </div>
+                        {shield.isMaster && (
+                          <div
+                            className="central-shield-badge"
+                            title="Central Shield"
+                            data-testid="central-shield-badge"
+                          >
+                            <div className="central-shield-badge-dot">
+                              <Cpu size={10} className="shrink-0" />
+                            </div>
+                            <div className="central-shield-tooltip">
+                              Central Shield
+                            </div>
+                          </div>
+                        )}
                         <OledDisplayBay
                           shieldId={shield.id}
                           assignedDisplayId={assignedDisplayId}
                           dispInfo={dispInfo}
                           fallbackDisplayDim={fallbackDisplayDim}
-                          isHoveredDropTarget={hoveredDisplayDropTarget === shield.id}
+                          isHoveredDropTarget={Boolean(draggedDisplay) && hoveredDisplayDropTarget === shield.id}
                           onDragStart={handleDisplayDragStart}
                           onDragEnd={handleDisplayDragEnd}
                           onDragOver={handleDisplayDragOver}
@@ -1115,22 +1475,76 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
                         />
                       </div>
                     </div>
+                  ) : (
+                    <div className={`corne-half-case ${isLeft ? 'left-half' : 'right-half'}`}>
+                      {/* Central Shield Badge with tooltip */}
+                      {shield.isMaster && (
+                        <div
+                          className="central-shield-badge"
+                          title="Central Shield"
+                          data-testid="central-shield-badge"
+                        >
+                          <div className="central-shield-badge-dot">
+                            <Cpu size={10} className="shrink-0" />
+                          </div>
+                          <div className="central-shield-tooltip">
+                            Central Shield
+                          </div>
+                        </div>
+                      )}
 
-                    {/* Right: Keys Cluster second */}
-                    {!isLeft && (
-                      <CorneKeysCluster
-                        isLeft={false}
-                        keymapLayout={keymapLayout}
-                        matrix={currentRightMatrix}
-                        thumbs={currentRightThumbs}
-                        pressedKeys={pressedKeys}
-                        onKeyPress={triggerKeyPress}
-                        getColStagger={getColStagger}
-                      />
-                    )}
-                  </div>
+                      <div className={`half-inner-layout ${!isLeft ? 'mirrored' : ''}`}>
+                        {/* Left: Keys Cluster first */}
+                        {isLeft && (
+                          <CorneKeysCluster
+                            isLeft={true}
+                            keymapLayout={keymapLayout}
+                            matrix={currentLeftMatrix}
+                            thumbs={currentLeftThumbs}
+                            pressedKeys={pressedKeys}
+                            onKeyPress={triggerKeyPress}
+                            getColStagger={getColStagger}
+                          />
+                        )}
+
+                        {/* OLED Display Bay (Inner Side) */}
+                        <div className="corne-mcu-bay">
+                          <div className="mcu-pcb-socket">
+                            <OledDisplayBay
+                              shieldId={shield.id}
+                              assignedDisplayId={assignedDisplayId}
+                              dispInfo={dispInfo}
+                              fallbackDisplayDim={fallbackDisplayDim}
+                              isHoveredDropTarget={Boolean(draggedDisplay) && hoveredDisplayDropTarget === shield.id}
+                              onDragStart={handleDisplayDragStart}
+                              onDragEnd={handleDisplayDragEnd}
+                              onDragOver={handleDisplayDragOver}
+                              onDragLeave={handleDisplayDragLeave}
+                              onDrop={handleDisplayDrop}
+                              renderState={blitterRenderState}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Right: Keys Cluster second */}
+                        {!isLeft && (
+                          <CorneKeysCluster
+                            isLeft={false}
+                            keymapLayout={keymapLayout}
+                            matrix={currentRightMatrix}
+                            thumbs={currentRightThumbs}
+                            pressedKeys={pressedKeys}
+                            onKeyPress={triggerKeyPress}
+                            getColStagger={getColStagger}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
+
+                {renderShieldDropZone(index + 1)}
+              </React.Fragment>
             );
           })}
         </div>

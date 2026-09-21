@@ -1,0 +1,2 @@
+config SHIELD_XIAOUNIBODY
+    def_bool $(shields_list_contains,xiaounibody)

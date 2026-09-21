@@ -1,0 +1,6 @@
+---
+include:
+  - board: seeed_xiao_rp2040
+    shield: xiaounibody
+  - board: seeed_xiao_rp2040
+    shield: settings_reset
