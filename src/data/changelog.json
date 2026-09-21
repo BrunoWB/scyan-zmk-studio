@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "1.1.12",
+        "date": "2026-09-21",
+        "commitHash": "b375b6b",
+        "changes": [
+          "refactor(github): decouple installer from CONFIG_SSD1306 and avoid duplicate display configs"
+        ]
+      },
+      {
         "patch": "1.1.11",
         "date": "2026-09-21",
         "commitHash": "c15d88e",
