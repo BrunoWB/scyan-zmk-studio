@@ -1,5 +1,6 @@
 import { Octokit } from '@octokit/rest';
 import YAML from 'yaml';
+import { getShieldDefinition } from '../data/shieldsData';
 
 export interface GitHubRepoConfig {
   owner: string;
@@ -1406,22 +1407,79 @@ export interface TimeoutConfig {
   symmetricSettings: boolean;
 }
 
+export interface ResolveConfUpdatesOptions {
+  isSplit?: boolean;
+  rightIsCentral?: boolean;
+  displayAssignments?: Record<string, string | null>;
+}
+
 /**
  * Resolves which .conf files should be updated with new CONFIG_ZMK_IDLE_TIMEOUT settings.
  */
 export function resolveConfUpdates(
   confFiles: { path: string; content: string }[],
-  timeouts: TimeoutConfig
+  timeouts: TimeoutConfig,
+  options?: ResolveConfUpdatesOptions
 ): { path: string; content: string }[] {
-  const leftTimeoutMs = timeouts.screenOffTimeoutSec * 1000;
+  const isConfWithoutDisplay = (confPath: string): boolean => {
+    if (!options?.displayAssignments) return false;
+    const base = confPath.replace(/^.*[/\\]/, '').replace(/\.conf$/, '').toLowerCase().replace(/_/g, '-');
+    for (const [shId, disp] of Object.entries(options.displayAssignments)) {
+      const normSh = shId.toLowerCase().replace(/_/g, '-');
+      if (disp === null && (base.includes(normSh) || normSh.includes(base))) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const activeConfFiles = confFiles.filter((f) => !isConfWithoutDisplay(f.path));
+
+  const hasSplitName = activeConfFiles.some((f) => {
+    const l = f.path.toLowerCase();
+    return (
+      l.includes('_central') ||
+      l.includes('-central') ||
+      l.includes('_left') ||
+      l.includes('-left') ||
+      l.includes('_peripheral') ||
+      l.includes('-peripheral') ||
+      l.includes('_right') ||
+      l.includes('-right')
+    );
+  });
+
+  const baseShield =
+    activeConfFiles.length > 0
+      ? activeConfFiles[0].path
+          .replace(/^.*[/\\]/, '')
+          .replace(/\.conf$/, '')
+          .replace(/_(left|right)$/, '')
+          .toLowerCase()
+          .replace(/_/g, '-')
+      : '';
+  const shieldDef = baseShield ? getShieldDefinition(baseShield) : null;
+  const isKnownSplitShield =
+    shieldDef?.layoutGeometry?.type === 'split-pair' ||
+    shieldDef?.category === 'split-pair';
+
+  const isSplit =
+    options?.isSplit !== undefined
+      ? options.isSplit
+      : hasSplitName || isKnownSplitShield || activeConfFiles.length > 1;
+
+  const centralTimeoutMs = timeouts.screenOffTimeoutSec * 1000;
   const peripheralTimeoutSec = timeouts.peripheralScreenOffTimeoutSec ?? timeouts.rightScreenOffTimeoutSec;
-  const rightTimeoutMs = (
+  const peripheralTimeoutMs = (
     timeouts.symmetricSettings
       ? timeouts.screenOffTimeoutSec
       : (peripheralTimeoutSec ?? timeouts.screenOffTimeoutSec)
   ) * 1000;
 
-  const leftConfs = confFiles.filter(f => {
+  const leftTimeoutMs = options?.rightIsCentral ? peripheralTimeoutMs : centralTimeoutMs;
+  const rightTimeoutMs = options?.rightIsCentral ? centralTimeoutMs : peripheralTimeoutMs;
+
+  const leftConfs = activeConfFiles.filter(f => {
     const lower = f.path.toLowerCase();
     return (
       lower.includes('_central') ||
@@ -1431,7 +1489,7 @@ export function resolveConfUpdates(
     );
   });
 
-  const rightConfs = confFiles.filter(f => {
+  const rightConfs = activeConfFiles.filter(f => {
     const lower = f.path.toLowerCase();
     return (
       lower.includes('_peripheral') ||
@@ -1441,7 +1499,7 @@ export function resolveConfUpdates(
     );
   });
 
-  const baseConfs = confFiles.filter(f => {
+  const baseConfs = activeConfFiles.filter(f => {
     const lower = f.path.toLowerCase();
     return (
       !lower.includes('_central') &&
@@ -1458,8 +1516,9 @@ export function resolveConfUpdates(
   const updates: { path: string; content: string }[] = [];
 
   if (leftConfs.length > 0 || rightConfs.length > 0) {
-    // Split configuration present
-    for (const lc of leftConfs) {
+    // Split configuration present: update left (or base fallback) and right confs
+    const primaryLefts = leftConfs.length > 0 ? leftConfs : baseConfs;
+    for (const lc of primaryLefts) {
       const res = updateKconfigSetting(lc.content, 'CONFIG_ZMK_IDLE_TIMEOUT', leftTimeoutMs);
       if (res.changed) {
         updates.push({ path: lc.path, content: res.updated });
@@ -1472,8 +1531,8 @@ export function resolveConfUpdates(
       }
     }
   } else if (baseConfs.length > 0) {
-    if (timeouts.symmetricSettings) {
-      // Single/unified configuration with symmetric timeout
+    if (timeouts.symmetricSettings || !isSplit) {
+      // Single/unified configuration or unibody keyboard
       for (const bc of baseConfs) {
         const res = updateKconfigSetting(bc.content, 'CONFIG_ZMK_IDLE_TIMEOUT', leftTimeoutMs);
         if (res.changed) {
@@ -1481,7 +1540,7 @@ export function resolveConfUpdates(
         }
       }
     } else {
-      // Asymmetric settings requested but only base conf exists.
+      // Asymmetric settings requested for split keyboard but only base conf exists.
       // 1. Update base conf with left (central) timeout
       const primaryBase = baseConfs[0];
       const baseRes = updateKconfigSetting(primaryBase.content, 'CONFIG_ZMK_IDLE_TIMEOUT', leftTimeoutMs);
@@ -1490,7 +1549,7 @@ export function resolveConfUpdates(
       }
       // 2. Create right conf (e.g. config/corne.conf -> config/corne_right.conf) to apply right peripheral timeout
       const extMatch = primaryBase.path.match(/^(.*)\.conf$/);
-      if (extMatch) {
+      if (extMatch && isSplit) {
         const rightPath = `${extMatch[1]}_right.conf`;
         const rightRes = updateKconfigSetting('', 'CONFIG_ZMK_IDLE_TIMEOUT', rightTimeoutMs);
         updates.push({ path: rightPath, content: rightRes.updated });
@@ -1570,7 +1629,8 @@ export async function commitStudioSaveToRepo(
   headerPath: string,
   headerContent: string,
   timeouts: TimeoutConfig,
-  commitMessage = `${STUDIO_COMMIT_PREFIX}feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio`
+  commitMessage = `${STUDIO_COMMIT_PREFIX}feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio`,
+  options?: ResolveConfUpdatesOptions
 ): Promise<CommitStudioSaveResult> {
   if (!config.token || !config.owner || !config.repo) {
     throw new Error('GitHub Personal Access Token is required to commit changes.');
@@ -1582,7 +1642,7 @@ export async function commitStudioSaveToRepo(
   let confUpdates: { path: string; content: string }[] = [];
   try {
     const existingConfs = await fetchRepoConfFiles(config);
-    confUpdates = resolveConfUpdates(existingConfs, timeouts);
+    confUpdates = resolveConfUpdates(existingConfs, timeouts, options);
   } catch (err) {
     console.warn('Could not inspect .conf files for Kconfig timeout synchronization:', err);
   }

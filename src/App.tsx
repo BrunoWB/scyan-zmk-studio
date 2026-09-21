@@ -26,7 +26,9 @@ import {
   Palette,
   Cpu,
   Network,
+  FlaskConical,
 } from 'lucide-react';
+import { LoadTestConfigModal } from './components/LoadTestConfigModal';
 import { useAtlasStore } from './stores/useAtlasStore';
 import { useLayoutStore } from './stores/useLayoutStore';
 import { useGitHubStore } from './stores/useGitHubStore';
@@ -90,6 +92,7 @@ export function App() {
   const showToast = useUiStore((s) => s.showToast);
   const removeToast = useUiStore((s) => s.removeToast);
   const customText = useUiStore((s) => s.customText);
+  const [isLoadTestConfigOpen, setIsLoadTestConfigOpen] = useState(false);
 
   // Responsive mobile warning state
   const isMobile = useIsMobile();
@@ -208,6 +211,7 @@ export function App() {
         onRestoreInitialValues={restoreInitialValues}
         onRestoreDefaults={restoreDefaults}
         unattachedDisplaysCount={unattachedScreens.length}
+        onOpenLoadTestConfig={import.meta.env.DEV ? () => setIsLoadTestConfigOpen(true) : undefined}
       />
 
       {/* Main Tab Navigation Bar */}
@@ -336,6 +340,16 @@ export function App() {
             >
               <Network className="size-3.5 text-[#00f0ff]" />
               <span>Topology</span>
+            </button>
+
+            {/* Dev Tool: Load Test Config */}
+            <button
+              onClick={() => setIsLoadTestConfigOpen(true)}
+              className="text-xs font-mono px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 bg-[#131722] hover:bg-[#1a202c] text-[#00f0ff] border border-[#00f0ff]/30 hover:border-[#00f0ff]/60 shadow-[0_0_8px_rgba(0,240,255,0.1)]"
+              title="Load test keyboard configurations & simulate non-standard topologies (Dev-only)"
+            >
+              <FlaskConical className="size-3.5 text-[#00f0ff]" />
+              <span>Load Test Config</span>
             </button>
           </div>
         )}
@@ -490,6 +504,12 @@ export function App() {
           }}
         />
       )}
+
+      {/* Load Test Config Modal */}
+      <LoadTestConfigModal
+        isOpen={isLoadTestConfigOpen}
+        onClose={() => setIsLoadTestConfigOpen(false)}
+      />
 
       {/* Mobile Unsupported Notice with Animated ZMK Display */}
       {isMobile && !isMobileDismissed && (

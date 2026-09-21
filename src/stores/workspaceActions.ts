@@ -18,7 +18,7 @@ import {
   parseZmkKeymap,
   inferShieldFromRepo,
 } from '../services/keymapService';
-import { detectShieldUnitsFromRepo } from '../data/shieldsData';
+import { detectShieldUnitsFromRepo, getShieldDefinition } from '../data/shieldsData';
 import { trackEvent } from '../services/analytics';
 import { useAtlasStore, cloneParsedAssets } from './useAtlasStore';
 import { useLayoutStore } from './useLayoutStore';
@@ -263,26 +263,40 @@ export const installScyanStudio = async () => {
   try {
     gitHubStore.setIsInstallingStudio(true);
 
+    const isSplitKeyboard =
+      layoutStore.loadedShields.length > 0
+        ? layoutStore.loadedShields.length > 1 && !layoutStore.loadedShields.every((s) => s.side === 'single')
+        : getShieldDefinition(layoutStore.shieldId).category === 'split-pair';
+
     const effCentralShield =
       layoutStore.loadedShields.find((s) => s.isMaster || s.side === 'left') || layoutStore.loadedShields[0];
     const effPeripheralShield = layoutStore.loadedShields.find((s) => s.id !== effCentralShield?.id);
 
     const centralDispId = effCentralShield
-      ? layoutStore.displayAssignments[effCentralShield.id] ?? 'central'
-      : 'central';
+      ? layoutStore.displayAssignments[effCentralShield.id] ?? 'display-1'
+      : 'display-1';
     const peripheralDispId = effPeripheralShield
-      ? layoutStore.displayAssignments[effPeripheralShield.id] ?? 'peripheral'
-      : 'peripheral';
+      ? layoutStore.displayAssignments[effPeripheralShield.id] ?? 'display-2'
+      : 'display-2';
 
-    const centralData = layoutStore.getScreenData(centralDispId || 'central');
-    const peripheralData = layoutStore.getScreenData(peripheralDispId || 'peripheral');
+    const hasPeripheralScreen = Boolean(
+      isSplitKeyboard &&
+      effPeripheralShield &&
+      layoutStore.displayAssignments[effPeripheralShield.id] !== null
+    );
+
+    const centralData = layoutStore.getScreenData(centralDispId || 'display-1');
+    const peripheralData = layoutStore.getScreenData(peripheralDispId || 'display-2');
 
     const metadata: HeaderMetadata = {
-      version: 1,
+      version: 2,
+      displays: layoutStore.displays,
+      shields: layoutStore.loadedShields,
+      displayAssignments: layoutStore.displayAssignments,
       centralBlocks: centralData.blocks,
-      peripheralBlocks: peripheralData.blocks,
+      peripheralBlocks: hasPeripheralScreen ? peripheralData.blocks : [],
       idleCentralBlocks: centralData.idleBlocks,
-      idlePeripheralBlocks: peripheralData.idleBlocks,
+      idlePeripheralBlocks: hasPeripheralScreen ? peripheralData.idleBlocks : [],
       screenDimensions: centralData.dimensions,
       rotation: centralData.rotation,
       widgetInstances: layoutStore.widgetInstances,
@@ -299,7 +313,6 @@ export const installScyanStudio = async () => {
       enabledScreens: layoutStore.enabledScreens,
       peripheralScreens:
         Object.keys(layoutStore.peripheralScreens).length > 0 ? layoutStore.peripheralScreens : undefined,
-      displayAssignments: layoutStore.displayAssignments,
       layerNames: layoutStore.keymapLayout.layerNames,
     };
 
@@ -447,8 +460,22 @@ export const saveWorkspaceToRepo = async () => {
     });
 
     const effCentralShield =
-      layoutStore.loadedShields.find((s) => s.isMaster || s.side === 'left') || layoutStore.loadedShields[0];
+      layoutStore.loadedShields.find((s) => s.isMaster) ||
+      layoutStore.loadedShields.find((s) => s.side === 'left') ||
+      layoutStore.loadedShields[0];
     const effPeripheralShield = layoutStore.loadedShields.find((s) => s.id !== effCentralShield?.id);
+
+    const isSplitKeyboard =
+      layoutStore.loadedShields.length > 0
+        ? layoutStore.loadedShields.length > 1 && !layoutStore.loadedShields.every((s) => s.side === 'single')
+        : getShieldDefinition(layoutStore.shieldId).category === 'split-pair';
+    const hasPeripheralScreen = Boolean(
+      isSplitKeyboard &&
+      effPeripheralShield &&
+      (screensToCommit.includes('peripheral') ||
+        (layoutStore.displayAssignments[effPeripheralShield.id] &&
+          screensToCommit.includes(layoutStore.displayAssignments[effPeripheralShield.id]!)))
+    );
 
     const centralDispId = effCentralShield
       ? layoutStore.displayAssignments[effCentralShield.id] ?? 'central'
@@ -461,11 +488,14 @@ export const saveWorkspaceToRepo = async () => {
     const peripheralData = layoutStore.getScreenData(peripheralDispId || 'peripheral');
 
     const metadata: HeaderMetadata = {
-      version: 1,
+      version: 2,
+      displays: layoutStore.displays,
+      shields: layoutStore.loadedShields,
+      displayAssignments: layoutStore.displayAssignments,
       centralBlocks: centralData.blocks,
-      peripheralBlocks: peripheralData.blocks,
+      peripheralBlocks: hasPeripheralScreen ? peripheralData.blocks : [],
       idleCentralBlocks: centralData.idleBlocks,
-      idlePeripheralBlocks: peripheralData.idleBlocks,
+      idlePeripheralBlocks: hasPeripheralScreen ? peripheralData.idleBlocks : [],
       screenDimensions: centralData.dimensions,
       rotation: centralData.rotation,
       widgetInstances: layoutStore.widgetInstances,
@@ -473,28 +503,29 @@ export const saveWorkspaceToRepo = async () => {
       screenOffTimeoutSec: centralData.screenOffTimeoutSec,
       idleScreensEnabled: centralData.idleScreensEnabled,
       symmetricSettings: layoutStore.symmetricSettings,
-      peripheralScreenDimensions: layoutStore.symmetricSettings ? undefined : peripheralData.dimensions,
-      peripheralRotation: layoutStore.symmetricSettings ? undefined : peripheralData.rotation,
-      peripheralIdleScreensEnabled: layoutStore.symmetricSettings ? undefined : peripheralData.idleScreensEnabled,
-      peripheralIdleTimeoutSec: layoutStore.symmetricSettings ? undefined : peripheralData.idleTimeoutSec,
-      peripheralScreenOffTimeoutSec: layoutStore.symmetricSettings ? undefined : peripheralData.screenOffTimeoutSec,
+      peripheralScreenDimensions: (!isSplitKeyboard || layoutStore.symmetricSettings) ? undefined : peripheralData.dimensions,
+      peripheralRotation: (!isSplitKeyboard || layoutStore.symmetricSettings) ? undefined : peripheralData.rotation,
+      peripheralIdleScreensEnabled: (!isSplitKeyboard || layoutStore.symmetricSettings) ? undefined : peripheralData.idleScreensEnabled,
+      peripheralIdleTimeoutSec: (!isSplitKeyboard || layoutStore.symmetricSettings) ? undefined : peripheralData.idleTimeoutSec,
+      peripheralScreenOffTimeoutSec: (!isSplitKeyboard || layoutStore.symmetricSettings) ? undefined : peripheralData.screenOffTimeoutSec,
       shieldId: layoutStore.shieldId,
       enabledScreens: screensToCommit.length > 0 ? screensToCommit : ['central'],
       peripheralScreens:
         Object.keys(peripheralScreensToCommit).length > 0 ? peripheralScreensToCommit : undefined,
-      displayAssignments: layoutStore.displayAssignments,
-      layerNames: layoutStore.keymapLayout.layerNames,
+      layerNames: layoutStore.keymapLayout?.layerNames,
     };
 
+    const { symbolsGrid, symbolSlices: symbolsMeta, fontGrid, fontMappings: fontMeta } = atlasStore;
     const generatedC = generateCHeader(
-      atlasStore.symbolsGrid,
-      atlasStore.symbolSlices,
-      atlasStore.fontGrid,
-      atlasStore.fontMappings,
+      symbolsGrid,
+      symbolsMeta,
+      fontGrid,
+      fontMeta,
       metadata
     );
 
     const targetPath = gitHubStore.currentHeaderPath || 'config/scyan_assets.h';
+    const rightIsCentral = effCentralShield?.side === 'right';
     const commitRes = await commitStudioSaveToRepo(
       config,
       targetPath,
@@ -505,7 +536,8 @@ export const saveWorkspaceToRepo = async () => {
         rightScreenOffTimeoutSec: layoutStore.peripheralScreenOffTimeoutSec,
         symmetricSettings: layoutStore.symmetricSettings,
       },
-      '[Scyan Studio] feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio'
+      '[Scyan Studio] feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio',
+      { isSplit: isSplitKeyboard, rightIsCentral, displayAssignments: layoutStore.displayAssignments }
     );
 
     gitHubStore.setCurrentSha(commitRes.commitSha);

@@ -12,6 +12,8 @@ import {
   DEFAULT_PERIPHERAL_LAYOUT_BLOCKS,
   DEFAULT_IDLE_CENTRAL_BLOCKS,
   DEFAULT_IDLE_PERIPHERAL_BLOCKS,
+  type DisplayScreen,
+  createDefaultDisplayScreen,
 } from '../types/zmk';
 import {
   getDefaultAssets,
@@ -162,6 +164,12 @@ export interface LayoutState {
   widgetInstances: WidgetInstanceMap;
   clearedTemplates: string[];
   keymapLayout: ParsedKeymapLayout;
+  displays: Record<string, DisplayScreen>;
+  activeDisplayId: string;
+  addDisplay: (screen?: Partial<DisplayScreen>) => string;
+  removeDisplay: (displayId: string) => void;
+  updateDisplay: (displayId: string, updater: Partial<DisplayScreen> | ((prev: DisplayScreen) => DisplayScreen)) => void;
+  setActiveDisplayId: (displayId: string) => void;
 
   setCentralBlocks: (updater: LayoutBlock[] | ((prev: LayoutBlock[]) => LayoutBlock[])) => void;
   setPeripheralBlocks: (updater: LayoutBlock[] | ((prev: LayoutBlock[]) => LayoutBlock[])) => void;
@@ -439,7 +447,52 @@ const getInitialLayoutValues = () => {
     if (saved) initialKeymapLayout = JSON.parse(saved);
   } catch {}
 
+  const initialDisplays: Record<string, DisplayScreen> = {
+    'display-1': {
+      id: 'display-1',
+      name: 'Display 1',
+      dimensions: initialScreenDimensions,
+      rotation: initialRotation,
+      blocks: initialCentralBlocks,
+      idleBlocks: initialIdleCentralBlocks,
+      idleTimeoutSec: initialIdleTimeoutSec,
+      screenOffTimeoutSec: initialScreenOffTimeoutSec,
+      idleScreensEnabled: initialIdleScreensEnabled,
+    },
+  };
+  if (initialPeripheralBlocks?.length > 0 || initialEnabledScreens.includes('peripheral')) {
+    initialDisplays['display-2'] = {
+      id: 'display-2',
+      name: 'Display 2',
+      dimensions: initialPeripheralScreenDimensions,
+      rotation: initialPeripheralRotation,
+      blocks: initialPeripheralBlocks,
+      idleBlocks: initialIdlePeripheralBlocks,
+      idleTimeoutSec: initialPeripheralIdleTimeoutSec,
+      screenOffTimeoutSec: initialPeripheralScreenOffTimeoutSec,
+      idleScreensEnabled: initialPeripheralIdleScreensEnabled,
+    };
+  }
+  if (initialPeripheralScreens) {
+    let slot = 3;
+    Object.entries(initialPeripheralScreens).forEach(([, p]) => {
+      const dId = `display-${slot++}`;
+      initialDisplays[dId] = {
+        id: dId,
+        name: p.name || `Display ${slot - 1}`,
+        dimensions: p.screenDimensions || { width: 32, height: 128 },
+        rotation: p.rotation ?? 90,
+        blocks: p.blocks || [],
+        idleBlocks: p.idleBlocks || [],
+        idleTimeoutSec: p.idleTimeoutSec ?? 30,
+        screenOffTimeoutSec: p.screenOffTimeoutSec ?? 60,
+        idleScreensEnabled: p.idleScreensEnabled ?? false,
+      };
+    });
+  }
+
   return {
+    initialDisplays,
     initialCentralBlocks,
     initialPeripheralBlocks,
     initialIdleCentralBlocks,
@@ -505,12 +558,98 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
     widgetInstances: init.initialWidgetInstances,
     clearedTemplates: init.initialClearedTemplates,
     keymapLayout: init.initialKeymapLayout,
+    displays: init.initialDisplays,
+    activeDisplayId: 'display-1',
+
+    addDisplay: (screen?: Partial<DisplayScreen>) => {
+      let newId = '';
+      set((state) => {
+        let slot = 1;
+        while (state.displays[`display-${slot}`]) slot++;
+        newId = `display-${slot}`;
+        const newScreen: DisplayScreen = {
+          ...createDefaultDisplayScreen(newId, `Display ${slot}`, false),
+          ...screen,
+          id: newId,
+        };
+        const nextDisplays = { ...state.displays, [newId]: newScreen };
+        return { displays: nextDisplays, activeDisplayId: newId };
+      });
+      return newId;
+    },
+
+    removeDisplay: (displayId: string) => {
+      set((state) => {
+        if (Object.keys(state.displays).length <= 1) {
+          useUiStore.getState().showToast('error', 'Cannot remove the only display screen.');
+          return state;
+        }
+        const nextDisplays = { ...state.displays };
+        delete nextDisplays[displayId];
+        const nextAssignments = { ...state.displayAssignments };
+        for (const [sId, dId] of Object.entries(nextAssignments)) {
+          if (dId === displayId) nextAssignments[sId] = null;
+        }
+        const remainingIds = Object.keys(nextDisplays);
+        const nextActiveId = state.activeDisplayId === displayId ? remainingIds[0] : state.activeDisplayId;
+        return {
+          displays: nextDisplays,
+          displayAssignments: nextAssignments,
+          activeDisplayId: nextActiveId,
+        };
+      });
+    },
+
+    updateDisplay: (displayId: string, updater: Partial<DisplayScreen> | ((prev: DisplayScreen) => DisplayScreen)) => {
+      set((state) => {
+        const prev = state.displays[displayId];
+        if (!prev) return state;
+        const updated = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater };
+        const nextDisplays = { ...state.displays, [displayId]: updated };
+
+        let legacyUpdates: any = {};
+        if (displayId === 'display-1') {
+          legacyUpdates = {
+            centralBlocks: updated.blocks,
+            idleCentralBlocks: updated.idleBlocks,
+            screenDimensions: updated.dimensions,
+            rotation: updated.rotation,
+            idleTimeoutSec: updated.idleTimeoutSec,
+            screenOffTimeoutSec: updated.screenOffTimeoutSec,
+            idleScreensEnabled: updated.idleScreensEnabled,
+          };
+        } else if (displayId === 'display-2') {
+          legacyUpdates = {
+            peripheralBlocks: updated.blocks,
+            idlePeripheralBlocks: updated.idleBlocks,
+            peripheralScreenDimensions: updated.dimensions,
+            peripheralRotation: updated.rotation,
+            peripheralIdleTimeoutSec: updated.idleTimeoutSec,
+            peripheralScreenOffTimeoutSec: updated.screenOffTimeoutSec,
+            peripheralIdleScreensEnabled: updated.idleScreensEnabled,
+          };
+        }
+
+        return {
+          displays: nextDisplays,
+          ...legacyUpdates,
+        };
+      });
+    },
+
+    setActiveDisplayId: (displayId: string) => {
+      set({ activeDisplayId: displayId });
+    },
 
     setCentralBlocks: (updater) => {
       set((state) => {
         const next = typeof updater === 'function' ? updater(state.centralBlocks) : updater;
         syncStorage('zmk-central-blocks', next);
-        return { centralBlocks: next };
+        const nextDisplays = { ...state.displays };
+        if (nextDisplays['display-1']) {
+          nextDisplays['display-1'] = { ...nextDisplays['display-1'], blocks: next };
+        }
+        return { centralBlocks: next, displays: nextDisplays };
       });
     },
 
@@ -518,7 +657,11 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
       set((state) => {
         const next = typeof updater === 'function' ? updater(state.peripheralBlocks) : updater;
         syncStorage('zmk-peripheral-blocks', next);
-        return { peripheralBlocks: next };
+        const nextDisplays = { ...state.displays };
+        if (nextDisplays['display-2']) {
+          nextDisplays['display-2'] = { ...nextDisplays['display-2'], blocks: next };
+        }
+        return { peripheralBlocks: next, displays: nextDisplays };
       });
     },
 
@@ -526,7 +669,11 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
       set((state) => {
         const next = typeof updater === 'function' ? updater(state.idleCentralBlocks) : updater;
         syncStorage('zmk-idle-central-blocks', next);
-        return { idleCentralBlocks: next };
+        const nextDisplays = { ...state.displays };
+        if (nextDisplays['display-1']) {
+          nextDisplays['display-1'] = { ...nextDisplays['display-1'], idleBlocks: next };
+        }
+        return { idleCentralBlocks: next, displays: nextDisplays };
       });
     },
 
@@ -534,7 +681,11 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
       set((state) => {
         const next = typeof updater === 'function' ? updater(state.idlePeripheralBlocks) : updater;
         syncStorage('zmk-idle-peripheral-blocks', next);
-        return { idlePeripheralBlocks: next };
+        const nextDisplays = { ...state.displays };
+        if (nextDisplays['display-2']) {
+          nextDisplays['display-2'] = { ...nextDisplays['display-2'], idleBlocks: next };
+        }
+        return { idlePeripheralBlocks: next, displays: nextDisplays };
       });
     },
 
@@ -542,7 +693,11 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
       set((state) => {
         const next = typeof updater === 'function' ? updater(state.screenDimensions) : updater;
         syncStorage('zmk-screen-dimensions', next);
-        return { screenDimensions: next };
+        const nextDisplays = { ...state.displays };
+        if (nextDisplays['display-1']) {
+          nextDisplays['display-1'] = { ...nextDisplays['display-1'], dimensions: next };
+        }
+        return { screenDimensions: next, displays: nextDisplays };
       });
     },
 
@@ -550,7 +705,11 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
       set((state) => {
         const next = typeof updater === 'function' ? updater(state.peripheralScreenDimensions) : updater;
         syncStorage('zmk-peripheral-screen-dimensions', next);
-        return { peripheralScreenDimensions: next };
+        const nextDisplays = { ...state.displays };
+        if (nextDisplays['display-2']) {
+          nextDisplays['display-2'] = { ...nextDisplays['display-2'], dimensions: next };
+        }
+        return { peripheralScreenDimensions: next, displays: nextDisplays };
       });
     },
 
@@ -558,7 +717,11 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
       set((state) => {
         const next = typeof updater === 'function' ? updater(state.rotation) : updater;
         syncStorage('zmk-screen-rotation', String(next));
-        return { rotation: next };
+        const nextDisplays = { ...state.displays };
+        if (nextDisplays['display-1']) {
+          nextDisplays['display-1'] = { ...nextDisplays['display-1'], rotation: next };
+        }
+        return { rotation: next, displays: nextDisplays };
       });
     },
 
@@ -566,38 +729,78 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
       set((state) => {
         const next = typeof updater === 'function' ? updater(state.peripheralRotation) : updater;
         syncStorage('zmk-peripheral-screen-rotation', String(next));
-        return { peripheralRotation: next };
+        const nextDisplays = { ...state.displays };
+        if (nextDisplays['display-2']) {
+          nextDisplays['display-2'] = { ...nextDisplays['display-2'], rotation: next };
+        }
+        return { peripheralRotation: next, displays: nextDisplays };
       });
     },
 
     setIdleScreensEnabled: (enabled) => {
       syncStorage('zmk-idle-screens-enabled', enabled);
-      set({ idleScreensEnabled: enabled });
+      set((state) => {
+        const nextDisplays = { ...state.displays };
+        if (nextDisplays['display-1']) {
+          nextDisplays['display-1'] = { ...nextDisplays['display-1'], idleScreensEnabled: enabled };
+        }
+        return { idleScreensEnabled: enabled, displays: nextDisplays };
+      });
     },
 
     setPeripheralIdleScreensEnabled: (enabled) => {
       syncStorage('zmk-peripheral-idle-screens-enabled', enabled);
-      set({ peripheralIdleScreensEnabled: enabled });
+      set((state) => {
+        const nextDisplays = { ...state.displays };
+        if (nextDisplays['display-2']) {
+          nextDisplays['display-2'] = { ...nextDisplays['display-2'], idleScreensEnabled: enabled };
+        }
+        return { peripheralIdleScreensEnabled: enabled, displays: nextDisplays };
+      });
     },
 
     setIdleTimeoutSec: (sec) => {
       syncStorage('zmk-idle-timeout-sec', sec);
-      set({ idleTimeoutSec: sec });
+      set((state) => {
+        const nextDisplays = { ...state.displays };
+        if (nextDisplays['display-1']) {
+          nextDisplays['display-1'] = { ...nextDisplays['display-1'], idleTimeoutSec: sec };
+        }
+        return { idleTimeoutSec: sec, displays: nextDisplays };
+      });
     },
 
     setPeripheralIdleTimeoutSec: (sec) => {
       syncStorage('zmk-peripheral-idle-timeout-sec', sec);
-      set({ peripheralIdleTimeoutSec: sec });
+      set((state) => {
+        const nextDisplays = { ...state.displays };
+        if (nextDisplays['display-2']) {
+          nextDisplays['display-2'] = { ...nextDisplays['display-2'], idleTimeoutSec: sec };
+        }
+        return { peripheralIdleTimeoutSec: sec, displays: nextDisplays };
+      });
     },
 
     setScreenOffTimeoutSec: (sec) => {
       syncStorage('zmk-screen-off-timeout-sec', sec);
-      set({ screenOffTimeoutSec: sec });
+      set((state) => {
+        const nextDisplays = { ...state.displays };
+        if (nextDisplays['display-1']) {
+          nextDisplays['display-1'] = { ...nextDisplays['display-1'], screenOffTimeoutSec: sec };
+        }
+        return { screenOffTimeoutSec: sec, displays: nextDisplays };
+      });
     },
 
     setPeripheralScreenOffTimeoutSec: (sec) => {
       syncStorage('zmk-peripheral-screen-off-timeout-sec', sec);
-      set({ peripheralScreenOffTimeoutSec: sec });
+      set((state) => {
+        const nextDisplays = { ...state.displays };
+        if (nextDisplays['display-2']) {
+          nextDisplays['display-2'] = { ...nextDisplays['display-2'], screenOffTimeoutSec: sec };
+        }
+        return { peripheralScreenOffTimeoutSec: sec, displays: nextDisplays };
+      });
     },
 
     setSymmetricSettings: (symmetric) => {
@@ -766,7 +969,23 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
 
     getScreenData: (id: string): ScreenData => {
       const state = get();
-      if (id === 'left' || id === 'central') {
+      const normId = (id === 'left' || id === 'central') ? 'display-1' : (id === 'right' || id === 'peripheral') ? 'display-2' : id;
+
+      if (state.displays && state.displays[normId]) {
+        const d = state.displays[normId];
+        return {
+          blocks: d.blocks,
+          idleBlocks: d.idleBlocks,
+          dimensions: d.dimensions,
+          rotation: d.rotation,
+          idleScreensEnabled: d.idleScreensEnabled,
+          idleTimeoutSec: d.idleTimeoutSec,
+          screenOffTimeoutSec: d.screenOffTimeoutSec,
+          customTitle: d.name,
+        };
+      }
+
+      if (normId === 'display-1') {
         return {
           blocks: state.centralBlocks,
           idleBlocks: state.idleCentralBlocks,
@@ -777,7 +996,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
           screenOffTimeoutSec: state.screenOffTimeoutSec,
         };
       }
-      if (id === 'right' || id === 'peripheral') {
+      if (normId === 'display-2') {
         return {
           blocks: state.peripheralBlocks,
           idleBlocks: state.idlePeripheralBlocks,
@@ -788,6 +1007,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
           screenOffTimeoutSec: state.peripheralScreenOffTimeoutSec,
         };
       }
+
       const p = state.peripheralScreens[id] || {};
       return {
         blocks: p.blocks || [],
@@ -805,7 +1025,36 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
 
     setScreenData: (id: string, data: ScreenData) => {
       const state = get();
-      if (id === 'left' || id === 'central') {
+      const normId = (id === 'left' || id === 'central') ? 'display-1' : (id === 'right' || id === 'peripheral') ? 'display-2' : id;
+
+      if (state.displays && state.displays[normId]) {
+        const prev = state.displays[normId];
+        const remappedBlocks = remapBlockCoordinates(
+          data.blocks,
+          prev.dimensions,
+          data.dimensions,
+          state.widgetInstances
+        );
+        const remappedIdle = remapBlockCoordinates(
+          data.idleBlocks,
+          prev.dimensions,
+          data.dimensions,
+          state.widgetInstances
+        );
+        get().updateDisplay(normId, {
+          blocks: remappedBlocks,
+          idleBlocks: remappedIdle,
+          dimensions: data.dimensions,
+          rotation: data.rotation ?? prev.rotation,
+          idleScreensEnabled: data.idleScreensEnabled,
+          idleTimeoutSec: data.idleTimeoutSec,
+          screenOffTimeoutSec: data.screenOffTimeoutSec,
+          name: data.customTitle ?? prev.name,
+        });
+        return;
+      }
+
+      if (normId === 'display-1') {
         const remappedBlocks = remapBlockCoordinates(
           data.blocks,
           state.screenDimensions,
@@ -830,7 +1079,21 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
           syncStorage('zmk-screen-rotation', String(data.rotation));
         }
 
+        const nextDisplays = { ...state.displays };
+        nextDisplays['display-1'] = {
+          id: 'display-1',
+          name: data.customTitle || 'Display 1',
+          dimensions: data.dimensions,
+          rotation: data.rotation !== undefined ? data.rotation : state.rotation,
+          blocks: remappedBlocks,
+          idleBlocks: remappedIdle,
+          idleTimeoutSec: data.idleTimeoutSec,
+          screenOffTimeoutSec: data.screenOffTimeoutSec,
+          idleScreensEnabled: data.idleScreensEnabled,
+        };
+
         set({
+          displays: nextDisplays,
           centralBlocks: remappedBlocks,
           idleCentralBlocks: remappedIdle,
           screenDimensions: data.dimensions,
@@ -840,7 +1103,10 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
           idleTimeoutSec: data.idleTimeoutSec,
           screenOffTimeoutSec: data.screenOffTimeoutSec,
         });
-      } else if (id === 'right' || id === 'peripheral') {
+        return;
+      }
+
+      if (normId === 'display-2') {
         const remappedBlocks = remapBlockCoordinates(
           data.blocks,
           state.peripheralScreenDimensions,
@@ -865,7 +1131,21 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
           syncStorage('zmk-peripheral-screen-rotation', String(data.rotation));
         }
 
+        const nextDisplays = { ...state.displays };
+        nextDisplays['display-2'] = {
+          id: 'display-2',
+          name: data.customTitle || 'Display 2',
+          dimensions: data.dimensions,
+          rotation: data.rotation !== undefined ? data.rotation : state.peripheralRotation,
+          blocks: remappedBlocks,
+          idleBlocks: remappedIdle,
+          idleTimeoutSec: data.idleTimeoutSec,
+          screenOffTimeoutSec: data.screenOffTimeoutSec,
+          idleScreensEnabled: data.idleScreensEnabled,
+        };
+
         set({
+          displays: nextDisplays,
           peripheralBlocks: remappedBlocks,
           idlePeripheralBlocks: remappedIdle,
           peripheralScreenDimensions: data.dimensions,
@@ -875,27 +1155,28 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
           peripheralIdleTimeoutSec: data.idleTimeoutSec,
           peripheralScreenOffTimeoutSec: data.screenOffTimeoutSec,
         });
-      } else {
-        set((prev) => {
-          const oldDims = prev.peripheralScreens[id]?.screenDimensions || { width: 32, height: 128 };
-          const updatedScreens: Record<string, PeripheralScreenData> = {
-            ...prev.peripheralScreens,
-            [id]: {
-              ...prev.peripheralScreens[id],
-              blocks: remapBlockCoordinates(data.blocks, oldDims, data.dimensions, prev.widgetInstances),
-              idleBlocks: remapBlockCoordinates(data.idleBlocks, oldDims, data.dimensions, prev.widgetInstances),
-              screenDimensions: data.dimensions,
-              rotation: data.rotation ?? prev.peripheralScreens[id]?.rotation,
-              idleScreensEnabled: data.idleScreensEnabled,
-              idleTimeoutSec: data.idleTimeoutSec,
-              screenOffTimeoutSec: data.screenOffTimeoutSec,
-              name: data.customTitle ?? prev.peripheralScreens[id]?.name,
-            },
-          };
-          syncStorage('zmk-peripheral-screens', updatedScreens);
-          return { peripheralScreens: updatedScreens };
-        });
+        return;
       }
+
+      set((prev) => {
+        const oldDims = prev.peripheralScreens[id]?.screenDimensions || { width: 32, height: 128 };
+        const updatedScreens: Record<string, PeripheralScreenData> = {
+          ...prev.peripheralScreens,
+          [id]: {
+            ...prev.peripheralScreens[id],
+            blocks: remapBlockCoordinates(data.blocks, oldDims, data.dimensions, prev.widgetInstances),
+            idleBlocks: remapBlockCoordinates(data.idleBlocks, oldDims, data.dimensions, prev.widgetInstances),
+            screenDimensions: data.dimensions,
+            rotation: data.rotation ?? prev.peripheralScreens[id]?.rotation,
+            idleScreensEnabled: data.idleScreensEnabled,
+            idleTimeoutSec: data.idleTimeoutSec,
+            screenOffTimeoutSec: data.screenOffTimeoutSec,
+            name: data.customTitle ?? prev.peripheralScreens[id]?.name,
+          },
+        };
+        syncStorage('zmk-peripheral-screens', updatedScreens);
+        return { peripheralScreens: updatedScreens };
+      });
     },
 
     swapDisplays: (idA: string, idB: string) => {
@@ -942,14 +1223,65 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
         });
       }
 
+      let nextScreens = [...get().enabledScreens];
+      let screensChanged = false;
+
+      // Harmonize enabledScreens and displayAssignments for detected shields
+      if (detectedUnits.length === 1 && detectedUnits[0].side === 'single') {
+        // Unibody: ensure exactly central is enabled and assigned
+        const singleId = detectedUnits[0].id;
+        if (!nextAssignments[singleId]) {
+          nextAssignments[singleId] = 'central';
+          assignmentsChanged = true;
+        }
+        if (nextScreens.length !== 1 || nextScreens[0] !== 'central') {
+          nextScreens = ['central'];
+          screensChanged = true;
+        }
+      } else {
+        // Multi-part: expand enabled screens to match shield units if needed
+        while (nextScreens.length < detectedUnits.length) {
+          const nextIdx = nextScreens.length;
+          const newScreenId = nextIdx === 1 ? 'peripheral' : `peripheral-${nextIdx}`;
+          if (!nextScreens.includes(newScreenId)) {
+            nextScreens.push(newScreenId);
+            screensChanged = true;
+          } else {
+            break;
+          }
+        }
+
+        // Auto-assign any newly discovered shields to available display slots (prioritize master/central)
+        const sortedUnits = [...detectedUnits].sort((a, b) => (b.isMaster ? 1 : 0) - (a.isMaster ? 1 : 0));
+        sortedUnits.forEach((u) => {
+          if (!nextAssignments[u.id]) {
+            const usedScreens = new Set(Object.values(nextAssignments).filter(Boolean));
+            if (u.isMaster && !usedScreens.has('central')) {
+              nextAssignments[u.id] = 'central';
+              assignmentsChanged = true;
+            } else {
+              const availableScreen = nextScreens.find((s) => !usedScreens.has(s));
+              if (availableScreen) {
+                nextAssignments[u.id] = availableScreen;
+                assignmentsChanged = true;
+              }
+            }
+          }
+        });
+      }
+
       syncStorage('zmk-loaded-shields', detectedUnits);
       if (assignmentsChanged) {
         syncStorage('zmk-display-assignments', nextAssignments);
+      }
+      if (screensChanged) {
+        syncStorage('zmk-enabled-screens', nextScreens);
       }
 
       set({
         loadedShields: detectedUnits,
         ...(assignmentsChanged ? { displayAssignments: nextAssignments } : {}),
+        ...(screensChanged ? { enabledScreens: nextScreens } : {}),
       });
 
       if (removedShieldIds.size > 0) {
@@ -1011,11 +1343,61 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
               .filter((s) => s !== 'dongle')
           : ['central', 'peripheral'];
 
+      let nextDisplays: Record<string, DisplayScreen>;
+      if (metadata.displays && Object.keys(metadata.displays).length > 0) {
+        nextDisplays = { ...metadata.displays };
+      } else {
+        const resolvedCentral = cBlocks && cBlocks.length > 0 ? cBlocks : get().centralBlocks;
+        const resolvedPeripheral = pBlocks && pBlocks.length > 0 ? pBlocks : get().peripheralBlocks;
+        const resolvedIdleCentral = idleCBlocks && idleCBlocks.length > 0 ? idleCBlocks : get().idleCentralBlocks;
+        const resolvedIdlePeripheral = idlePBlocks && idlePBlocks.length > 0 ? idlePBlocks : get().idlePeripheralBlocks;
+        const resolvedDims = metadata.screenDimensions ?? get().screenDimensions;
+        const resolvedPDims = pDims ?? get().peripheralScreenDimensions;
+        const resolvedRot = metadata.rotation !== undefined ? metadata.rotation : get().rotation;
+        const resolvedPRot = pRot !== undefined ? pRot : get().peripheralRotation;
+
+        nextDisplays = {
+          'display-1': {
+            id: 'display-1',
+            name: 'Display 1',
+            dimensions: resolvedDims,
+            rotation: resolvedRot,
+            blocks: resolvedCentral,
+            idleBlocks: resolvedIdleCentral,
+            idleTimeoutSec: metadata.idleTimeoutSec ?? get().idleTimeoutSec,
+            screenOffTimeoutSec: metadata.screenOffTimeoutSec ?? get().screenOffTimeoutSec,
+            idleScreensEnabled: metadata.idleScreensEnabled ?? get().idleScreensEnabled,
+          },
+        };
+        if (pBlocks || idlePBlocks || resolvedEnabledScreens.includes('peripheral')) {
+          nextDisplays['display-2'] = {
+            id: 'display-2',
+            name: 'Display 2',
+            dimensions: resolvedPDims,
+            rotation: resolvedPRot,
+            blocks: resolvedPeripheral,
+            idleBlocks: resolvedIdlePeripheral,
+            idleTimeoutSec: pIdleTimeout ?? get().peripheralIdleTimeoutSec,
+            screenOffTimeoutSec: pScreenOffTimeout ?? get().peripheralScreenOffTimeoutSec,
+            idleScreensEnabled: pIdleEnabled ?? get().peripheralIdleScreensEnabled,
+          };
+        }
+      }
+
+      if (metadata.shields) {
+        syncStorage('zmk-loaded-shields', metadata.shields);
+      }
+      if (metadata.displayAssignments) {
+        syncStorage('zmk-display-assignments', metadata.displayAssignments);
+      }
+
       set((state) => ({
-        centralBlocks: cBlocks && cBlocks.length > 0 ? cBlocks : state.centralBlocks,
-        peripheralBlocks: pBlocks && pBlocks.length > 0 ? pBlocks : state.peripheralBlocks,
-        idleCentralBlocks: idleCBlocks && idleCBlocks.length > 0 ? idleCBlocks : state.idleCentralBlocks,
-        idlePeripheralBlocks: idlePBlocks && idlePBlocks.length > 0 ? idlePBlocks : state.idlePeripheralBlocks,
+        displays: nextDisplays,
+        loadedShields: metadata.shields ?? state.loadedShields,
+        centralBlocks: cBlocks && cBlocks.length > 0 ? cBlocks : (nextDisplays['display-1']?.blocks ?? state.centralBlocks),
+        peripheralBlocks: pBlocks && pBlocks.length > 0 ? pBlocks : (nextDisplays['display-2']?.blocks ?? state.peripheralBlocks),
+        idleCentralBlocks: idleCBlocks && idleCBlocks.length > 0 ? idleCBlocks : (nextDisplays['display-1']?.idleBlocks ?? state.idleCentralBlocks),
+        idlePeripheralBlocks: idlePBlocks && idlePBlocks.length > 0 ? idlePBlocks : (nextDisplays['display-2']?.idleBlocks ?? state.idlePeripheralBlocks),
         screenDimensions: metadata.screenDimensions ?? state.screenDimensions,
         rotation: metadata.rotation !== undefined ? metadata.rotation : state.rotation,
         peripheralRotation: pRot !== undefined ? pRot : state.peripheralRotation,

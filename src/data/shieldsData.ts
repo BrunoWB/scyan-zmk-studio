@@ -1,4 +1,6 @@
 import YAML from 'yaml';
+import type { DisplayScreen } from '../types/zmk';
+import { createDefaultDisplayScreen } from '../types/zmk';
 
 export interface ShieldDisplayConfig {
   screenCount: 1 | 2;
@@ -791,7 +793,7 @@ export interface LoadedShieldUnit {
   shieldId: string;
   name: string;
   side: ShieldPartSide;
-  shield: ShieldDefinition;
+  shield?: ShieldDefinition;
   keyCount?: number;
   isMaster?: boolean;
 }
@@ -803,7 +805,7 @@ export function getShieldUnitsForShield(shieldId?: string | null): LoadedShieldU
       {
         id: `${shield.id}_left`,
         shieldId: shield.id,
-        name: `${shield.name} (Central)`,
+        name: `${shield.name} Left`,
         side: 'left',
         shield,
         isMaster: true,
@@ -811,7 +813,7 @@ export function getShieldUnitsForShield(shieldId?: string | null): LoadedShieldU
       {
         id: `${shield.id}_right`,
         shieldId: shield.id,
-        name: `${shield.name} (Peripheral)`,
+        name: `${shield.name} Right`,
         side: 'right',
         shield,
         isMaster: false,
@@ -895,78 +897,412 @@ export function extractShieldsFromYaml(yamlContent?: string): string[] {
   }
 }
 
-export function detectShieldUnitsFromRepo(
-  primaryShieldId: string = 'corne',
-  candidateConfFiles?: string[],
-  _keymapFilenames?: string[],
-  buildYamlContent?: string
-): LoadedShieldUnit[] {
+export function isAccessoryShield(token: string): boolean {
+  const norm = token.toLowerCase();
+  return (
+    norm === 'settings_reset' ||
+    norm === 'settings-reset' ||
+    norm.startsWith('nice_view') ||
+    norm.startsWith('nice-view') ||
+    norm.startsWith('nice_oled') ||
+    norm.startsWith('nice-oled') ||
+    norm === 'oled' ||
+    norm.includes('adapter') ||
+    norm.includes('encoder')
+  );
+}
+
+export function detectSideFromShieldName(name: string): ShieldPartSide {
+  const normalized = name.toLowerCase().replace(/[_-]/g, ' ');
+  if (/\b(dongle)\b/.test(normalized)) {
+    return 'dongle';
+  }
+  if (/\b(left|central)\b/.test(normalized)) {
+    return 'left';
+  }
+  if (/\b(right|peripheral)\b/.test(normalized)) {
+    return 'right';
+  }
+  return 'single';
+}
+
+export function formatShieldName(raw: string): string {
+  return raw
+    .replace(/[-_]/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+export interface DetectKeyboardTopologyOptions {
+  primaryShieldId?: string;
+  candidateConfFiles?: string[];
+  confFileContents?: Record<string, string>;
+  keymapFilenames?: string[];
+  buildYamlContent?: string;
+  metadata?: any;
+}
+
+export interface DetectedKeyboardTopology {
+  type: 'split-pair' | 'dongle-split' | 'unibody' | 'unknown';
+  units: LoadedShieldUnit[];
+  displays: Record<string, DisplayScreen>;
+  displayAssignments: Record<string, string | null>;
+  enabledScreens: string[];
+  centralRole?: 'left' | 'right' | 'dongle' | 'single';
+}
+
+export function detectKeyboardTopology(
+  options: DetectKeyboardTopologyOptions = {}
+): DetectedKeyboardTopology {
+  const {
+    primaryShieldId = 'corne',
+    candidateConfFiles,
+    confFileContents,
+    buildYamlContent,
+    metadata,
+  } = options;
+
+  // Tier 0: Saved Metadata Lock (Absolute Authority)
+  if (metadata?.displays && Object.keys(metadata.displays).length > 0) {
+    const rawShields: LoadedShieldUnit[] = (metadata.shields && metadata.shields.length > 0)
+      ? metadata.shields.map((s: LoadedShieldUnit) => ({
+          ...s,
+          shield: s.shield || getShieldDefinition(s.shieldId),
+        }))
+      : getShieldUnitsForShield(metadata.shieldId || primaryShieldId);
+    const isDongle = rawShields.some((s: LoadedShieldUnit) => s.side === 'dongle');
+    const topoType = isDongle
+      ? 'dongle-split'
+      : rawShields.length > 1
+      ? 'split-pair'
+      : 'unibody';
+
+    const assignments = { ...(metadata.displayAssignments || {}) };
+    if (Object.keys(assignments).length === 0 && rawShields.length > 0) {
+      const displayKeys = Object.keys(metadata.displays);
+      rawShields.forEach((u: LoadedShieldUnit, idx: number) => {
+        assignments[u.id] = displayKeys[idx] ?? null;
+      });
+    }
+
+    return {
+      type: topoType,
+      units: rawShields,
+      displays: metadata.displays,
+      displayAssignments: assignments,
+      enabledScreens: Object.keys(metadata.displays),
+      centralRole: isDongle ? 'dongle' : rawShields.find((s: LoadedShieldUnit) => s.isMaster)?.side as any,
+    };
+  }
+
   const units: LoadedShieldUnit[] = [];
   const seenIds = new Set<string>();
   const seenShieldIds = new Set<string>();
+  const explicitCentralIds = new Set<string>();
+  const explicitPeripheralIds = new Set<string>();
+  const shieldsWithoutDisplay = new Set<string>();
+  let rightIsCentral = false;
 
-  // Check build.yaml content if provided (using robust YAML AST parser)
+  // Tier 1: Manifest AST (build.yaml Tokenizer & Deep Target Args Scanning)
   if (buildYamlContent) {
-    const rawShieldNames = extractShieldsFromYaml(buildYamlContent);
-    for (const rawName of rawShieldNames) {
-      const sName = rawName.toLowerCase().replace(/_/g, '-');
-      if (sName === 'settings-reset') continue;
-      const baseName = sName.replace(/-(left|right)$/, '');
-      if (!seenShieldIds.has(baseName) && !seenIds.has(sName)) {
-        const knownDef = KNOWN_SHIELDS.find((s) => s.id === baseName || s.id === sName);
-        if (knownDef) {
-          const extraUnits = getShieldUnitsForShield(knownDef.id);
-          for (const u of extraUnits) {
-            if (!seenIds.has(u.id)) {
-              units.push(u);
-              seenIds.add(u.id);
+    try {
+      const docs = YAML.parseAllDocuments(buildYamlContent);
+      for (const doc of docs) {
+        const data = doc.toJSON();
+        if (!data || typeof data !== 'object') continue;
+
+        if ('include' in data && Array.isArray((data as Record<string, unknown>).include)) {
+          for (const entry of (data as Record<string, unknown>).include as unknown[]) {
+            if (entry && typeof entry === 'object' && 'shield' in entry) {
+              const sRaw = String((entry as Record<string, unknown>).shield);
+              const args = String(
+                (entry as Record<string, unknown>)['cmake-args'] ||
+                (entry as Record<string, unknown>).cmake_args ||
+                (entry as Record<string, unknown>).snippet ||
+                ''
+              );
+              const tokens = sRaw.trim().split(/\s+/);
+              const baseTokens = tokens.filter(t => !isAccessoryShield(t));
+
+              for (const baseToken of baseTokens) {
+                const sName = baseToken.toLowerCase().replace(/_/g, '-');
+                if (args.includes('CONFIG_ZMK_SPLIT_ROLE_CENTRAL=y')) {
+                  explicitCentralIds.add(sName);
+                  if (detectSideFromShieldName(sName) === 'right') {
+                    rightIsCentral = true;
+                  }
+                }
+                if (args.includes('CONFIG_ZMK_SPLIT_ROLE_CENTRAL=n')) {
+                  explicitPeripheralIds.add(sName);
+                }
+                if (args.includes('CONFIG_ZMK_DISPLAY=n')) {
+                  shieldsWithoutDisplay.add(sName);
+                }
+
+                // Add to detected units
+                const baseName = sName.replace(/-(left|right|dongle)$/, '');
+                const knownDef = KNOWN_SHIELDS.find((s) => s.id === baseName || s.id === sName);
+                if (knownDef) {
+                  if (!seenShieldIds.has(knownDef.id)) {
+                    const extraUnits = getShieldUnitsForShield(knownDef.id);
+                    for (const u of extraUnits) {
+                      if (!seenIds.has(u.id)) {
+                        units.push(u);
+                        seenIds.add(u.id);
+                      }
+                    }
+                    seenShieldIds.add(knownDef.id);
+                  }
+                } else if (!seenIds.has(sName)) {
+                  const side = detectSideFromShieldName(sName);
+                  const unitName = formatShieldName(baseToken);
+
+                  units.push({
+                    id: sName,
+                    shieldId: sName,
+                    name: unitName,
+                    side,
+                    shield: getShieldDefinition(sName),
+                    isMaster: false,
+                  });
+                  seenIds.add(sName);
+                  seenShieldIds.add(sName);
+                  seenShieldIds.add(baseName);
+                }
+              }
             }
           }
-          seenShieldIds.add(knownDef.id);
-        } else {
-          const customUnit: LoadedShieldUnit = {
-            id: sName,
-            shieldId: sName,
-            name: `${rawName} (Shield)`,
-            side: sName.includes('dongle') ? 'dongle' : 'single',
-            shield: getShieldDefinition(sName),
-            isMaster: false,
-          };
-          units.push(customUnit);
-          seenIds.add(sName);
-          seenShieldIds.add(sName);
-          seenShieldIds.add(baseName);
         }
+
+        if ('shield' in data) {
+          const raw = (data as Record<string, unknown>).shield;
+          const tokens: string[] = [];
+          if (typeof raw === 'string') {
+            tokens.push(...raw.trim().split(/\s+/));
+          } else if (Array.isArray(raw)) {
+            for (const item of raw) {
+              if (typeof item === 'string') tokens.push(...item.trim().split(/\s+/));
+            }
+          }
+          for (const token of tokens) {
+            if (isAccessoryShield(token)) continue;
+            const sName = token.toLowerCase().replace(/_/g, '-');
+            const baseName = sName.replace(/-(left|right|dongle)$/, '');
+            const knownDef = KNOWN_SHIELDS.find((s) => s.id === baseName || s.id === sName);
+            if (knownDef) {
+              if (!seenShieldIds.has(knownDef.id)) {
+                const extraUnits = getShieldUnitsForShield(knownDef.id);
+                for (const u of extraUnits) {
+                  if (!seenIds.has(u.id)) {
+                    units.push(u);
+                    seenIds.add(u.id);
+                  }
+                }
+                seenShieldIds.add(knownDef.id);
+              }
+            } else if (!seenIds.has(sName)) {
+              const side = detectSideFromShieldName(sName);
+              const unitName = formatShieldName(token);
+
+              units.push({
+                id: sName,
+                shieldId: sName,
+                name: unitName,
+                side,
+                shield: getShieldDefinition(sName),
+                isMaster: false,
+              });
+              seenIds.add(sName);
+              seenShieldIds.add(sName);
+              seenShieldIds.add(baseName);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[detectKeyboardTopology] Error parsing build.yaml:', err);
+    }
+  }
+
+  // Tier 2: Deep Kconfig & Conf Inspection
+  if (confFileContents) {
+    for (const [path, content] of Object.entries(confFileContents)) {
+      const base = path.replace(/^.*[/\\]/, '').replace(/\.conf$/, '').toLowerCase().replace(/_/g, '-');
+      if (content.includes('CONFIG_ZMK_SPLIT_ROLE_CENTRAL=y')) {
+        explicitCentralIds.add(base);
+        if (detectSideFromShieldName(base) === 'right') {
+          rightIsCentral = true;
+        }
+      }
+      if (content.includes('CONFIG_ZMK_SPLIT_ROLE_CENTRAL=n')) {
+        explicitPeripheralIds.add(base);
+      }
+      if (content.includes('CONFIG_ZMK_DISPLAY=n')) {
+        shieldsWithoutDisplay.add(base);
       }
     }
   }
 
-  // Check candidate conf files
   if (candidateConfFiles) {
+    const hasRightConf = candidateConfFiles.some(c => /[-_]right\.conf$/i.test(c));
     for (const conf of candidateConfFiles) {
       const base = conf.replace(/^.*[/\\]/, '').replace(/\.conf$/, '');
-      const cleanBase = base.replace(/_(left|right)$/, '').toLowerCase().replace(/_/g, '-');
-      if (cleanBase && !seenShieldIds.has(cleanBase)) {
+      const sName = base.toLowerCase().replace(/_/g, '-');
+      const cleanBase = base.replace(/_(left|right|dongle)$/, '').toLowerCase().replace(/_/g, '-');
+      const side = detectSideFromShieldName(base);
+
+      // If there is a _right.conf and this conf is just the base name, treat as left half
+      const effectiveSide: ShieldPartSide = (hasRightConf && side === 'single') ? 'left' : side;
+      const effectiveId = (hasRightConf && side === 'single') ? `${cleanBase}-left` : sName;
+
+      if (!seenIds.has(effectiveId)) {
+        if (effectiveSide === 'single' && seenShieldIds.has(cleanBase)) {
+          continue;
+        }
         const knownDef = KNOWN_SHIELDS.find((s) => s.id === cleanBase);
-        if (knownDef) {
-          const extraUnits = getShieldUnitsForShield(knownDef.id);
-          for (const u of extraUnits) {
-            if (!seenIds.has(u.id)) {
-              units.push(u);
-              seenIds.add(u.id);
+        if (knownDef && !hasRightConf) {
+          if (!seenShieldIds.has(knownDef.id)) {
+            const extraUnits = getShieldUnitsForShield(knownDef.id);
+            for (const u of extraUnits) {
+              if (!seenIds.has(u.id)) {
+                units.push(u);
+                seenIds.add(u.id);
+              }
             }
+            seenShieldIds.add(knownDef.id);
           }
-          seenShieldIds.add(knownDef.id);
+        } else {
+          const unitName = formatShieldName(base);
+
+          units.push({
+            id: effectiveId,
+            shieldId: cleanBase,
+            name: unitName,
+            side: effectiveSide,
+            shield: getShieldDefinition(cleanBase),
+            isMaster: false,
+          });
+          seenIds.add(effectiveId);
+          seenShieldIds.add(cleanBase);
         }
       }
     }
   }
 
-  // If no shields were detected from build.yaml or conf files, fall back to primaryShieldId
+  // Fallback if no shields detected
   if (units.length === 0) {
     const baseUnits = getShieldUnitsForShield(primaryShieldId);
     units.push(...baseUnits);
   }
 
-  return units;
+  // Tier 3: Strict Word-Boundary Side Detection & Master Role Assignment
+  const hasDongle = units.some((u) => u.side === 'dongle');
+  if (hasDongle) {
+    units.forEach((u) => {
+      u.isMaster = (u.side === 'dongle');
+    });
+  } else if (rightIsCentral || Array.from(explicitCentralIds).some(id => detectSideFromShieldName(id) === 'right')) {
+    units.forEach((u) => {
+      u.isMaster = (u.side === 'right');
+    });
+  } else {
+    const hasLeft = units.some((u) => u.side === 'left');
+    if (hasLeft) {
+      let firstLeftAssigned = false;
+      units.forEach((u) => {
+        if (u.side === 'left' && !firstLeftAssigned) {
+          u.isMaster = true;
+          firstLeftAssigned = true;
+        } else if (u.side === 'left') {
+          u.isMaster = false;
+        }
+      });
+    } else if (units.length > 0 && !units.some((u) => u.isMaster)) {
+      units.forEach((u, i) => {
+        u.isMaster = (i === 0);
+      });
+    }
+  }
+
+  // Determine Topology Type
+  let topoType: 'split-pair' | 'dongle-split' | 'unibody' | 'unknown' = 'unibody';
+  if (hasDongle) {
+    topoType = 'dongle-split';
+  } else if (units.length > 1 && !units.every((u) => u.side === 'single')) {
+    topoType = 'split-pair';
+  }
+
+  // Build Decoupled Displays & Hardware Mounts
+  const displays: Record<string, DisplayScreen> = {};
+  const displayAssignments: Record<string, string | null> = {};
+  const enabledScreens: string[] = [];
+
+  if (topoType === 'unibody') {
+    displays['display-1'] = createDefaultDisplayScreen('display-1', 'Display 1', true);
+    enabledScreens.push('display-1', 'central');
+    if (units.length > 0) {
+      displayAssignments[units[0].id] = 'display-1';
+    }
+  } else if (topoType === 'split-pair') {
+    displays['display-1'] = createDefaultDisplayScreen('display-1', 'Display 1', true);
+    displays['display-2'] = createDefaultDisplayScreen('display-2', 'Display 2', false);
+    enabledScreens.push('display-1', 'display-2', 'central', 'peripheral');
+
+    const centralUnit = units.find((u) => u.isMaster) || units[0];
+    const peripheralUnit = units.find((u) => !u.isMaster) || units[1];
+    if (centralUnit) displayAssignments[centralUnit.id] = 'display-1';
+    if (peripheralUnit) displayAssignments[peripheralUnit.id] = 'display-2';
+  } else if (topoType === 'dongle-split') {
+    const dongleUnit = units.find((u) => u.side === 'dongle');
+    const leftUnit = units.find((u) => u.side === 'left');
+    const rightUnit = units.find((u) => u.side === 'right');
+
+    const isDongleHeadless = dongleUnit && (
+      shieldsWithoutDisplay.has(dongleUnit.id) ||
+      dongleUnit.id.includes('custom-dongle')
+    );
+
+    if (isDongleHeadless && dongleUnit) {
+      displayAssignments[dongleUnit.id] = null;
+      displays['display-1'] = createDefaultDisplayScreen('display-1', 'Display 1', false);
+      displays['display-2'] = createDefaultDisplayScreen('display-2', 'Display 2', false);
+      enabledScreens.push('display-1', 'display-2', 'peripheral', 'peripheral-2');
+      if (leftUnit) displayAssignments[leftUnit.id] = 'display-1';
+      if (rightUnit) displayAssignments[rightUnit.id] = 'display-2';
+    } else {
+      displays['display-1'] = createDefaultDisplayScreen('display-1', 'Display 1', true);
+      displays['display-2'] = createDefaultDisplayScreen('display-2', 'Display 2', false);
+      displays['display-3'] = createDefaultDisplayScreen('display-3', 'Display 3', false);
+      enabledScreens.push('display-1', 'display-2', 'display-3', 'central', 'peripheral', 'peripheral-2');
+      if (dongleUnit) displayAssignments[dongleUnit.id] = 'display-1';
+      if (leftUnit) displayAssignments[leftUnit.id] = 'display-2';
+      if (rightUnit) displayAssignments[rightUnit.id] = 'display-3';
+    }
+  }
+
+  const centralUnit = units.find((u) => u.isMaster);
+  const centralRole = centralUnit ? centralUnit.side : undefined;
+
+  return {
+    type: topoType,
+    units,
+    displays,
+    displayAssignments,
+    enabledScreens,
+    centralRole,
+  };
+}
+
+export function detectShieldUnitsFromRepo(
+  primaryShieldId: string = 'corne',
+  candidateConfFiles?: string[],
+  keymapFilenames?: string[],
+  buildYamlContent?: string
+): LoadedShieldUnit[] {
+  const topo = detectKeyboardTopology({
+    primaryShieldId,
+    candidateConfFiles,
+    keymapFilenames,
+    buildYamlContent,
+  });
+  return topo.units;
 }

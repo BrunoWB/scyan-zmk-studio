@@ -1580,7 +1580,7 @@ static const struct font_glyph FONT_GLYPHS_SMALL[210] = {
     { .codepoint = '?'     , .x = 174, .y = 24, .width =  3, .height =  5, .advance_x =  4 }, // ?
     { .codepoint = '@'     , .x = 179, .y = 24, .width =  5, .height =  5, .advance_x =  6 }, // @
     { .codepoint = '['     , .x = 186, .y = 24, .width =  2, .height =  5, .advance_x =  3 }, // [
-    { .codepoint = 0x005C  , .x = 190, .y = 24, .width =  3, .height =  5, .advance_x =  4 }, // \
+    { .codepoint = 0x005C  , .x = 190, .y = 24, .width =  3, .height =  5, .advance_x =  4 }, // \\ (backslash)
     { .codepoint = ']'     , .x = 195, .y = 24, .width =  2, .height =  5, .advance_x =  3 }, // ]
     { .codepoint = '^'     , .x = 199, .y = 24, .width =  3, .height =  5, .advance_x =  4 }, // ^
     { .codepoint = '_'     , .x = 204, .y = 24, .width =  3, .height =  5, .advance_x =  4 }, // _
@@ -1794,7 +1794,7 @@ static const struct font_glyph FONT_GLYPHS_BIG[210] = {
     { .codepoint = '?'     , .x =  50, .y = 55, .width =  8, .height = 10, .advance_x = 10 }, // ?
     { .codepoint = '@'     , .x =  62, .y = 55, .width =  8, .height = 10, .advance_x = 10 }, // @
     { .codepoint = '['     , .x =  74, .y = 55, .width =  8, .height = 10, .advance_x = 10 }, // [
-    { .codepoint = 0x005C  , .x =  86, .y = 55, .width =  8, .height = 10, .advance_x = 10 }, // \
+    { .codepoint = 0x005C  , .x =  86, .y = 55, .width =  8, .height = 10, .advance_x = 10 }, // \\ (backslash)
     { .codepoint = ']'     , .x =  98, .y = 55, .width =  8, .height = 10, .advance_x = 10 }, // ]
     { .codepoint = '^'     , .x = 110, .y = 55, .width =  8, .height = 10, .advance_x = 10 }, // ^
     { .codepoint = '_'     , .x = 122, .y = 55, .width =  8, .height = 10, .advance_x = 10 }, // _
@@ -2010,7 +2010,7 @@ static const struct font_glyph FONT_GLYPHS_TEXT[200] = {
     { .codepoint = '?'     , .x = 174, .y = 24, .width =  3, .height =  5, .advance_x =  4 }, // ?
     { .codepoint = '@'     , .x = 179, .y = 24, .width =  5, .height =  5, .advance_x =  6 }, // @
     { .codepoint = '['     , .x = 186, .y = 24, .width =  2, .height =  5, .advance_x =  3 }, // [
-    { .codepoint = 0x005C  , .x = 190, .y = 24, .width =  3, .height =  5, .advance_x =  4 }, // \
+    { .codepoint = 0x005C  , .x = 190, .y = 24, .width =  3, .height =  5, .advance_x =  4 }, // \\ (backslash)
     { .codepoint = ']'     , .x = 195, .y = 24, .width =  2, .height =  5, .advance_x =  3 }, // ]
     { .codepoint = '^'     , .x = 199, .y = 24, .width =  3, .height =  5, .advance_x =  4 }, // ^
     { .codepoint = '_'     , .x = 204, .y = 24, .width =  3, .height =  5, .advance_x =  4 }, // _
@@ -2223,7 +2223,7 @@ static const struct font_glyph FONT_GLYPHS_ALL[210] = {
     { .codepoint = '?'     , .x = 174, .y = 24, .width =  3, .height =  5, .advance_x =  4 }, // ?
     { .codepoint = '@'     , .x = 179, .y = 24, .width =  5, .height =  5, .advance_x =  6 }, // @
     { .codepoint = '['     , .x = 186, .y = 24, .width =  2, .height =  5, .advance_x =  3 }, // [
-    { .codepoint = 0x005C  , .x = 190, .y = 24, .width =  3, .height =  5, .advance_x =  4 }, // \
+    { .codepoint = 0x005C  , .x = 190, .y = 24, .width =  3, .height =  5, .advance_x =  4 }, // \\ (backslash)
     { .codepoint = ']'     , .x = 195, .y = 24, .width =  2, .height =  5, .advance_x =  3 }, // ]
     { .codepoint = '^'     , .x = 199, .y = 24, .width =  3, .height =  5, .advance_x =  4 }, // ^
     { .codepoint = '_'     , .x = 204, .y = 24, .width =  3, .height =  5, .advance_x =  4 }, // _

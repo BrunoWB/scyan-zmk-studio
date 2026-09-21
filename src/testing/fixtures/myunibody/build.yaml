@@ -1,0 +1,7 @@
+---
+include:
+  - board: rpi_pico
+    shield: myunibody
+
+  - board: rpi_pico
+    shield: settings_reset

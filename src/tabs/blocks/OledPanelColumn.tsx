@@ -692,7 +692,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
                 const widthPct = (blockW / V_WIDTH) * 100;
                 const heightPct = (blockH / V_HEIGHT) * 100;
 
-                const isPeripheralMaster = side === 'right' && !!def?.requiresMaster;
+                const isPeripheralMaster = !isCentral && !!def?.requiresMaster;
 
                 return (
                   <div
@@ -720,7 +720,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
                     {isPeripheralMaster && (
                       <div
                         className="absolute top-1 right-1 z-30 group/warn cursor-help pointer-events-auto flex items-center justify-center"
-                        title="may not work as intended"
+                        title="Mounted on Peripheral: Central coordinator required"
                         onClick={e => e.stopPropagation()}
                       >
                         <div className="size-4 rounded-full bg-[#f2741d] text-[#0b0d13] font-black text-[10px] flex items-center justify-center shadow-[0_0_8px_rgba(242,116,29,0.9)] border border-[#0b0d13] leading-none select-none transition-transform group-hover/warn:scale-110">
@@ -728,7 +728,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
                         </div>
                         {/* Hover tooltip */}
                         <div className="pointer-events-none opacity-0 group-hover/warn:opacity-100 transition-all duration-150 transform group-hover/warn:translate-y-0 translate-y-1 absolute bottom-full right-1/2 translate-x-1/2 mb-1.5 px-2 py-1 bg-[#131722] border border-[#f2741d]/70 text-white text-[10px] font-sans font-medium rounded shadow-[0_4px_16px_rgba(0,0,0,0.9),0_0_8px_rgba(242,116,29,0.2)] whitespace-nowrap z-50">
-                          may not work as intended
+                          Mounted on Peripheral: Central coordinator required
                           <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-[1px] border-4 border-transparent border-t-[#131722]" />
                         </div>
                       </div>

@@ -12,11 +12,11 @@ describe('detectShieldUnitsFromRepo & Shield Assignment Pipeline', () => {
     const units = getShieldUnitsForShield('corne');
     expect(units).toHaveLength(2);
     expect(units[0].id).toBe('corne_left');
-    expect(units[0].name).toBe('Corne (CRKBD) (Central)');
+    expect(units[0].name).toBe('Corne (CRKBD) Left');
     expect(units[0].isMaster).toBe(true);
 
     expect(units[1].id).toBe('corne_right');
-    expect(units[1].name).toBe('Corne (CRKBD) (Peripheral)');
+    expect(units[1].name).toBe('Corne (CRKBD) Right');
     expect(units[1].isMaster).toBe(false);
   });
 

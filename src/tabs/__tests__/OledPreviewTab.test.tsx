@@ -189,8 +189,8 @@ describe('OledPreviewTab dynamic screen dimensions & widget moving', () => {
     expect(html).toContain('unknown-shield-unit-case');
     expect(html).toContain('unknown-shield-body');
     expect(html).toContain('unknown-shield-header-badge');
-    expect(html).toContain('Custom / Unknown Shield (Central)');
-    expect(html).toContain('Custom / Unknown Shield (Peripheral)');
+    expect(html).toContain('Custom / Unknown Shield Left');
+    expect(html).toContain('Custom / Unknown Shield Right');
 
     // Corne half cases are NOT rendered
     expect(html).not.toContain('corne-half-case');

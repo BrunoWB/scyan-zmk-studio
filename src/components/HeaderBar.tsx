@@ -23,6 +23,7 @@ import {
   RotateCcw,
   Trash2,
   AlertTriangle,
+  FlaskConical,
 } from 'lucide-react';
 import { Chip, Button, Kbd } from '@heroui/react';
 import type {
@@ -67,6 +68,7 @@ export interface HeaderBarProps {
   onRestoreDefaults?: () => void;
   initialWorkflowRun?: WorkflowRunInfo | null;
   unattachedDisplaysCount?: number;
+  onOpenLoadTestConfig?: () => void;
 }
 
 const GithubIcon = ({ size = 16, className = '' }: { size?: number; className?: string }) => (
@@ -136,6 +138,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onRestoreDefaults,
   initialWorkflowRun,
   unattachedDisplaysCount = 0,
+  onOpenLoadTestConfig,
 }) => {
   const [tempConfig, setTempConfig] = useState<GitHubRepoConfig>(config);
   const [workflowRun, setWorkflowRun] = useState<WorkflowRunInfo | null>(initialWorkflowRun ?? null);
@@ -980,6 +983,32 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                           </Button>
                         </div>
                       </div>
+
+                      {/* Test Topologies Dev Tool Shortcut */}
+                      {onOpenLoadTestConfig && (
+                        <div className="bg-[#0e1118] border border-[#00f0ff]/25 rounded-xl p-3 flex items-center justify-between gap-3">
+                          <div className="space-y-0.5">
+                            <div className="text-xs font-semibold text-[#00f0ff] flex items-center gap-1.5">
+                              <FlaskConical size={13} />
+                              <span>Test Topologies (Dev Tool)</span>
+                            </div>
+                            <div className="text-[11px] text-[#94a3b8]">
+                              Load sample configs (Genteure 3-part split, RP2040 unibody, etc.)
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            type="button"
+                            onClick={() => {
+                              setIsSettingsOpen(false);
+                              onOpenLoadTestConfig();
+                            }}
+                            className="bg-[#00f0ff]/15 hover:bg-[#00f0ff]/25 border border-[#00f0ff]/40 text-[#00f0ff] text-xs font-medium px-3 h-7 rounded-lg transition-colors cursor-pointer"
+                          >
+                            Load Test Config
+                          </Button>
+                        </div>
+                      )}
 
                       {/* Interactive Repository Picker */}
                       <div className="space-y-2">

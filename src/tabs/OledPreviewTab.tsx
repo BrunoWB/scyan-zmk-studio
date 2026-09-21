@@ -175,6 +175,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   const storeDisplayAssignments = useLayoutStore((s) => s.displayAssignments);
   const storeSetDisplayAssignments = useLayoutStore((s) => s.setDisplayAssignments);
   const storeLoadedShields = useLayoutStore((s) => s.loadedShields);
+  const storeDisplays = useLayoutStore((s) => s.displays);
   const storePeripheralScreens = useLayoutStore((s) => s.peripheralScreens);
   const storeWidgetInstances = useLayoutStore((s) => s.widgetInstances);
 
@@ -893,6 +894,18 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   const getDisplayInfo = useCallback(
     (displayId: string | null | undefined) => {
       if (!displayId) return null;
+
+      // 1. Resolve from modern decoupled displays dictionary (display-1, display-2, etc.)
+      if (storeDisplays && storeDisplays[displayId]) {
+        const d = storeDisplays[displayId];
+        const blocks = isIdle ? (d.idleBlocks || []) : (d.blocks || []);
+        const width = d.dimensions?.width || 32;
+        const height = d.dimensions?.height || 128;
+        const name = d.name || displayId;
+        const displayDim = getOledDisplayDimensions(width, height);
+        return { blocks, width, height, name, isMaster: false, displayDim };
+      }
+
       const isMaster = displayId === 'central' || displayId === 'left';
       const isPeripheral = displayId === 'peripheral' || displayId === 'right';
 
@@ -923,6 +936,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
       return { blocks, width, height, name, isMaster, displayDim };
     },
     [
+      storeDisplays,
       leftDisplayBlocks,
       rightDisplayBlocks,
       leftVWidth,
@@ -990,7 +1004,6 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
           {orderedShields.map((shield) => {
             const assignedDisplayId = reconciledAssignments[shield.id];
             const dispInfo = getDisplayInfo(assignedDisplayId);
-            const isLeft = shield.side === 'left' || shield.isMaster;
 
             return (
               <div
@@ -1012,7 +1025,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
                     </div>
 
                     {/* Central Shield Badge with tooltip */}
-                    {isLeft && (
+                    {shield.isMaster && (
                       <div
                         className="central-shield-badge"
                         title="Central Shield"
@@ -1068,7 +1081,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
               >
                 <div className={`corne-half-case ${isLeft ? 'left-half' : 'right-half'}`}>
                   {/* Central Shield Badge with tooltip */}
-                  {isLeft && (
+                  {shield.isMaster && (
                     <div
                       className="central-shield-badge"
                       title="Central Shield"
