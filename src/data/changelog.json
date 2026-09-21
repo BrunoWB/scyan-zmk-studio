@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "1.1.8",
+        "date": "2026-09-21",
+        "commitHash": "e259ce7",
+        "changes": [
+          "refactor(parser): generalize slotted display detection for slot 3 and above"
+        ]
+      },
+      {
         "patch": "1.1.7",
         "date": "2026-09-21",
         "commitHash": "909284c",
