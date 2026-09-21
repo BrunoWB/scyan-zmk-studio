@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "1.1.5",
+        "date": "2026-09-21",
+        "commitHash": "88b16a2",
+        "changes": [
+          "feat(mobile): add mobile unsupported screen with animated ZMK display"
+        ]
+      },
+      {
         "patch": "1.1.4",
         "date": "2026-09-18",
         "commitHash": "3726637",
