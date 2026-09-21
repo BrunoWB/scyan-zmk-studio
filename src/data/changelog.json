@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "1.1.6",
+        "date": "2026-09-21",
+        "commitHash": "25cda61",
+        "changes": [
+          "Merge branch 'nightly' into main"
+        ]
+      },
+      {
         "patch": "1.1.5",
         "date": "2026-09-21",
         "commitHash": "88b16a2",
