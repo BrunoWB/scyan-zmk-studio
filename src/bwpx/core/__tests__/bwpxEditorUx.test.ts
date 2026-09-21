@@ -239,6 +239,54 @@ describe('BwpxEditor UX logic', () => {
     expect(atMax.pan).toEqual(pan);
   });
 
+  it('accumulates wheel delta and respects WHEEL_ZOOM_THRESHOLD to prevent rapid uncontrollable zooming', async () => {
+    const { processWheelZoomDelta, WHEEL_ZOOM_THRESHOLD } = await import('../../components/BwpxEditor');
+
+    expect(WHEEL_ZOOM_THRESHOLD).toBe(80);
+
+    // 1. Single standard mouse wheel notch (|deltaY| = 100 or 120 >= 80) triggers exactly 1 step
+    const notchIn = processWheelZoomDelta(0, -100, 0, WHEEL_ZOOM_THRESHOLD);
+    expect(notchIn.step).toBe(1); // Zoom in
+    expect(notchIn.nextAccumulator).toBe(0);
+
+    const notchOut = processWheelZoomDelta(0, 120, 0, WHEEL_ZOOM_THRESHOLD);
+    expect(notchOut.step).toBe(-1); // Zoom out
+    expect(notchOut.nextAccumulator).toBe(0);
+
+    // 2. High-frequency trackpad or high-res wheel events (e.g. 10px each) accumulate smoothly
+    let acc = 0;
+    let stepsFired = 0;
+    for (let i = 0; i < 7; i++) {
+      const res = processWheelZoomDelta(acc, -10, 0, WHEEL_ZOOM_THRESHOLD);
+      acc = res.nextAccumulator;
+      if (res.step !== 0) stepsFired++;
+    }
+    // 7 events of -10 = -70, which has not yet reached threshold 80
+    expect(acc).toBe(-70);
+    expect(stepsFired).toBe(0);
+
+    // 8th event pushes past threshold (-80)
+    const eighth = processWheelZoomDelta(acc, -10, 0, WHEEL_ZOOM_THRESHOLD);
+    expect(eighth.step).toBe(1);
+    expect(eighth.nextAccumulator).toBe(0);
+
+    // 3. Reversing scroll direction discards residual delta immediately
+    acc = -50; // User was scrolling up
+    const reversed = processWheelZoomDelta(acc, 20, 0, WHEEL_ZOOM_THRESHOLD); // Suddenly scrolls down
+    expect(reversed.nextAccumulator).toBe(20); // Prior -50 was cleared, only +20 remains
+    expect(reversed.step).toBe(0);
+
+    // 4. Firefox line mode (deltaMode === 1, e.g. 3 lines) normalizes to ~99px and triggers 1 step
+    const lineMode = processWheelZoomDelta(0, -3, 1, WHEEL_ZOOM_THRESHOLD);
+    expect(lineMode.step).toBe(1);
+    expect(lineMode.nextAccumulator).toBe(0);
+
+    // 5. Zero deltaY (horizontal scroll) does not zoom or alter accumulator
+    const zeroDelta = processWheelZoomDelta(-30, 0, 0, WHEEL_ZOOM_THRESHOLD);
+    expect(zeroDelta.step).toBe(0);
+    expect(zeroDelta.nextAccumulator).toBe(-30);
+  });
+
   it('positions origin (0, 0) in the center of the top-left quadrant of the viewport upon entering editor', async () => {
     const { calculateFitViewport, ZOOM_STEPS } = await import('../../components/BwpxEditor');
 

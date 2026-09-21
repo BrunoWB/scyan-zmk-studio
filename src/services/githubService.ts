@@ -271,6 +271,13 @@ export async function verifyGitHubConnection(config: GitHubRepoConfig): Promise<
   }
 }
 
+export const DEFAULT_HEADER_CANDIDATES = [
+  'config/scyan_assets.h',
+  'include/scyan_assets.h',
+  'scyan_assets.h',
+  'include/custom_display_assets.h',
+] as const;
+
 /**
  * Fetches file content from repository.
  */
@@ -301,10 +308,10 @@ export async function fetchFileFromRepo(
   const uniqueBranches = Array.from(new Set(branches));
 
   // Determine candidate paths to probe in target repository
-  const isDefaultAssetPath = path === 'config/scyan_assets.h' || path === 'include/custom_display_assets.h';
+  const isDefaultAssetPath = DEFAULT_HEADER_CANDIDATES.includes(path as any);
   const candidatePaths = isDefaultAssetPath
-    ? ['config/scyan_assets.h', 'include/scyan_assets.h', 'scyan_assets.h']
-    : [path, 'config/scyan_assets.h', 'include/scyan_assets.h', 'scyan_assets.h'];
+    ? [...DEFAULT_HEADER_CANDIDATES]
+    : [path, ...DEFAULT_HEADER_CANDIDATES];
   const uniqueCandidatePaths = Array.from(new Set(candidatePaths));
 
   let lastErr: any = null;
@@ -838,6 +845,7 @@ export interface RepoPrerequisites {
   candidateConfFiles?: string[];
   westPath?: string;
   headerPath?: string;
+  existingHeaderPaths?: string[];
   existingConfContent?: string;
   existingWestContent?: string;
   buildYamlContent?: string;
@@ -923,9 +931,10 @@ export async function checkRepoPrerequisites(
     }
   }
 
-  // 2. Check scyan_assets.h
-  const headerCandidates = ['config/scyan_assets.h', 'include/scyan_assets.h', 'scyan_assets.h'];
-  for (const p of headerCandidates) {
+  // 2. Check scyan_assets.h across all candidate paths (detecting all existing files)
+  const existingHeaderPaths: string[] = [];
+  let detectedHeaderPath: string | undefined = undefined;
+  for (const p of DEFAULT_HEADER_CANDIDATES) {
     try {
       const res = await octokit.repos.getContent({
         owner: config.owner,
@@ -935,14 +944,19 @@ export async function checkRepoPrerequisites(
       });
       if ('content' in res.data && typeof res.data.content === 'string') {
         hasAssetsHeader = true;
-        headerPath = p;
-        break;
+        if (!detectedHeaderPath) {
+          detectedHeaderPath = p;
+        }
+        existingHeaderPaths.push(p);
       }
     } catch (err: any) {
       if (err.status !== 404) {
         console.warn(`[checkRepoPrerequisites] Error checking header candidate ${p}:`, err);
       }
     }
+  }
+  if (detectedHeaderPath) {
+    headerPath = detectedHeaderPath;
   }
 
   // 3. Check .conf file
@@ -1018,6 +1032,7 @@ export async function checkRepoPrerequisites(
     candidateConfFiles,
     westPath,
     headerPath,
+    existingHeaderPaths,
     existingConfContent,
     existingWestContent,
     buildYamlContent,
@@ -1099,7 +1114,7 @@ export async function installScyanStudioToRepo(
   // 5. Commit changes atomically (GraphQL createCommitOnBranch with REST fallback)
   const commitRes = await commitChangesWithFallback({
     config,
-    message: 'feat(display): install Scyan ZMK Studio module, config & assets',
+    message: `${STUDIO_COMMIT_PREFIX}Install: module & starter assets`,
     additions: filesToCommit,
   });
 
@@ -1335,21 +1350,67 @@ export async function uninstallScyanStudioFromRepo(
   }
 
   // 3. Prepare cleaned .conf if present
-  if (prereqs.existingConfContent) {
-    const cleanedConf = removeScyanFromConf(prereqs.existingConfContent);
-    if (cleanedConf !== prereqs.existingConfContent) {
-      additions.push({
-        path: prereqs.confPath || 'config/corne.conf',
-        content: cleanedConf,
-      });
+  const confsToClean = new Set<string>();
+  if (prereqs.confPath) confsToClean.add(prereqs.confPath);
+  if (prereqs.candidateConfFiles) {
+    prereqs.candidateConfFiles.forEach((cp) => confsToClean.add(cp));
+  }
+
+  const octokit = getOctokit(config.token);
+  const refToUse = config.branch || 'main';
+
+  for (const cp of confsToClean) {
+    try {
+      let content = cp === prereqs.confPath && prereqs.existingConfContent ? prereqs.existingConfContent : null;
+      if (!content) {
+        const res = await octokit.repos.getContent({
+          owner: config.owner,
+          repo: config.repo,
+          path: cp,
+          ref: refToUse,
+        });
+        if ('content' in res.data && typeof res.data.content === 'string') {
+          content = atob(res.data.content.replace(/\s/g, ''));
+        }
+      }
+      if (content) {
+        const cleanedConf = removeScyanFromConf(content);
+        if (cleanedConf !== content) {
+          additions.push({
+            path: cp,
+            content: cleanedConf,
+          });
+        }
+      }
+    } catch {}
+  }
+
+  // 4. Remove all scyan_assets.h files if they exist (primary and legacy locations)
+  const headersToDelete = new Set<string>();
+  if (prereqs.hasAssetsHeader && prereqs.headerPath) {
+    headersToDelete.add(prereqs.headerPath);
+  }
+  if (prereqs.existingHeaderPaths) {
+    prereqs.existingHeaderPaths.forEach((hp) => headersToDelete.add(hp));
+  }
+  for (const p of DEFAULT_HEADER_CANDIDATES) {
+    if (!headersToDelete.has(p)) {
+      try {
+        const res = await octokit.repos.getContent({
+          owner: config.owner,
+          repo: config.repo,
+          path: p,
+          ref: refToUse,
+        });
+        if ('content' in res.data) {
+          headersToDelete.add(p);
+        }
+      } catch {}
     }
   }
 
-  // 4. Remove scyan_assets.h if it exists
-  if (prereqs.hasAssetsHeader) {
-    deletions.push({
-      path: prereqs.headerPath || 'config/scyan_assets.h',
-    });
+  for (const p of headersToDelete) {
+    deletions.push({ path: p });
   }
 
   if (additions.length === 0 && deletions.length === 0) {
@@ -1359,7 +1420,7 @@ export async function uninstallScyanStudioFromRepo(
   // 5. Commit changes atomically (GraphQL createCommitOnBranch with REST fallback)
   const commitRes = await commitChangesWithFallback({
     config,
-    message: 'chore(display): uninstall Scyan ZMK Studio module, config & assets',
+    message: `${STUDIO_COMMIT_PREFIX}Uninstall: module & assets`,
     additions,
     deletions,
   });
@@ -1673,7 +1734,7 @@ export async function commitStudioSaveToRepo(
   headerPath: string,
   headerContent: string,
   timeouts: TimeoutConfig,
-  commitMessage = `${STUDIO_COMMIT_PREFIX}feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio`,
+  commitMessage = `${STUDIO_COMMIT_PREFIX}Update: spritesheets & screen layouts`,
   options?: ResolveConfUpdatesOptions
 ): Promise<CommitStudioSaveResult> {
   if (!config.token || !config.owner || !config.repo) {

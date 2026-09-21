@@ -1,4 +1,4 @@
-export { BwpxEditor, calculateFitViewport, calculateZoomAtPoint, ZOOM_STEPS } from './components/BwpxEditor';
+export { BwpxEditor, calculateFitViewport, calculateZoomAtPoint, ZOOM_STEPS, WHEEL_ZOOM_THRESHOLD, processWheelZoomDelta } from './components/BwpxEditor';
 export type { BwpxEditorProps, ToolType, EditorViewport, HistoryEntry } from './components/BwpxEditor';
 export { useBwpxHistory } from './hooks/useBwpxHistory';
 export { useBwpxCanvasPointer } from './hooks/useBwpxCanvasPointer';

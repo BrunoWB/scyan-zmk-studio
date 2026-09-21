@@ -95,7 +95,7 @@ export const initializeWorkspace = async () => {
         gitHubStore.setRepoPrereqs(prereqs);
 
         if (prereqs.hasAssetsHeader) {
-          const fileData = await fetchFileFromRepo(fetchConfig, 'config/scyan_assets.h');
+          const fileData = await fetchFileFromRepo(fetchConfig, prereqs.headerPath || 'config/scyan_assets.h');
 
           if (fileData.content) {
             const parsed = parseCHeader(fileData.content);
@@ -180,7 +180,7 @@ export const syncRepoAssets = async () => {
       gitHubStore.setRepoPrereqs(prereqs);
 
       if (prereqs.hasAssetsHeader) {
-        const fileData = await fetchFileFromRepo(config, 'config/scyan_assets.h');
+        const fileData = await fetchFileFromRepo(config, prereqs.headerPath || 'config/scyan_assets.h');
         const parsed = parseCHeader(fileData.content);
         applyParsedAssets(parsed);
         atlasStore.setInitialAssets(parsed);
@@ -362,10 +362,17 @@ export const uninstallScyanStudio = async () => {
 
   try {
     gitHubStore.setIsUninstallingStudio(true);
-    await uninstallScyanStudioFromRepo(config);
+    const commitRes = await uninstallScyanStudioFromRepo(config);
     trackEvent('studio_uninstalled', {
       repo: `${config.owner}/${config.repo}`,
     });
+
+    // Reset workspace immediately to clean factory default demo state
+    applyDefaults();
+    useAtlasStore.getState().setInitialAssets(getDefaultAssets());
+    gitHubStore.setCurrentSha(commitRes.commitSha);
+    gitHubStore.setCurrentHeaderPath('config/scyan_assets.h');
+    gitHubStore.setRepoPrereqs(null);
 
     const preserveAuthKeys = new Set([
       'zmk_builder_gh_token',
@@ -374,9 +381,8 @@ export const uninstallScyanStudio = async () => {
       'zmk_builder_gh_branch',
     ]);
     const keysToRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && !preserveAuthKeys.has(key)) {
+    for (const key of Object.keys(localStorage)) {
+      if (!preserveAuthKeys.has(key)) {
         keysToRemove.push(key);
       }
     }
@@ -394,7 +400,9 @@ export const uninstallScyanStudio = async () => {
       `Scyan Studio successfully uninstalled from ${config.owner}/${config.repo}! Reloading...`
     );
     setTimeout(() => {
-      window.location.reload();
+      if (typeof window !== 'undefined' && window.location) {
+        window.location.reload();
+      }
     }, 1000);
   } catch (err: any) {
     console.error('Failed to uninstall Scyan Studio:', err);
@@ -536,7 +544,7 @@ export const saveWorkspaceToRepo = async () => {
         rightScreenOffTimeoutSec: layoutStore.peripheralScreenOffTimeoutSec,
         symmetricSettings: layoutStore.symmetricSettings,
       },
-      '[Scyan Studio] feat(display): update 2-Atlas display spritesheets & glyph tables via Scyan ZMK Studio',
+      '[Scyan Studio] Update: spritesheets & screen layouts',
       { isSplit: isSplitKeyboard, rightIsCentral, displayAssignments: layoutStore.displayAssignments }
     );
 

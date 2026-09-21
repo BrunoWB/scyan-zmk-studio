@@ -29,6 +29,42 @@ export { BwpxEditorTopToolbar, BwpxEditorSidebar } from './BwpxEditorToolbar';
 export { BwpxOverlayCanvas } from './BwpxOverlayCanvas';
 
 export const ZOOM_STEPS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 56, 64];
+export const WHEEL_ZOOM_THRESHOLD = 80;
+
+/**
+ * Normalizes wheel delta across pixel, line, and page modes, accumulates
+ * successive high-frequency events (trackpads, high-res mouse wheels),
+ * and calculates the discrete step (+1 or -1) when the threshold is crossed.
+ */
+export function processWheelZoomDelta(
+  currentAccumulator: number,
+  deltaY: number,
+  deltaMode: number = 0,
+  threshold: number = WHEEL_ZOOM_THRESHOLD
+): { nextAccumulator: number; step: number } {
+  if (deltaY === 0) {
+    return { nextAccumulator: currentAccumulator, step: 0 };
+  }
+
+  // Normalize delta across pixel (0), line (1), and page (2) modes
+  const dy = deltaMode === 1 ? deltaY * 33 : deltaMode === 2 ? deltaY * 800 : deltaY;
+
+  // If scrolling direction reverses, discard opposing residual delta for immediate response
+  let acc = currentAccumulator;
+  if ((dy > 0 && acc < 0) || (dy < 0 && acc > 0)) {
+    acc = 0;
+  }
+
+  acc += dy;
+
+  if (Math.abs(acc) < threshold) {
+    return { nextAccumulator: acc, step: 0 };
+  }
+
+  // Wheel up (negative delta) zooms in (+1), wheel down (positive delta) zooms out (-1)
+  const step = acc < 0 ? 1 : -1;
+  return { nextAccumulator: 0, step };
+}
 
 export function calculateZoomAtPoint(
   prevZoom: number,
@@ -267,7 +303,7 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
   const lastBlurTimeRef = useRef<number>(0);
 
   const wheelDeltaRef = useRef<number>(0);
-  void wheelDeltaRef;
+  const wheelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [modalContent, setModalContent] = useState<{ title: string; text: string } | null>(null);
   const [copiedNotification, setCopiedNotification] = useState<boolean>(false);
@@ -1024,12 +1060,30 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
 
     const onWheelNative = (e: WheelEvent) => {
       e.preventDefault();
+      if (e.deltaY === 0) return;
+
       const rect = target.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
-      const delta = e.deltaY < 0 ? 1 : -1;
-      const next = calculateZoomAtPoint(zoomRef.current, panRef.current, mouseX, mouseY, delta);
+      if (wheelTimeoutRef.current) {
+        clearTimeout(wheelTimeoutRef.current);
+      }
+      wheelTimeoutRef.current = setTimeout(() => {
+        wheelDeltaRef.current = 0;
+        wheelTimeoutRef.current = null;
+      }, 250);
+
+      const { nextAccumulator, step } = processWheelZoomDelta(
+        wheelDeltaRef.current,
+        e.deltaY,
+        e.deltaMode
+      );
+      wheelDeltaRef.current = nextAccumulator;
+
+      if (step === 0) return;
+
+      const next = calculateZoomAtPoint(zoomRef.current, panRef.current, mouseX, mouseY, step);
       if (next.zoom !== zoomRef.current || next.pan.x !== panRef.current.x || next.pan.y !== panRef.current.y) {
         zoomRef.current = next.zoom;
         panRef.current = next.pan;
@@ -1043,6 +1097,9 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     target.addEventListener('wheel', onWheelNative, { passive: false });
     return () => {
       target.removeEventListener('wheel', onWheelNative);
+      if (wheelTimeoutRef.current) {
+        clearTimeout(wheelTimeoutRef.current);
+      }
     };
   }, [renderCanvas, requestOverlayRender, notifyViewportChange]);
 

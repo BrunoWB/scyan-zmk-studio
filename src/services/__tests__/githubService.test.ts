@@ -422,18 +422,18 @@ describe('githubService Kconfig timeout synchronization', () => {
 
   describe('formatStudioCommitMessage', () => {
     it('prepends [Scyan Studio] prefix to messages that lack it', () => {
-      const msg = 'feat(display): update 2-Atlas display spritesheets & glyph tables';
+      const msg = 'Update: spritesheets & screen layouts';
       expect(formatStudioCommitMessage(msg)).toBe(`[Scyan Studio] ${msg}`);
     });
 
     it('does not double-prefix if already starts with [Scyan Studio]', () => {
-      const msg = '[Scyan Studio] chore(display): uninstall Scyan ZMK Studio module, config & assets';
+      const msg = '[Scyan Studio] Uninstall: module & assets';
       expect(formatStudioCommitMessage(msg)).toBe(msg);
     });
 
     it('trims whitespace and prepends prefix cleanly', () => {
-      const msg = '  feat(display): install Scyan ZMK Studio module, config & assets  ';
-      expect(formatStudioCommitMessage(msg)).toBe('[Scyan Studio] feat(display): install Scyan ZMK Studio module, config & assets');
+      const msg = '  Install: module & starter assets  ';
+      expect(formatStudioCommitMessage(msg)).toBe('[Scyan Studio] Install: module & starter assets');
     });
 
     it('exports the standard prefix constant [Scyan Studio] ', () => {
