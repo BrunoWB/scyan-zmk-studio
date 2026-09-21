@@ -1080,7 +1080,6 @@ export async function installScyanStudioToRepo(
       'CONFIG_LV_USE_CANVAS=y',
       'CONFIG_LV_USE_IMG=y',
       'CONFIG_SCYAN_INVERT=y',
-      'CONFIG_SCYAN_IDLE_TIMEOUT_MS=10000',
       '',
     ].join('\n');
 
