@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "1.1.11",
+        "date": "2026-09-21",
+        "commitHash": "c15d88e",
+        "changes": [
+          "refactor(github): remove redundant idle timeout Kconfig from installer template"
+        ]
+      },
+      {
         "patch": "1.1.10",
         "date": "2026-09-21",
         "commitHash": "d34e4e1",
