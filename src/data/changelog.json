@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "1.1.9",
+        "date": "2026-09-21",
+        "commitHash": "9d96121",
+        "changes": [
+          "Merge remote-tracking branch 'origin/main'"
+        ]
+      },
+      {
         "patch": "1.1.8",
         "date": "2026-09-21",
         "commitHash": "e259ce7",
