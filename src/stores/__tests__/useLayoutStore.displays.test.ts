@@ -153,5 +153,23 @@ describe('useLayoutStore Displays & Decoupled Architecture', () => {
     expect(state.displays['display-2'].blocks[0].id).toBe('b-v2-right');
     expect(state.centralBlocks[0].id).toBe('b-v2-left');
     expect(state.peripheralBlocks[0].id).toBe('b-v2-right');
+    // Verify mirror properties updated even though top-level v1 keys were omitted
+    expect(state.idleTimeoutSec).toBe(25);
+    expect(state.screenOffTimeoutSec).toBe(50);
+  });
+
+  it('handles swapDisplays alias safety and preserves displays state', () => {
+    const store = useLayoutStore.getState();
+    const origDisplay1 = store.displays['display-1'];
+
+    // Swapping 'central' and 'display-1' should be a no-op
+    store.swapDisplays('central', 'display-1');
+    expect(useLayoutStore.getState().displays['display-1'].dimensions).toEqual(origDisplay1.dimensions);
+
+    // makeMaster on display-1 should be a no-op
+    store.makeMaster('display-1');
+    store.makeMaster('central');
+    expect(useLayoutStore.getState().displays['display-1'].dimensions).toEqual(origDisplay1.dimensions);
   });
 });
+

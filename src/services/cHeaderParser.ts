@@ -379,9 +379,7 @@ export function parseCHeader(cCode: string): ParsedAssets {
               const d2 = metadata.displays['display-2'];
               if (d1) {
                 metadata.centralBlocks = d1.blocks;
-                (metadata as any).leftBlocks = d1.blocks;
                 metadata.idleCentralBlocks = d1.idleBlocks;
-                (metadata as any).idleLeftBlocks = d1.idleBlocks;
                 metadata.screenDimensions = d1.dimensions;
                 metadata.rotation = d1.rotation;
                 metadata.idleTimeoutSec = d1.idleTimeoutSec;
@@ -390,19 +388,38 @@ export function parseCHeader(cCode: string): ParsedAssets {
               }
               if (d2) {
                 metadata.peripheralBlocks = d2.blocks;
-                (metadata as any).rightBlocks = d2.blocks;
                 metadata.idlePeripheralBlocks = d2.idleBlocks;
-                (metadata as any).idleRightBlocks = d2.idleBlocks;
                 metadata.peripheralScreenDimensions = d2.dimensions;
-                (metadata as any).rightScreenDimensions = d2.dimensions;
+                metadata.rightScreenDimensions = d2.dimensions;
                 metadata.peripheralRotation = d2.rotation;
                 metadata.rightRotation = d2.rotation;
                 metadata.peripheralIdleTimeoutSec = d2.idleTimeoutSec;
-                (metadata as any).rightIdleTimeoutSec = d2.idleTimeoutSec;
+                metadata.rightIdleTimeoutSec = d2.idleTimeoutSec;
                 metadata.peripheralScreenOffTimeoutSec = d2.screenOffTimeoutSec;
-                (metadata as any).rightScreenOffTimeoutSec = d2.screenOffTimeoutSec;
+                metadata.rightScreenOffTimeoutSec = d2.screenOffTimeoutSec;
                 metadata.peripheralIdleScreensEnabled = d2.idleScreensEnabled;
-                (metadata as any).rightIdleScreensEnabled = d2.idleScreensEnabled;
+                metadata.rightIdleScreensEnabled = d2.idleScreensEnabled;
+              }
+              if (!metadata.peripheralScreens) {
+                const pScreens: Record<string, PeripheralScreenData> = {};
+                Object.entries(metadata.displays).forEach(([dId, d]) => {
+                  if (dId !== 'display-1' && dId !== 'display-2') {
+                    const pKey = dId.startsWith('display-') ? `peripheral-${parseInt(dId.replace('display-', ''), 10) - 1}` : dId;
+                    pScreens[pKey] = {
+                      name: d.name,
+                      blocks: d.blocks,
+                      idleBlocks: d.idleBlocks,
+                      screenDimensions: d.dimensions,
+                      rotation: d.rotation,
+                      idleScreensEnabled: d.idleScreensEnabled,
+                      idleTimeoutSec: d.idleTimeoutSec,
+                      screenOffTimeoutSec: d.screenOffTimeoutSec,
+                    };
+                  }
+                });
+                if (Object.keys(pScreens).length > 0) {
+                  metadata.peripheralScreens = pScreens;
+                }
               }
             } else {
               // Backward compatibility: build displays dictionary from v1 fields
@@ -1526,7 +1543,14 @@ static const struct display_font font_default = {
         idleScreensEnabled: metadata.idleScreensEnabled ?? true,
       };
 
-      if (peripheralActive || peripheralIdle || metadata.enabledScreens?.includes('peripheral')) {
+      if (
+        peripheralActive ||
+        peripheralIdle ||
+        metadata.peripheralScreenDimensions ||
+        (metadata as any).rightScreenDimensions ||
+        metadata.symmetricSettings === false ||
+        metadata.enabledScreens?.includes('peripheral')
+      ) {
         resolvedDisplays['display-2'] = {
           id: 'display-2',
           name: 'Display 2',
@@ -1971,37 +1995,17 @@ static const struct display_font font_default = {
   }
 
   if (metadata) {
-    const d1 = resolvedDisplays['display-1'];
-    const d2 = resolvedDisplays['display-2'];
+    const displaysToEmit = metadata.displays || (Object.keys(resolvedDisplays).length > 0 ? resolvedDisplays : undefined);
     const cleanMeta: HeaderMetadata = {
       version: 2,
       shieldId: metadata.shieldId,
       shields: metadata.shields,
       displayAssignments: metadata.displayAssignments,
-      displays: metadata.displays || (Object.keys(resolvedDisplays).length > 0 ? resolvedDisplays : undefined),
-      centralBlocks: d1?.blocks || metadata.centralBlocks || (metadata as any).leftBlocks,
-      peripheralBlocks: d2?.blocks || metadata.peripheralBlocks || (metadata as any).rightBlocks,
-      idleCentralBlocks: d1?.idleBlocks || metadata.idleCentralBlocks || (metadata as any).idleLeftBlocks,
-      idlePeripheralBlocks: d2?.idleBlocks || metadata.idlePeripheralBlocks || (metadata as any).idleRightBlocks,
+      displays: displaysToEmit,
       peripheralScreens: metadata.peripheralScreens,
-      screenDimensions: d1?.dimensions || metadata.screenDimensions,
-      rotation: d1?.rotation ?? metadata.rotation,
       widgetInstances: metadata.widgetInstances,
-      idleTimeoutSec: d1?.idleTimeoutSec ?? metadata.idleTimeoutSec,
-      screenOffTimeoutSec: d1?.screenOffTimeoutSec ?? metadata.screenOffTimeoutSec,
-      idleScreensEnabled: d1?.idleScreensEnabled ?? metadata.idleScreensEnabled,
       symmetricSettings: metadata.symmetricSettings,
-      peripheralScreenDimensions: d2?.dimensions || metadata.peripheralScreenDimensions || (metadata as any).rightScreenDimensions,
-      peripheralRotation: d2?.rotation ?? metadata.peripheralRotation ?? metadata.rightRotation,
-      rightRotation: d2?.rotation ?? metadata.peripheralRotation ?? metadata.rightRotation,
-      peripheralIdleScreensEnabled: d2?.idleScreensEnabled ?? metadata.peripheralIdleScreensEnabled ?? (metadata as any).rightIdleScreensEnabled,
-      rightIdleScreensEnabled: d2?.idleScreensEnabled ?? metadata.peripheralIdleScreensEnabled ?? (metadata as any).rightIdleScreensEnabled,
-      peripheralIdleTimeoutSec: d2?.idleTimeoutSec ?? metadata.peripheralIdleTimeoutSec ?? (metadata as any).rightIdleTimeoutSec,
-      rightIdleTimeoutSec: d2?.idleTimeoutSec ?? metadata.peripheralIdleTimeoutSec ?? (metadata as any).rightIdleTimeoutSec,
-      peripheralScreenOffTimeoutSec: d2?.screenOffTimeoutSec ?? metadata.peripheralScreenOffTimeoutSec ?? (metadata as any).rightScreenOffTimeoutSec,
-      rightScreenOffTimeoutSec: d2?.screenOffTimeoutSec ?? metadata.peripheralScreenOffTimeoutSec ?? (metadata as any).rightScreenOffTimeoutSec,
-      rightScreenDimensions: d2?.dimensions || metadata.peripheralScreenDimensions || (metadata as any).rightScreenDimensions,
-      enabledScreens: (metadata.enabledScreens || (metadata.displays ? Object.keys(metadata.displays) : ['central', 'peripheral']))
+      enabledScreens: (metadata.enabledScreens || (displaysToEmit ? Object.keys(displaysToEmit) : ['central', 'peripheral']))
         .map(s => (s === 'left' ? 'central' : s === 'right' ? 'peripheral' : s))
         .filter(s => s !== 'dongle'),
       bongoTapMs: metadata.bongoTapMs,

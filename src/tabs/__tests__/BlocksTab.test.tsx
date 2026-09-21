@@ -3,6 +3,7 @@ import { renderToString } from 'react-dom/server';
 import { BlocksTab } from '../BlocksTab';
 import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
 import type { LayoutBlock } from '../../types/zmk';
+import { useLayoutStore } from '../../stores/useLayoutStore';
 
 describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
   const dummyGrid = new BwpxGrid(32, 128);
@@ -309,4 +310,21 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
     // Peripheral screen is still rendered on the right
     expect(html).toContain('Peripheral Active');
   });
+
+  it('renders Display 1 and Display 2 blocks correctly when activeDisplayId is display-2', () => {
+    useLayoutStore.getState().resetLayoutDefaults();
+    useLayoutStore.getState().setActiveDisplayId('display-2');
+
+    const html = renderToString(<BlocksTab />);
+    expect(html).toContain('Central Active');
+    expect(html).toContain('Peripheral Active');
+
+    // Central column should contain central blocks and not be replaced by display-2
+    const centralIdx = html.indexOf('Central Active');
+    const catalogIdx = html.indexOf('blocks-column-catalog');
+    const peripheralIdx = html.indexOf('Peripheral Active');
+    expect(centralIdx).toBeLessThan(catalogIdx);
+    expect(catalogIdx).toBeLessThan(peripheralIdx);
+  });
 });
+

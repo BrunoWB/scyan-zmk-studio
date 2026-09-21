@@ -1405,18 +1405,21 @@ export interface TimeoutConfig {
   peripheralScreenOffTimeoutSec?: number;
   rightScreenOffTimeoutSec?: number;
   symmetricSettings: boolean;
+  displays?: Record<string, import('../types/zmk').DisplayScreen>;
 }
 
 export interface ResolveConfUpdatesOptions {
   isSplit?: boolean;
   rightIsCentral?: boolean;
   displayAssignments?: Record<string, string | null>;
+  displays?: Record<string, import('../types/zmk').DisplayScreen>;
 }
 
 /**
  * Resolves which .conf files should be updated with new CONFIG_ZMK_IDLE_TIMEOUT settings.
+ * Directly maps shields that have mounted displays (displayAssignments[shield.id]) to their display's screenOffTimeoutSec.
  */
-export function resolveConfUpdates(
+export function resolveConfTimeoutUpdates(
   confFiles: { path: string; content: string }[],
   timeouts: TimeoutConfig,
   options?: ResolveConfUpdatesOptions
@@ -1479,7 +1482,49 @@ export function resolveConfUpdates(
   const leftTimeoutMs = options?.rightIsCentral ? peripheralTimeoutMs : centralTimeoutMs;
   const rightTimeoutMs = options?.rightIsCentral ? centralTimeoutMs : peripheralTimeoutMs;
 
-  const leftConfs = activeConfFiles.filter(f => {
+  const displaysMap = options?.displays ?? timeouts.displays;
+  const updates: { path: string; content: string }[] = [];
+  const handledPaths = new Set<string>();
+
+  // If display assignments are provided, directly map each assigned shield to its display's timeout
+  if (options?.displayAssignments && Object.keys(options.displayAssignments).length > 0) {
+    for (const [shieldId, dispId] of Object.entries(options.displayAssignments)) {
+      if (!dispId) continue;
+
+      let targetTimeoutMs = centralTimeoutMs;
+      if (timeouts.symmetricSettings) {
+        targetTimeoutMs = timeouts.screenOffTimeoutSec * 1000;
+      } else if (displaysMap && displaysMap[dispId]) {
+        targetTimeoutMs = displaysMap[dispId].screenOffTimeoutSec * 1000;
+      } else if (dispId === 'peripheral' || dispId === 'display-2' || dispId.startsWith('peripheral')) {
+        targetTimeoutMs = peripheralTimeoutMs;
+      } else if (dispId === 'central' || dispId === 'display-1') {
+        targetTimeoutMs = centralTimeoutMs;
+      }
+
+      const normShield = shieldId.toLowerCase().replace(/_/g, '-');
+      const matchingConfs = activeConfFiles.filter((f) => {
+        const base = f.path.replace(/^.*[/\\]/, '').replace(/\.conf$/, '').toLowerCase().replace(/_/g, '-');
+        return base === normShield || base.endsWith(`-${normShield}`) || normShield.endsWith(`-${base}`);
+      });
+
+      for (const conf of matchingConfs) {
+        handledPaths.add(conf.path);
+        const res = updateKconfigSetting(conf.content, 'CONFIG_ZMK_IDLE_TIMEOUT', targetTimeoutMs);
+        if (res.changed) {
+          updates.push({ path: conf.path, content: res.updated });
+        }
+      }
+    }
+  }
+
+  // If all active conf files were resolved via display assignments, return early
+  const unhandledConfs = activeConfFiles.filter((f) => !handledPaths.has(f.path));
+  if (unhandledConfs.length === 0) {
+    return updates;
+  }
+
+  const leftConfs = unhandledConfs.filter((f) => {
     const lower = f.path.toLowerCase();
     return (
       lower.includes('_central') ||
@@ -1489,7 +1534,7 @@ export function resolveConfUpdates(
     );
   });
 
-  const rightConfs = activeConfFiles.filter(f => {
+  const rightConfs = unhandledConfs.filter((f) => {
     const lower = f.path.toLowerCase();
     return (
       lower.includes('_peripheral') ||
@@ -1499,7 +1544,7 @@ export function resolveConfUpdates(
     );
   });
 
-  const baseConfs = activeConfFiles.filter(f => {
+  const baseConfs = unhandledConfs.filter((f) => {
     const lower = f.path.toLowerCase();
     return (
       !lower.includes('_central') &&
@@ -1512,8 +1557,6 @@ export function resolveConfUpdates(
       !lower.includes('-right')
     );
   });
-
-  const updates: { path: string; content: string }[] = [];
 
   if (leftConfs.length > 0 || rightConfs.length > 0) {
     // Split configuration present: update left (or base fallback) and right confs
@@ -1559,6 +1602,8 @@ export function resolveConfUpdates(
 
   return updates;
 }
+
+export const resolveConfUpdates = resolveConfTimeoutUpdates;
 
 /**
  * Probes the repository for .conf files, typically in config/ or root.
@@ -1642,7 +1687,7 @@ export async function commitStudioSaveToRepo(
   let confUpdates: { path: string; content: string }[] = [];
   try {
     const existingConfs = await fetchRepoConfFiles(config);
-    confUpdates = resolveConfUpdates(existingConfs, timeouts, options);
+    confUpdates = resolveConfTimeoutUpdates(existingConfs, timeouts, options);
   } catch (err) {
     console.warn('Could not inspect .conf files for Kconfig timeout synchronization:', err);
   }

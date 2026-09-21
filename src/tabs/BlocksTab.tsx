@@ -243,6 +243,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   const storeSetDisplayAssignments = useLayoutStore((s) => s.setDisplayAssignments);
   const storeWidgetInstances = useLayoutStore((s) => s.widgetInstances);
   const storeLayerNames = useLayoutStore((s) => s.keymapLayout.layerNames);
+  const storeDisplays = useLayoutStore((s) => s.displays);
 
   const symbolsGrid = propsSymbolsGrid ?? storeSymbolsGrid;
   const symbolSlices = propsSymbolSlices ?? storeSymbolSlices;
@@ -257,20 +258,12 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   const displayAssignments = propsDisplayAssignments ?? storeDisplayAssignments;
   const onDisplayAssignmentsChange = propsOnDisplayAssignmentsChange ?? storeSetDisplayAssignments;
 
-  const centralBlocks = propsCentralBlocks ?? storeCentralBlocks;
-  const peripheralBlocks = propsPeripheralBlocks ?? storePeripheralBlocks;
   const onCentralBlocksChange = propsOnCentralBlocksChange ?? storeSetCentralBlocks;
   const onPeripheralBlocksChange = propsOnPeripheralBlocksChange ?? storeSetPeripheralBlocks;
-  const idleCentralBlocks = propsIdleCentralBlocks ?? storeIdleCentralBlocks;
-  const idlePeripheralBlocks = propsIdlePeripheralBlocks ?? storeIdlePeripheralBlocks;
   const onIdleCentralBlocksChange = propsOnIdleCentralBlocksChange ?? storeSetIdleCentralBlocks;
   const onIdlePeripheralBlocksChange = propsOnIdlePeripheralBlocksChange ?? storeSetIdlePeripheralBlocks;
-  const leftBlocks = propsLeftBlocks;
-  const rightBlocks = propsRightBlocks;
   const onLeftBlocksChange = propsOnLeftBlocksChange;
   const onRightBlocksChange = propsOnRightBlocksChange;
-  const idleLeftBlocks = propsIdleLeftBlocks;
-  const idleRightBlocks = propsIdleRightBlocks;
   const onIdleLeftBlocksChange = propsOnIdleLeftBlocksChange;
   const onIdleRightBlocksChange = propsOnIdleRightBlocksChange;
 
@@ -353,13 +346,16 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     return effectiveEnabledScreens.includes(centralDisplayId);
   }, [centralDisplayId, effectiveEnabledScreens]);
 
-  // Active screen blocks
-  const effectiveCentralBlocks = centralBlocks ?? leftBlocks ?? layoutBlocks ?? DEFAULT_CENTRAL_LAYOUT_BLOCKS;
-  const effectivePeripheralBlocks = peripheralBlocks ?? rightBlocks ?? DEFAULT_PERIPHERAL_LAYOUT_BLOCKS;
+  const display1 = storeDisplays['display-1'];
+  const display2 = storeDisplays['display-2'];
 
-  // Idle screen blocks
-  const effectiveIdleCentralBlocks = idleCentralBlocks ?? idleLeftBlocks ?? DEFAULT_IDLE_CENTRAL_BLOCKS;
-  const effectiveIdlePeripheralBlocks = idlePeripheralBlocks ?? idleRightBlocks ?? DEFAULT_IDLE_PERIPHERAL_BLOCKS;
+  // Active screen blocks resolved directly from displays map when not passed via props
+  const effectiveCentralBlocks = propsCentralBlocks ?? propsLeftBlocks ?? layoutBlocks ?? display1?.blocks ?? storeCentralBlocks ?? DEFAULT_CENTRAL_LAYOUT_BLOCKS;
+  const effectivePeripheralBlocks = propsPeripheralBlocks ?? propsRightBlocks ?? display2?.blocks ?? storePeripheralBlocks ?? DEFAULT_PERIPHERAL_LAYOUT_BLOCKS;
+
+  // Idle screen blocks resolved directly from displays map when not passed via props
+  const effectiveIdleCentralBlocks = propsIdleCentralBlocks ?? propsIdleLeftBlocks ?? display1?.idleBlocks ?? storeIdleCentralBlocks ?? DEFAULT_IDLE_CENTRAL_BLOCKS;
+  const effectiveIdlePeripheralBlocks = propsIdlePeripheralBlocks ?? propsIdleRightBlocks ?? display2?.idleBlocks ?? storeIdlePeripheralBlocks ?? DEFAULT_IDLE_PERIPHERAL_BLOCKS;
 
   const handleCentralBlocksChange = onCentralBlocksChange || onLeftBlocksChange || onLayoutBlocksChange;
   const handlePeripheralBlocksChange = onPeripheralBlocksChange || onRightBlocksChange;
