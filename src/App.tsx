@@ -1,7 +1,9 @@
-import { useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { getShieldUnitsForShield } from './data/shieldsData';
 import { trackEvent } from './services/analytics';
 import { HeaderBar } from './components/HeaderBar';
+import { MobileUnsupportedView } from './components/MobileUnsupportedView';
+import { useIsMobile } from './hooks/useIsMobile';
 import { OledPreviewTab } from './tabs/OledPreviewTab';
 import { SymbolsAtlasTab } from './tabs/SymbolsAtlasTab';
 import { FontAtlasTab } from './tabs/FontAtlasTab';
@@ -88,6 +90,10 @@ export function App() {
   const showToast = useUiStore((s) => s.showToast);
   const removeToast = useUiStore((s) => s.removeToast);
   const customText = useUiStore((s) => s.customText);
+
+  // Responsive mobile warning state
+  const isMobile = useIsMobile();
+  const [isMobileDismissed, setIsMobileDismissed] = useState(false);
 
   // Atlas state from useAtlasStore
   const symbolsGrid = useAtlasStore((s) => s.symbolsGrid);
@@ -483,6 +489,11 @@ export function App() {
             }
           }}
         />
+      )}
+
+      {/* Mobile Unsupported Notice with Animated ZMK Display */}
+      {isMobile && !isMobileDismissed && (
+        <MobileUnsupportedView onDismiss={() => setIsMobileDismissed(true)} />
       )}
     </div>
   );

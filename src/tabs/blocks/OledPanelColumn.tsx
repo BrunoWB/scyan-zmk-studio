@@ -652,7 +652,7 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
                 position: 'relative',
                 flexShrink: 0,
                 backgroundColor: '#05070a',
-                boxShadow: showOverlays ? '0 0 0 1px #ffffff' : 'none',
+                boxShadow: showOverlays ? '0 0 0 1px rgba(255, 255, 255, 0.25)' : 'none',
                 transition: 'box-shadow 0.15s ease',
               }}
             >

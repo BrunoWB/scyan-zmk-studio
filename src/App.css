@@ -1904,7 +1904,7 @@
 
 .oled-screen-inner.highlight-border .oled-screen-active-area,
 .oled-screen-casing:hover .oled-screen-active-area {
-  box-shadow: 0 0 0 1px #ffffff;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
 }
 
 .oled-panel-compact .oled-screen-active-area {
