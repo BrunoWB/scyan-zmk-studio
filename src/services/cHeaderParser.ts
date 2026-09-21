@@ -861,22 +861,24 @@ export function parseCHeader(cCode: string): ParsedAssets {
         let slotMatch: RegExpExecArray | null;
         while ((slotMatch = slotRegex.exec(cCode)) !== null) {
           const slotNum = parseInt(slotMatch[1], 10);
-          if (slotNum >= 4) {
+          if (slotNum >= 3) {
             const dId = `display-${slotNum}`;
-            const sActive = parseCBlocks(`LAYOUT_DISPLAY_${slotNum}_ACTIVE_BLOCKS`, dId);
-            const sIdle = parseCBlocks(`LAYOUT_DISPLAY_${slotNum}_IDLE_BLOCKS`, dId);
-            if (sActive || sIdle) {
-              fallbackDisplays[dId] = {
-                id: dId,
-                name: `Display ${slotNum}`,
-                dimensions: resolvedPeripheralDims || screenDims || { width: 32, height: 128 },
-                rotation: resolvedPeripheralRot,
-                blocks: sActive || [],
-                idleBlocks: sIdle || [],
-                idleTimeoutSec: 30,
-                screenOffTimeoutSec: 60,
-                idleScreensEnabled: false,
-              };
+            if (!fallbackDisplays[dId]) {
+              const sActive = parseCBlocks(`LAYOUT_DISPLAY_${slotNum}_ACTIVE_BLOCKS`, dId);
+              const sIdle = parseCBlocks(`LAYOUT_DISPLAY_${slotNum}_IDLE_BLOCKS`, dId);
+              if (sActive || sIdle) {
+                fallbackDisplays[dId] = {
+                  id: dId,
+                  name: `Display ${slotNum}`,
+                  dimensions: resolvedPeripheralDims || screenDims || { width: 32, height: 128 },
+                  rotation: resolvedPeripheralRot,
+                  blocks: sActive || [],
+                  idleBlocks: sIdle || [],
+                  idleTimeoutSec: 30,
+                  screenOffTimeoutSec: 60,
+                  idleScreensEnabled: false,
+                };
+              }
             }
           }
         }
