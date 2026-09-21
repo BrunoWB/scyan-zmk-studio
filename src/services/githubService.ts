@@ -1065,23 +1065,23 @@ export async function installScyanStudioToRepo(
   // 3. Prepare .conf content
   let newConfContent = prereqs.existingConfContent || '';
   if (!prereqs.hasKconfig) {
-    const kconfigSnippet = [
-      '',
-      '# Enable the Corne OLED Display (SSD1306)',
-      'CONFIG_ZMK_DISPLAY=y',
-      'CONFIG_SSD1306=y',
-      'CONFIG_ZMK_DISPLAY_WORK_QUEUE_DEDICATED=y',
-      'CONFIG_ZMK_DISPLAY_DEDICATED_THREAD_PRIORITY=10',
-      'CONFIG_ZMK_DISPLAY_BLANK_ON_IDLE=y',
-      '',
-      '# Custom status screen (Scyan ZMK Display Module)',
-      'CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM=y',
-      'CONFIG_ZMK_DISPLAY_STATUS_SCREEN_BUILT_IN=n',
-      'CONFIG_LV_USE_CANVAS=y',
-      'CONFIG_LV_USE_IMG=y',
-      'CONFIG_SCYAN_INVERT=y',
-      '',
-    ].join('\n');
+    const lines: string[] = [''];
+    if (!newConfContent.includes('CONFIG_ZMK_DISPLAY=')) {
+      lines.push('# Enable display');
+      lines.push('CONFIG_ZMK_DISPLAY=y');
+      lines.push('CONFIG_ZMK_DISPLAY_WORK_QUEUE_DEDICATED=y');
+      lines.push('CONFIG_ZMK_DISPLAY_DEDICATED_THREAD_PRIORITY=10');
+      lines.push('CONFIG_ZMK_DISPLAY_BLANK_ON_IDLE=y');
+      lines.push('');
+    }
+    lines.push('# Custom status screen (Scyan ZMK Display Module)');
+    lines.push('CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM=y');
+    lines.push('CONFIG_ZMK_DISPLAY_STATUS_SCREEN_BUILT_IN=n');
+    lines.push('CONFIG_LV_USE_CANVAS=y');
+    lines.push('CONFIG_LV_USE_IMG=y');
+    lines.push('CONFIG_SCYAN_INVERT=y');
+    lines.push('');
+    const kconfigSnippet = lines.join('\n');
 
     newConfContent = (newConfContent ? newConfContent.trimEnd() + '\n' : '') + kconfigSnippet;
   }
