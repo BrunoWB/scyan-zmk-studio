@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { ShieldKeyboardGeometry } from '../ShieldKeyboardGeometry';
 import { KNOWN_SHIELDS, UNKNOWN_SHIELD } from '../../data/shieldsData';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 
 describe('ShieldKeyboardGeometry', () => {
   const dummyGrid = new BwpxGrid(32, 128);

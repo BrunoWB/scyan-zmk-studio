@@ -1,6 +1,6 @@
 /* oxlint-disable react/only-export-components, react/refs, react/set-state-in-effect */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { BwpxGrid } from '../core/BwpxGrid';
+import { PixelGrid as BwpxGrid, PixelGrid } from '../core/PixelGrid';
 import {
   FileCode,
   Check,
@@ -12,21 +12,21 @@ import { ImageImportModal } from './ImageImportModal';
 import { CanvasContextMenu } from './CanvasContextMenu';
 import { findAvailableSpot } from '../core/canvasPacking';
 import { BenchmarkOverlay } from '../benchmarks/BenchmarkOverlay';
-import { useBwpxHistory, type HistoryEntry } from '../hooks/useBwpxHistory';
-import { useBwpxCanvasPointer } from '../hooks/useBwpxCanvasPointer';
+import { usePixelHistory as useBwpxHistory, type HistoryEntry } from '../hooks/usePixelHistory';
+import { usePixelCanvasPointer as useBwpxCanvasPointer } from '../hooks/usePixelCanvasPointer';
 import {
-  BwpxEditorTopToolbar,
-  BwpxEditorSidebar,
+  PixelEditorTopToolbar as BwpxEditorTopToolbar,
+  PixelEditorSidebar as BwpxEditorSidebar,
   type ToolType,
-} from './BwpxEditorToolbar';
-import { BwpxOverlayCanvas } from './BwpxOverlayCanvas';
-import './BwpxEditor.css';
+} from './PixelEditorToolbar';
+import { PixelOverlayCanvas as BwpxOverlayCanvas } from './PixelOverlayCanvas';
+import './PixelEditor.css';
 
 export type { ToolType, HistoryEntry };
-export { useBwpxHistory } from '../hooks/useBwpxHistory';
-export { useBwpxCanvasPointer } from '../hooks/useBwpxCanvasPointer';
-export { BwpxEditorTopToolbar, BwpxEditorSidebar } from './BwpxEditorToolbar';
-export { BwpxOverlayCanvas } from './BwpxOverlayCanvas';
+export { usePixelHistory, usePixelHistory as useBwpxHistory } from '../hooks/usePixelHistory';
+export { usePixelCanvasPointer, usePixelCanvasPointer as useBwpxCanvasPointer } from '../hooks/usePixelCanvasPointer';
+export { PixelEditorTopToolbar, PixelEditorSidebar, PixelEditorTopToolbar as BwpxEditorTopToolbar, PixelEditorSidebar as BwpxEditorSidebar } from './PixelEditorToolbar';
+export { PixelOverlayCanvas, PixelOverlayCanvas as BwpxOverlayCanvas } from './PixelOverlayCanvas';
 
 export const ZOOM_STEPS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 56, 64];
 export const WHEEL_ZOOM_THRESHOLD = 80;
@@ -132,11 +132,11 @@ export interface EditorViewport {
   pan: { x: number; y: number };
 }
 
-export interface BwpxEditorProps {
+export interface PixelEditorProps {
   initialWidth?: number;
   initialHeight?: number;
-  initialGrid?: BwpxGrid;
-  onGridChange?: (grid: BwpxGrid) => void;
+  initialGrid?: PixelGrid;
+  onGridChange?: (grid: PixelGrid) => void;
   title?: string;
   showPresets?: boolean;
   slices?: SpriteSlice[];
@@ -155,7 +155,9 @@ export interface BwpxEditorProps {
   onViewportChange?: (viewport: EditorViewport) => void;
 }
 
-export const BwpxEditor: React.FC<BwpxEditorProps> = ({
+export type BwpxEditorProps = PixelEditorProps;
+
+export const PixelEditor: React.FC<PixelEditorProps> = ({
   initialWidth = 128,
   initialHeight = 34,
   initialGrid,
@@ -1566,3 +1568,6 @@ export const BwpxEditor: React.FC<BwpxEditorProps> = ({
     </div>
   );
 };
+
+export const BwpxEditor = PixelEditor;
+export default PixelEditor;

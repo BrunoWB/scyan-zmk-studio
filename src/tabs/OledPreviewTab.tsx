@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
-import { BwpxGrid } from '../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../pixel/core/PixelGrid';
 import type { SpriteSlice, FontGlyph, LayoutBlock, FontCharMapping } from '../types/zmk';
 import { Cpu, GripHorizontal, ArrowLeftRight } from 'lucide-react';
 import type { GitHubRepoConfig, GitHubConnectionState } from '../services/githubService';

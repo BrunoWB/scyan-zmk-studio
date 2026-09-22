@@ -1,4 +1,4 @@
-import { BwpxGrid } from './BwpxGrid';
+import { PixelGrid as BwpxGrid } from './PixelGrid';
 
 export interface ImageConversionOptions {
   threshold: number; // 0 - 255

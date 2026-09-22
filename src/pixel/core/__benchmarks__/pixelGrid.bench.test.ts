@@ -1,5 +1,5 @@
 import { describe, it } from 'vitest';
-import { BwpxGrid } from '../BwpxGrid';
+import { PixelGrid as BwpxGrid } from '../PixelGrid';
 import { drawLine, drawRect, floodFill } from '../algorithms';
 import { benchmark, printBenchmarkTable, type BenchmarkResult } from './benchUtil';
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { BwpxGrid } from '../bwpx/core/BwpxGrid';
-import { BwpxEditor, type EditorViewport } from '../bwpx';
+import { BwpxGrid } from '../pixel/core/PixelGrid';
+import { BwpxEditor, type EditorViewport } from '../pixel';
 import type { SpriteSlice } from '../types/zmk';
 import { Chip } from '@heroui/react';
 import { StepperControl } from '../components/ScreenSizePopover';

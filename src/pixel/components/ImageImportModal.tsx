@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { BwpxGrid } from '../core/BwpxGrid';
+import { PixelGrid as BwpxGrid } from '../core/PixelGrid';
 import { convertImageElementToGrid } from '../core/imageConversion';
 import { renderBwpxCanvas } from '../core/gridRenderer';
 import {

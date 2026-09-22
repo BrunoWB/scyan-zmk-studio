@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { TopologySandboxTab } from '../TopologySandboxTab';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import { getShieldParts, KNOWN_SHIELDS } from '../../data/shieldsData';
 
 describe('TopologySandboxTab', () => {

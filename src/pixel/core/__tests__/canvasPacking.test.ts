@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BwpxGrid } from '../BwpxGrid';
+import { BwpxGrid } from '../PixelGrid';
 import type { SpriteSlice } from '../../../types/zmk';
 import { findAvailableSpot } from '../canvasPacking';
 

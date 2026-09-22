@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import {
   WIDGET_REGISTRY,
   getWidgetDefinition,

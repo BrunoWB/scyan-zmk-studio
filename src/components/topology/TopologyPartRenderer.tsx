@@ -1,7 +1,7 @@
 import React from 'react';
 import type { ShieldPartItem } from '../../data/shieldsData';
 import { ShieldKeyboardGeometry, type DisplayConfigOverride } from '../ShieldKeyboardGeometry';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../../types/zmk';
 import type { WidgetInstanceMap } from '../../types/widget';
 import { GripVertical, X, Crown, Monitor } from 'lucide-react';

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import type { ShieldPartItem } from '../../data/shieldsData';
 import { TopologyPartRenderer } from './TopologyPartRenderer';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../../types/zmk';
 import type { WidgetInstanceMap } from '../../types/widget';
 import {

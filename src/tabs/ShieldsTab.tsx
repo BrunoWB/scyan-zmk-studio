@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { BwpxGrid } from '../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../pixel/core/PixelGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../types/zmk';
 import {
   DEFAULT_CENTRAL_LAYOUT_BLOCKS,

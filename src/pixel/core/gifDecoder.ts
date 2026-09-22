@@ -1,5 +1,5 @@
 import { GifReader } from 'omggif';
-import { BwpxGrid } from './BwpxGrid';
+import { PixelGrid as BwpxGrid } from './PixelGrid';
 import { convertImageDataToGrid, type ImageConversionOptions } from './imageConversion';
 
 export interface DecodedGifFrame {

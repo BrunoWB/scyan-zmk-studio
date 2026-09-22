@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { BwpxGrid } from '../bwpx/core/BwpxGrid';
-import type { EditorViewport } from '../bwpx';
+import { BwpxGrid } from '../pixel/core/PixelGrid';
+import type { EditorViewport } from '../pixel';
 import type {
   SpriteSlice,
   FontGlyph,

@@ -1,5 +1,5 @@
 import { describe, it } from 'vitest';
-import { BwpxGrid } from '../BwpxGrid';
+import { BwpxGrid } from '../PixelGrid';
 import { renderBwpxCanvas } from '../gridRenderer';
 import { benchmark, printBenchmarkTable, type BenchmarkResult } from './benchUtil';
 

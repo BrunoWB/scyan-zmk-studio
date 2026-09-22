@@ -1,5 +1,5 @@
 import { parseCHeader, generateCHeader, getDefaultAssets, type HeaderMetadata } from '../cHeaderParser';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import type { SpriteSlice } from '../../types/zmk';
 import { describe, it, expect } from 'vitest';
 

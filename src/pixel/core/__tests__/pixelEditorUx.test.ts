@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { BwpxGrid } from '../BwpxGrid';
+import { BwpxGrid } from '../PixelGrid';
 import { drawLine } from '../algorithms';
 import { renderBwpxCanvas } from '../gridRenderer';
 
@@ -143,7 +143,7 @@ describe('BwpxEditor UX logic', () => {
   });
 
   it('guarantees crisp integer ZOOM_STEPS to prevent mushy zooming out', async () => {
-    const { ZOOM_STEPS } = await import('../../components/BwpxEditor');
+    const { ZOOM_STEPS } = await import('../../components/PixelEditor');
 
     expect(ZOOM_STEPS.length).toBeGreaterThan(5);
     expect(ZOOM_STEPS[0]).toBe(1); // 100% 1:1 pixel view
@@ -181,7 +181,7 @@ describe('BwpxEditor UX logic', () => {
   });
 
   it('ensures calculateZoomAtPoint targets the mouse position precisely when zooming in and out', async () => {
-    const { calculateZoomAtPoint, ZOOM_STEPS } = await import('../../components/BwpxEditor');
+    const { calculateZoomAtPoint, ZOOM_STEPS } = await import('../../components/PixelEditor');
 
     const testMousePositions = [
       { mouseX: 0, mouseY: 0 },
@@ -224,7 +224,7 @@ describe('BwpxEditor UX logic', () => {
   });
 
   it('clamps zoom boundaries at minimum (1) and maximum (64) without mutating pan', async () => {
-    const { calculateZoomAtPoint, ZOOM_STEPS } = await import('../../components/BwpxEditor');
+    const { calculateZoomAtPoint, ZOOM_STEPS } = await import('../../components/PixelEditor');
     const pan = { x: 150, y: 100 };
 
     // At min zoom, zooming out should return the same zoom and pan
@@ -240,7 +240,7 @@ describe('BwpxEditor UX logic', () => {
   });
 
   it('accumulates wheel delta and respects WHEEL_ZOOM_THRESHOLD to prevent rapid uncontrollable zooming', async () => {
-    const { processWheelZoomDelta, WHEEL_ZOOM_THRESHOLD } = await import('../../components/BwpxEditor');
+    const { processWheelZoomDelta, WHEEL_ZOOM_THRESHOLD } = await import('../../components/PixelEditor');
 
     expect(WHEEL_ZOOM_THRESHOLD).toBe(80);
 
@@ -288,7 +288,7 @@ describe('BwpxEditor UX logic', () => {
   });
 
   it('positions origin (0, 0) in the center of the top-left quadrant of the viewport upon entering editor', async () => {
-    const { calculateFitViewport, ZOOM_STEPS } = await import('../../components/BwpxEditor');
+    const { calculateFitViewport, ZOOM_STEPS } = await import('../../components/PixelEditor');
 
     const testViewports = [
       { w: 1600, h: 900, targetW: 128, targetH: 34 },
@@ -319,7 +319,7 @@ describe('BwpxEditor UX logic', () => {
   });
 
   it('handles edge cases gracefully for calculateFitViewport (zero or negative dimensions)', async () => {
-    const { calculateFitViewport } = await import('../../components/BwpxEditor');
+    const { calculateFitViewport } = await import('../../components/PixelEditor');
 
     const fallbackZero = calculateFitViewport(0, 0);
     expect(fallbackZero.zoom).toBe(10);

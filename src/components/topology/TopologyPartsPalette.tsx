@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { getShieldParts, type ShieldPartItem } from '../../data/shieldsData';
 import { ShieldKeyboardGeometry } from '../ShieldKeyboardGeometry';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../../types/zmk';
 import { Search, Plus, GripVertical, Keyboard, Monitor } from 'lucide-react';
 

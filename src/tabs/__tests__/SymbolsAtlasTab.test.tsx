@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { SymbolsAtlasTab } from '../SymbolsAtlasTab';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import type { SpriteSlice } from '../../types/zmk';
 
 describe('SymbolsAtlasTab selected-slice-card', () => {

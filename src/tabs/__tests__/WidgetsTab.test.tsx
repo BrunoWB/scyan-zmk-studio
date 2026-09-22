@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { WidgetsTab } from '../WidgetsTab';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import type { WidgetInstanceMap } from '../../types/widget';
 
 describe('WidgetsTab branding widget instance font size controls', () => {

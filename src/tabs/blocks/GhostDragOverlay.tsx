@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import type { DragWidgetState } from '../../types/widget';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping } from '../../types/zmk';
 
 export interface GhostDragOverlayProps {

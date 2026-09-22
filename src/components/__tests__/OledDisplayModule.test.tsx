@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { OledDisplayModule } from '../OledDisplayModule';
 import { getCalculatedDisplayDim } from '../oledDisplayHelper';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 
 describe('OledDisplayModule', () => {
   const dummyGrid = new BwpxGrid(32, 128);

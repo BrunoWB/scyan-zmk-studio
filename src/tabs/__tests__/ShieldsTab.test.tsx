@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { ShieldsTab } from '../ShieldsTab';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import { KNOWN_SHIELDS } from '../../data/shieldsData';
 
 describe('ShieldsTab', () => {

@@ -5,7 +5,7 @@ import {
   extractShieldsFromYaml,
 } from '../shieldsData';
 import { generateCHeader, parseCHeader } from '../../services/cHeaderParser';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 
 describe('detectShieldUnitsFromRepo & Shield Assignment Pipeline', () => {
   it('returns split shield units for Corne split keyboard', () => {

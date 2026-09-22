@@ -1,4 +1,4 @@
-import { BwpxGrid } from "./BwpxGrid";
+import { PixelGrid as BwpxGrid } from "./PixelGrid";
 
 export function drawBrushDot(grid: BwpxGrid, cx: number, cy: number, val: number, brushSize = 1): void {
   const half = Math.floor(brushSize / 2);
@@ -234,7 +234,9 @@ export function drawArrow(
   x1: number,
   y1: number,
   val: number,
-  brushSize = 1
+  brushSize = 1,
+  _color?: string,
+  filled = false
 ): void {
   drawLine(grid, x0, y0, x1, y1, val, brushSize);
 
@@ -249,8 +251,175 @@ export function drawArrow(
   const tip2X = Math.round(x1 - headLen * Math.cos(a2));
   const tip2Y = Math.round(y1 - headLen * Math.sin(a2));
 
+  if (filled) {
+    const minX = Math.min(x1, tip1X, tip2X);
+    const maxX = Math.max(x1, tip1X, tip2X);
+    const minY = Math.min(y1, tip1Y, tip2Y);
+    const maxY = Math.max(y1, tip1Y, tip2Y);
+
+    const denom = (tip1Y - tip2Y) * (x1 - tip2X) + (tip2X - tip1X) * (y1 - tip2Y);
+    if (Math.abs(denom) > 1e-5) {
+      for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+          const a = ((tip1Y - tip2Y) * (x - tip2X) + (tip2X - tip1X) * (y - tip2Y)) / denom;
+          const b = ((tip2Y - y1) * (x - tip2X) + (x1 - tip2X) * (y - tip2Y)) / denom;
+          const c = 1 - a - b;
+          if (a >= 0 && b >= 0 && c >= 0) {
+            drawBrushDot(grid, x, y, val, brushSize);
+          }
+        }
+      }
+    }
+  }
+
   drawLine(grid, x1, y1, tip1X, tip1Y, val, brushSize);
   drawLine(grid, x1, y1, tip2X, tip2Y, val, brushSize);
+  if (filled) {
+    drawLine(grid, tip1X, tip1Y, tip2X, tip2Y, val, brushSize);
+  }
+}
+
+export const SHAPE_TOOLS = [
+  'line',
+  'arrow',
+  'filled-arrow',
+  'rect',
+  'filled-rect',
+  'ellipse',
+  'filled-ellipse',
+  'triangle',
+  'filled-triangle',
+  'diamond',
+  'star',
+  'plus',
+] as const;
+
+export type ShapeTool = (typeof SHAPE_TOOLS)[number];
+
+export function isShapeTool(tool: string): boolean {
+  return (SHAPE_TOOLS as readonly string[]).includes(tool);
+}
+
+export interface ShapeCoordsOptions {
+  shiftKey?: boolean;
+  ctrlKey?: boolean;
+}
+
+export interface ShapeEndpoints {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+export function calculateShapeEndpoints(
+  tool: string,
+  start: { x: number; y: number },
+  current: { x: number; y: number },
+  options: ShapeCoordsOptions = {}
+): ShapeEndpoints {
+  const isLine = tool === 'line' || tool === 'arrow' || tool === 'filled-arrow';
+  const dx = current.x - start.x;
+  const dy = current.y - start.y;
+
+  let snappedDx = dx;
+  let snappedDy = dy;
+
+  if (options.shiftKey) {
+    if (isLine) {
+      if (dx === 0 && dy === 0) {
+        snappedDx = 0;
+        snappedDy = 0;
+      } else {
+        const angle = Math.atan2(dy, dx);
+        const octant = Math.round(angle / (Math.PI / 4));
+        const len = Math.max(Math.abs(dx), Math.abs(dy));
+
+        if (octant === 0 || octant === 4 || octant === -4) {
+          snappedDx = dx;
+          snappedDy = 0;
+        } else if (octant === 2 || octant === -2) {
+          snappedDx = 0;
+          snappedDy = dy;
+        } else {
+          snappedDx = octant === 1 || octant === -1 ? len : -len;
+          snappedDy = octant === 1 || octant === 3 ? len : -len;
+        }
+      }
+    } else {
+      const size = Math.max(Math.abs(dx), Math.abs(dy));
+      const signX = dx >= 0 ? 1 : -1;
+      const signY = dy >= 0 ? 1 : -1;
+      snappedDx = signX * size;
+      snappedDy = signY * size;
+    }
+  }
+
+  if (options.ctrlKey) {
+    return {
+      x0: start.x - snappedDx,
+      y0: start.y - snappedDy,
+      x1: start.x + snappedDx,
+      y1: start.y + snappedDy,
+    };
+  }
+
+  return {
+    x0: start.x,
+    y0: start.y,
+    x1: start.x + snappedDx,
+    y1: start.y + snappedDy,
+  };
+}
+
+export function drawShape(
+  grid: BwpxGrid,
+  tool: string,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  val: number = 1,
+  brushSize = 1
+): void {
+  switch (tool) {
+    case 'line':
+      drawLine(grid, x0, y0, x1, y1, val, brushSize);
+      break;
+    case 'arrow':
+      drawArrow(grid, x0, y0, x1, y1, val, brushSize, undefined, false);
+      break;
+    case 'filled-arrow':
+      drawArrow(grid, x0, y0, x1, y1, val, brushSize, undefined, true);
+      break;
+    case 'rect':
+      drawRect(grid, x0, y0, x1, y1, val, false, brushSize);
+      break;
+    case 'filled-rect':
+      drawRect(grid, x0, y0, x1, y1, val, true, brushSize);
+      break;
+    case 'ellipse':
+      drawEllipse(grid, x0, y0, x1, y1, val, false, brushSize);
+      break;
+    case 'filled-ellipse':
+      drawEllipse(grid, x0, y0, x1, y1, val, true, brushSize);
+      break;
+    case 'triangle':
+      drawTriangle(grid, x0, y0, x1, y1, val, false, brushSize);
+      break;
+    case 'filled-triangle':
+      drawTriangle(grid, x0, y0, x1, y1, val, true, brushSize);
+      break;
+    case 'diamond':
+      drawDiamond(grid, x0, y0, x1, y1, val, false, brushSize);
+      break;
+    case 'star':
+      drawStar(grid, x0, y0, x1, y1, val, brushSize);
+      break;
+    case 'plus':
+      drawPlus(grid, x0, y0, x1, y1, val, brushSize);
+      break;
+  }
 }
 
 export function drawPlus(

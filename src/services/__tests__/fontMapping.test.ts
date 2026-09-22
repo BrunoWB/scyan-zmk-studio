@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import type { FontCharMapping, SpriteSlice } from '../../types/zmk';
 import { DEFAULT_FONT_MAPPINGS } from '../../types/zmk';
 import { generateCHeader, parseCHeader } from '../cHeaderParser';

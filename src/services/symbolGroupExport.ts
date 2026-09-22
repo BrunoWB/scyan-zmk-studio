@@ -1,5 +1,5 @@
 import { GifWriter } from 'omggif';
-import type { BwpxGrid } from '../bwpx/core/BwpxGrid';
+import type { BwpxGrid } from '../pixel/core/PixelGrid';
 import type { SpriteSlice } from '../types/zmk';
 
 /**

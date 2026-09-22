@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "vitest run",
-    "bench:core": "vitest run src/bwpx/core/__benchmarks__",
+    "bench:core": "vitest run src/pixel/core/__benchmarks__",
     "bench:browser": "node scripts/run-browser-benchmark.mjs",
     "bench:browser:headless": "node scripts/run-browser-benchmark.mjs --headless",
     "preview": "vite preview",

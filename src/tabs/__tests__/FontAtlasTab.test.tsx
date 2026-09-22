@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { FontAtlasTab } from '../FontAtlasTab';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import type { FontCharMapping } from '../../types/zmk';
 
 describe('FontAtlasTab selection & editing card', () => {

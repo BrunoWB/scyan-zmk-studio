@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { OledPreviewTab } from '../OledPreviewTab';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import type { LayoutBlock } from '../../types/zmk';
 
 describe('OledPreviewTab dynamic screen dimensions & widget moving', () => {

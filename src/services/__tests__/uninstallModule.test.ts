@@ -181,7 +181,7 @@ describe('Module Uninstallation & Header Cleanup', () => {
       const { useAtlasStore } = await import('../../stores/useAtlasStore');
       const { useGitHubStore } = await import('../../stores/useGitHubStore');
       const { getDefaultAssets } = await import('../cHeaderParser');
-      const { BwpxGrid } = await import('../../bwpx/core/BwpxGrid');
+      const { BwpxGrid } = await import('../../pixel/core/PixelGrid');
 
       // Set up a custom/modified atlas
       const customGrid = new BwpxGrid(50, 50);

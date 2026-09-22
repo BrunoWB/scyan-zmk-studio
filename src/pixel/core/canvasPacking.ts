@@ -1,5 +1,5 @@
 import type { SpriteSlice } from '../../types/zmk';
-import { BwpxGrid } from './BwpxGrid';
+import { PixelGrid as BwpxGrid } from './PixelGrid';
 
 export interface FramePlacement {
   index: number;

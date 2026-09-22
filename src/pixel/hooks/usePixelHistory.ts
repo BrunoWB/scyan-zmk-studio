@@ -1,24 +1,26 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { BwpxGrid } from '../core/BwpxGrid';
+import { PixelGrid, PixelGrid as BwpxGrid } from '../core/PixelGrid';
 
 export interface HistoryEntry {
-  grid: BwpxGrid;
+  grid: PixelGrid;
   selection: { x: number; y: number; w: number; h: number; active: boolean } | null;
   sliceUpdates?: { id: string; prevX: number; prevY: number; newX: number; newY: number }[];
 }
 
-export interface UseBwpxHistoryOptions {
-  initialGrid?: BwpxGrid;
+export interface UsePixelHistoryOptions {
+  initialGrid?: PixelGrid;
   initialWidth?: number;
   initialHeight?: number;
-  onGridChange?: (grid: BwpxGrid) => void;
+  onGridChange?: (grid: PixelGrid) => void;
   onSliceMoveRef?: React.MutableRefObject<((sliceId: string, newX: number, newY: number) => void) | undefined>;
   onSlicesMoveRef?: React.MutableRefObject<((updates: { id: string; dx: number; dy: number }[]) => void) | undefined>;
   selectionRef?: React.MutableRefObject<{ x: number; y: number; w: number; h: number; active: boolean } | null>;
   setSelection?: (sel: { x: number; y: number; w: number; h: number; active: boolean } | null) => void;
 }
 
-export function useBwpxHistory({
+export type UseBwpxHistoryOptions = UsePixelHistoryOptions;
+
+export function usePixelHistory({
   initialGrid,
   initialWidth = 128,
   initialHeight = 34,
@@ -27,7 +29,7 @@ export function useBwpxHistory({
   onSlicesMoveRef,
   selectionRef,
   setSelection,
-}: UseBwpxHistoryOptions) {
+}: UsePixelHistoryOptions) {
   const [grid, setGrid] = useState<BwpxGrid>(
     () => initialGrid?.clone() ?? new BwpxGrid(initialWidth, initialHeight)
   );
@@ -197,3 +199,5 @@ export function useBwpxHistory({
     resetHistory,
   };
 }
+
+export const useBwpxHistory = usePixelHistory;

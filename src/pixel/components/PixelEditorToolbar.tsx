@@ -21,6 +21,7 @@ import {
   Upload,
   Activity,
 } from 'lucide-react';
+import { ShapeToolButton } from './ShapeToolButton';
 
 export type ToolType =
   | 'pencil'
@@ -38,6 +39,7 @@ export type ToolType =
   | 'diamond'
   | 'star'
   | 'arrow'
+  | 'filled-arrow'
   | 'plus';
 
 export interface BwpxEditorToolbarProps {
@@ -70,7 +72,9 @@ export interface BwpxEditorToolbarProps {
   isShiftHeld: boolean;
 }
 
-export const BwpxEditorTopToolbar: React.FC<Omit<BwpxEditorToolbarProps, 'activeTool' | 'onSelectTool' | 'isControlHeld' | 'isShiftHeld'>> = ({
+export type PixelEditorToolbarProps = BwpxEditorToolbarProps;
+
+export const PixelEditorTopToolbar: React.FC<Omit<BwpxEditorToolbarProps, 'activeTool' | 'onSelectTool' | 'isControlHeld' | 'isShiftHeld'>> = ({
   canUndo,
   canRedo,
   onUndo,
@@ -249,7 +253,9 @@ export const BwpxEditorTopToolbar: React.FC<Omit<BwpxEditorToolbarProps, 'active
   );
 };
 
-export const BwpxEditorSidebar: React.FC<{
+export const BwpxEditorTopToolbar = PixelEditorTopToolbar;
+
+export const PixelEditorSidebar: React.FC<{
   activeTool: ToolType;
   onSelectTool: (tool: ToolType) => void;
   isControlHeld: boolean;
@@ -324,68 +330,77 @@ export const BwpxEditorSidebar: React.FC<{
       {/* SHAPES GROUP */}
       <span className="bwpx-section-label">SHAPES</span>
 
-      <button
-        type="button"
-        onClick={() => onSelectTool('line')}
-        className={`bwpx-tool-btn ${activeTool === 'line' ? 'active' : ''}`}
-        title="Line"
-      >
-        <Minus size={15} style={{ transform: 'rotate(-45deg)' }} />
-      </button>
+      <ShapeToolButton
+        variants={[
+          {
+            tool: 'line',
+            icon: <Minus size={15} style={{ transform: 'rotate(-45deg)' }} />,
+            title: 'Line',
+            label: 'Line',
+          },
+          {
+            tool: 'arrow',
+            icon: <ArrowRight size={14} />,
+            title: 'Arrow',
+            label: 'Arrow',
+          },
+          {
+            tool: 'filled-arrow',
+            icon: (
+              <svg
+                width={14}
+                height={14}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="4" y1="12" x2="14" y2="12" />
+                <polygon points="12 7 20 12 12 17" fill="currentColor" />
+              </svg>
+            ),
+            title: 'Filled Arrow',
+            label: 'Filled Arrow',
+          },
+        ]}
+        activeTool={activeTool}
+        setActiveTool={onSelectTool}
+      />
 
-      <button
-        type="button"
-        onClick={() => onSelectTool('rect')}
-        className={`bwpx-tool-btn ${activeTool === 'rect' ? 'active' : ''}`}
-        title="Rectangle Outline"
-      >
-        <Square size={14} />
-      </button>
+      <ShapeToolButton
+        outlineTool="rect"
+        filledTool="filled-rect"
+        outlineIcon={<Square size={14} />}
+        filledIcon={<Square size={14} fill="currentColor" />}
+        outlineTitle="Rectangle Outline"
+        filledTitle="Filled Rectangle"
+        activeTool={activeTool}
+        setActiveTool={onSelectTool}
+      />
 
-      <button
-        type="button"
-        onClick={() => onSelectTool('filled-rect')}
-        className={`bwpx-tool-btn ${activeTool === 'filled-rect' ? 'active' : ''}`}
-        title="Filled Rectangle"
-      >
-        <div style={{ width: 12, height: 12, backgroundColor: 'currentColor', borderRadius: 2 }} />
-      </button>
+      <ShapeToolButton
+        outlineTool="ellipse"
+        filledTool="filled-ellipse"
+        outlineIcon={<Circle size={14} />}
+        filledIcon={<Circle size={14} fill="currentColor" />}
+        outlineTitle="Ellipse / Circle"
+        filledTitle="Filled Circle"
+        activeTool={activeTool}
+        setActiveTool={onSelectTool}
+      />
 
-      <button
-        type="button"
-        onClick={() => onSelectTool('ellipse')}
-        className={`bwpx-tool-btn ${activeTool === 'ellipse' ? 'active' : ''}`}
-        title="Ellipse / Circle"
-      >
-        <Circle size={14} />
-      </button>
-
-      <button
-        type="button"
-        onClick={() => onSelectTool('filled-ellipse')}
-        className={`bwpx-tool-btn ${activeTool === 'filled-ellipse' ? 'active' : ''}`}
-        title="Filled Circle"
-      >
-        <div style={{ width: 12, height: 12, backgroundColor: 'currentColor', borderRadius: '50%' }} />
-      </button>
-
-      <button
-        type="button"
-        onClick={() => onSelectTool('triangle')}
-        className={`bwpx-tool-btn ${activeTool === 'triangle' ? 'active' : ''}`}
-        title="Triangle Outline"
-      >
-        <Triangle size={14} />
-      </button>
-
-      <button
-        type="button"
-        onClick={() => onSelectTool('filled-triangle')}
-        className={`bwpx-tool-btn ${activeTool === 'filled-triangle' ? 'active' : ''}`}
-        title="Filled Triangle"
-      >
-        <Triangle size={14} fill="currentColor" />
-      </button>
+      <ShapeToolButton
+        outlineTool="triangle"
+        filledTool="filled-triangle"
+        outlineIcon={<Triangle size={14} />}
+        filledIcon={<Triangle size={14} fill="currentColor" />}
+        outlineTitle="Triangle Outline"
+        filledTitle="Filled Triangle"
+        activeTool={activeTool}
+        setActiveTool={onSelectTool}
+      />
 
       <button
         type="button"
@@ -394,15 +409,6 @@ export const BwpxEditorSidebar: React.FC<{
         title="5-Point Star"
       >
         <Sparkles size={14} />
-      </button>
-
-      <button
-        type="button"
-        onClick={() => onSelectTool('arrow')}
-        className={`bwpx-tool-btn ${activeTool === 'arrow' ? 'active' : ''}`}
-        title="Arrow"
-      >
-        <ArrowRight size={14} />
       </button>
 
       <button
@@ -416,3 +422,5 @@ export const BwpxEditorSidebar: React.FC<{
     </aside>
   );
 };
+
+export const BwpxEditorSidebar = PixelEditorSidebar;

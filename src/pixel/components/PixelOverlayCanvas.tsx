@@ -32,7 +32,9 @@ export { renderOverlayCanvas, type RenderOverlayOptions };
  * BwpxOverlayCanvas renders slice bounding boxes, glyph metrics, and selection marquee
  * in an independent hardware-accelerated overlay canvas layer above the base pixel grid.
  */
-export const BwpxOverlayCanvas = forwardRef<HTMLCanvasElement, BwpxOverlayCanvasProps>(
+export type PixelOverlayCanvasProps = BwpxOverlayCanvasProps;
+
+export const PixelOverlayCanvas = forwardRef<HTMLCanvasElement, PixelOverlayCanvasProps>(
   (
     {
       className = 'bwpx-overlay-canvas',
@@ -105,4 +107,6 @@ export const BwpxOverlayCanvas = forwardRef<HTMLCanvasElement, BwpxOverlayCanvas
   }
 );
 
-BwpxOverlayCanvas.displayName = 'BwpxOverlayCanvas';
+PixelOverlayCanvas.displayName = 'PixelOverlayCanvas';
+
+export const BwpxOverlayCanvas = PixelOverlayCanvas;

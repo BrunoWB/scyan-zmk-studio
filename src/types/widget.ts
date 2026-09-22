@@ -1,4 +1,4 @@
-import type { BwpxGrid } from '../bwpx/core/BwpxGrid';
+import type { BwpxGrid } from '../pixel/core/PixelGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping } from './zmk';
 
 export type WidgetCategory = 'status' | 'typing' | 'layer' | 'branding' | 'art';

@@ -9,7 +9,7 @@ This document provides a detailed architectural breakdown of the 5 repositories 
 | Repository | Local Path | Type / Stack | Purpose |
 | :--- | :--- | :--- | :--- |
 | **`brunowb.github.io`** (`hello-web`) | `/home/Scyan/Projects/Web/hello-web/` | HTML5, CSS3, i18next | Public web gateway linking to live tools. |
-| **`bwpx-editor`** | `/home/Scyan/Projects/Web/bwpx-editor/` | React 19, TS 6, Vite, Tailwind | Standalone 1-bit monochrome canvas pixel editor & raster engine. |
+| **`scyan-pixel`** | `/home/Scyan/Projects/Web/scyan-pixel/` | React 19, TS 6, Vite, Tailwind | Standalone 1-bit monochrome canvas pixel editor & raster engine. |
 | **`scyan-zmk-studio`** *(This Repo)* | `/home/Scyan/Projects/Web/scyan-zmk-studio/` | React 19, TS 6, Vite, Octokit | Visual display layout designer, 2-Atlas editor, and C compiler. |
 | **`scyan-zmk-module`** | `/home/Scyan/Projects/Firmware/scyan-zmk-module/` | Zephyr / ZMK C Module, CMake | Out-of-tree runtime display engine running on keyboard MCU. |
 | **`zmk-config`** | `/home/Scyan/Projects/Firmware/zmk-config/` | West Manifest, Kconfig, GitHub Actions | Corne split keyboard firmware config, module consumer, and CI/CD hub. |
@@ -19,7 +19,7 @@ This document provides a detailed architectural breakdown of the 5 repositories 
 ## 2. End-to-End Data Pipeline
 
 ```
-[ bwpx-editor ]
+[ scyan-pixel ]
       │ (Pixel algorithms & BwpxGrid core)
       ▼
 [ scyan-zmk-studio ]

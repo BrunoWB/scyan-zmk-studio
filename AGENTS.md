@@ -9,7 +9,7 @@ Persistent architectural reference for Antigravity pair programming in `scyan-zm
 | Repository | Local Path (Host: `/var/home/Scyan/` == `/home/Scyan/`) | Stack | Role |
 | :--- | :--- | :--- | :--- |
 | **`hello-web`** | `Projects/Web/hello-web/` | HTML/CSS | Public developer landing page & project portal. |
-| **`bwpx-editor`** | `Projects/Web/bwpx-editor/` | React 19 / Vite | Upstream 1bpp pixel editor & raster algorithm core (`BwpxGrid`). |
+| **`scyan-pixel`** | `Projects/Web/scyan-pixel/` | React 19 / Vite | Upstream 1bpp pixel editor & raster algorithm core (`BwpxGrid`). |
 | **`scyan-zmk-studio`** *(Here)* | `Projects/Web/scyan-zmk-studio/` | React 19 / TS 6 / Vite | Visual 2-Atlas IDE & layout compiler to C header. |
 | **`scyan-zmk-module`** | `Projects/Firmware/scyan-zmk-module/` | Embedded C / Zephyr | Runtime 1bpp blitter, transform (90° rot), and widget engine. |
 | **`zmk-config`** | `Projects/Firmware/zmk-config/` | West / Kconfig / CI | Corne split keyboard config; CI builds `.uf2` on asset push. |
@@ -19,7 +19,7 @@ Persistent architectural reference for Antigravity pair programming in `scyan-zm
 ## 2. Unidirectional Data Pipeline
 
 ```
-[bwpx-editor] ──(core algorithms)──> [scyan-zmk-studio] ──(GitHub PAT push)──> [zmk-config]
+[scyan-pixel] ──(core algorithms)──> [scyan-zmk-studio] ──(GitHub PAT push)──> [zmk-config]
                                                                                    │
                                   [Firmware .uf2] <──(west build)── [scyan-zmk-module]
 ```
@@ -49,4 +49,4 @@ The C header committed to `zmk-config` is the single source of truth between web
 3. **1bpp Bitwise Logic Integrity**:
    Display memory is strictly 1 bit per pixel (`0` = dark, `1` = light). Stride is `Math.ceil(width / 8)`. Avoid assuming byte-aligned boundaries.
 4. **Targeted Cross-Repo Routing**:
-   Always route changes to the proper layer: UI layout & serialization ➔ `scyan-zmk-studio`; Canvas primitives ➔ `bwpx-editor`; MCU blitting & event handlers ➔ `scyan-zmk-module`; Kconfig/keymap ➔ `zmk-config`.
+   Always route changes to the proper layer: UI layout & serialization ➔ `scyan-zmk-studio`; Canvas primitives ➔ `scyan-pixel`; MCU blitting & event handlers ➔ `scyan-zmk-module`; Kconfig/keymap ➔ `zmk-config`.

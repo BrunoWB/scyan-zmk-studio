@@ -23,7 +23,7 @@ The generated header includes embedded metadata comments, so you can load your `
 ## How it fits together
 
 ```
-[bwpx-editor] ──> [scyan-zmk-studio] ──(GitHub commit)──> [zmk-config]
+[scyan-pixel] ──> [scyan-zmk-studio] ──(GitHub commit)──> [zmk-config]
   (pixel core)         (this IDE)                              │
                                                           [west build]
                                                                │
@@ -33,7 +33,7 @@ The generated header includes embedded metadata comments, so you can load your `
 
 - **`scyan-zmk-studio`** (here): The web UI where you design layouts, edit sprites, and export the C header.
 - **[`scyan-zmk-module`](https://github.com/BrunoWB/scyan-zmk-module)**: The companion ZMK module that handles 1bpp blitting, 90° rotation, and widget rendering on your microcontroller.
-- **[`bwpx-editor`](https://github.com/BrunoWB/bwpx-editor)**: The upstream 1-bit pixel editor and raster core used inside this app.
+- **[`scyan-pixel`](https://github.com/BrunoWB/scyan-pixel)**: The upstream 1-bit pixel editor and raster core used inside this app.
 - **[`zmk-config`](https://github.com/BrunoWB/zmk-config)**: Your keyboard configuration repository where GitHub Actions compiles your `.uf2` firmware.
 
 ---

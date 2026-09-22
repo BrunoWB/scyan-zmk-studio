@@ -22,7 +22,7 @@ export function unpackCoord(key: number): [number, number] {
   return [key >> 16, (key << 16) >> 16];
 }
 
-export class BwpxGrid {
+export class PixelGrid {
   readonly width: number;
   readonly height: number;
   private readonly pixels: Set<number>;
@@ -195,7 +195,7 @@ export class BwpxGrid {
     }
   }
 
-  invert(bounds?: { minX: number; minY: number; width: number; height: number }): BwpxGrid {
+  invert(bounds?: { minX: number; minY: number; width: number; height: number }): PixelGrid {
     const next = this.clone();
     const b = bounds || {
       minX: 0,
@@ -214,7 +214,7 @@ export class BwpxGrid {
     return next;
   }
 
-  flipH(bounds?: { minX: number; minY: number; width: number; height: number }): BwpxGrid {
+  flipH(bounds?: { minX: number; minY: number; width: number; height: number }): PixelGrid {
     const next = this.clone();
     const b = bounds || this.getBounds();
     if (b.width <= 0 || b.height <= 0) return next;
@@ -230,7 +230,7 @@ export class BwpxGrid {
     return next;
   }
 
-  flipV(bounds?: { minX: number; minY: number; width: number; height: number }): BwpxGrid {
+  flipV(bounds?: { minX: number; minY: number; width: number; height: number }): PixelGrid {
     const next = this.clone();
     const b = bounds || this.getBounds();
     if (b.width <= 0 || b.height <= 0) return next;
@@ -246,7 +246,7 @@ export class BwpxGrid {
     return next;
   }
 
-  rotate90(bounds?: { minX: number; minY: number; width: number; height: number }): BwpxGrid {
+  rotate90(bounds?: { minX: number; minY: number; width: number; height: number }): PixelGrid {
     const next = this.clone();
     const b = bounds || this.getBounds();
     if (b.width <= 0 || b.height <= 0) return next;
@@ -263,8 +263,8 @@ export class BwpxGrid {
     return next;
   }
 
-  clone(): BwpxGrid {
-    return new BwpxGrid(this.width, this.height, this.pixels);
+  clone(): PixelGrid {
+    return new PixelGrid(this.width, this.height, this.pixels);
   }
 
   /**
@@ -290,9 +290,9 @@ export class BwpxGrid {
     return bytes;
   }
 
-  static from1bppBytes(bytes: Uint8Array, width: number, height: number, stride?: number, originX = 0, originY = 0): BwpxGrid {
+  static from1bppBytes(bytes: Uint8Array, width: number, height: number, stride?: number, originX = 0, originY = 0): PixelGrid {
     const actualStride = stride ?? Math.ceil(width / 8);
-    const grid = new BwpxGrid(width, height);
+    const grid = new PixelGrid(width, height);
 
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
@@ -341,8 +341,8 @@ export class BwpxGrid {
     return lines.join("\n");
   }
 
-  getSubRect(x: number, y: number, w: number, h: number): BwpxGrid {
-    const sub = new BwpxGrid(w, h);
+  getSubRect(x: number, y: number, w: number, h: number): PixelGrid {
+    const sub = new PixelGrid(w, h);
     for (let r = 0; r < h; r++) {
       for (let c = 0; c < w; c++) {
         sub.set(c, r, this.get(x + c, y + r));
@@ -351,7 +351,7 @@ export class BwpxGrid {
     return sub;
   }
 
-  blit(src: BwpxGrid, dstX: number, dstY: number, transparentZero = false): void {
+  blit(src: PixelGrid, dstX: number, dstY: number, transparentZero = false): void {
     if (!transparentZero) {
       this.clearRect({ x: dstX, y: dstY, width: src.width, height: src.height });
     }
@@ -362,3 +362,5 @@ export class BwpxGrid {
     }
   }
 }
+
+export { PixelGrid as BwpxGrid };

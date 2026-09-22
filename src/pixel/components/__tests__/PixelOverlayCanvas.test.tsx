@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createRef } from 'react';
 import { renderToString } from 'react-dom/server';
-import { BwpxOverlayCanvas, renderOverlayCanvas } from '../BwpxOverlayCanvas';
+import { BwpxOverlayCanvas, renderOverlayCanvas } from '../PixelOverlayCanvas';
 
 describe('BwpxOverlayCanvas component & overlay renderer', () => {
   it('renders canvas element with default and custom class names', () => {

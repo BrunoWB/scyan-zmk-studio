@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { OledPanelColumn } from '../OledPanelColumn';
-import { BwpxGrid } from '../../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../../pixel/core/PixelGrid';
 import type { LayoutBlock } from '../../../types/zmk';
 
 describe('OledPanelColumn right-click context menu and block removal', () => {

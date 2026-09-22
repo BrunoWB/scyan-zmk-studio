@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import type { LayoutBlock, SpriteSlice, FontGlyph, FontCharMapping } from '../../types/zmk';
 import type { WidgetInstanceMap, WidgetCustomizationMap } from '../../types/widget';
 import { renderBlocksToGrid } from '../../services/widgetRegistry';

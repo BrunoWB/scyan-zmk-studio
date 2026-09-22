@@ -1,4 +1,4 @@
-import { BwpxGrid } from './BwpxGrid';
+import { PixelGrid as BwpxGrid } from './PixelGrid';
 import type { SpriteSlice } from '../../types/zmk';
 
 export interface GhostOverlay {

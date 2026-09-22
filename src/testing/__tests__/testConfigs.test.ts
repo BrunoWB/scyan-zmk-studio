@@ -4,7 +4,7 @@ import { loadTestConfigIntoStudio } from '../loadTestConfig';
 import { detectShieldUnitsFromRepo } from '../../data/shieldsData';
 import { resolveConfUpdates } from '../../services/githubService';
 import { generateCHeader, parseCHeader } from '../../services/cHeaderParser';
-import { BwpxGrid } from '../../bwpx/core/BwpxGrid';
+import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import { useLayoutStore } from '../../stores/useLayoutStore';
 import { useGitHubStore } from '../../stores/useGitHubStore';
 

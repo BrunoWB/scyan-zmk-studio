@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { BwpxGrid } from '../bwpx/core/BwpxGrid';
-import { BwpxEditor, type EditorViewport } from '../bwpx';
+import { BwpxGrid } from '../pixel/core/PixelGrid';
+import { BwpxEditor, type EditorViewport } from '../pixel';
 import type { FontCharMapping, GlyphSlot, SpriteSlice } from '../types/zmk';
 import {
   Type,

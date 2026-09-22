@@ -1,20 +1,16 @@
 /* oxlint-disable react/refs */
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { BwpxGrid } from '../core/BwpxGrid';
+import { PixelGrid as BwpxGrid } from '../core/PixelGrid';
 import {
   drawLine,
-  drawRect,
-  drawEllipse,
-  drawTriangle,
-  drawDiamond,
-  drawStar,
-  drawArrow,
-  drawPlus,
   floodFill,
   drawBrushDot,
+  drawShape,
+  calculateShapeEndpoints,
+  isShapeTool,
 } from '../core/algorithms';
 import type { SpriteSlice } from '../../types/zmk';
-import type { ToolType, EditorViewport } from '../components/BwpxEditor';
+import type { ToolType, EditorViewport } from '../components/PixelEditor';
 
 export interface UseBwpxCanvasPointerProps {
   grid: BwpxGrid;
@@ -104,7 +100,9 @@ export interface UseBwpxCanvasPointerProps {
   externalIsPanningRef?: React.MutableRefObject<boolean>;
 }
 
-export function useBwpxCanvasPointer({
+export type UsePixelCanvasPointerProps = UseBwpxCanvasPointerProps;
+
+export function usePixelCanvasPointer({
   grid,
   setGrid,
   viewport,
@@ -627,6 +625,28 @@ export function useBwpxCanvasPointer({
       return;
     }
 
+    if (isShapeTool(activeTool) && startPos) {
+      setDragCurrentPos(coords);
+      const endpoints = calculateShapeEndpoints(activeTool, startPos, coords, {
+        shiftKey: e.shiftKey || isShiftHeldRef.current,
+        ctrlKey: e.ctrlKey || isControlHeldRef.current,
+      });
+      workingGridRef.current = grid.clone();
+      isDrawingStrokeRef.current = true;
+      drawShape(
+        workingGridRef.current,
+        activeTool,
+        endpoints.x0,
+        endpoints.y0,
+        endpoints.x1,
+        endpoints.y1,
+        1,
+        brushSize
+      );
+      scheduleStrokeRender();
+      return;
+    }
+
     setDragCurrentPos(coords);
   };
 
@@ -897,51 +917,33 @@ export function useBwpxCanvasPointer({
       strokeModifiedRef.current = false;
     }
 
-    if (isDrawing && startPos && dragCurrentPos && !isErasing) {
+    if (isDrawing && startPos && (dragCurrentPos || hoverPosRef.current) && !isErasing) {
+      const endCoords = hoverPosRef.current || dragCurrentPos || startPos;
       const val = 1;
       const temp = grid.clone();
 
-      if (activeTool !== 'pencil' && activeTool !== 'bucket' && activeTool !== 'select' && activeTool !== 'move') {
-        switch (activeTool) {
-          case 'line':
-            drawLine(temp, startPos.x, startPos.y, dragCurrentPos.x, dragCurrentPos.y, val, brushSize);
-            break;
-          case 'rect':
-            drawRect(temp, startPos.x, startPos.y, dragCurrentPos.x, dragCurrentPos.y, val, false, brushSize);
-            break;
-          case 'filled-rect':
-            drawRect(temp, startPos.x, startPos.y, dragCurrentPos.x, dragCurrentPos.y, val, true, brushSize);
-            break;
-          case 'ellipse':
-            drawEllipse(temp, startPos.x, startPos.y, dragCurrentPos.x, dragCurrentPos.y, val, false, brushSize);
-            break;
-          case 'filled-ellipse':
-            drawEllipse(temp, startPos.x, startPos.y, dragCurrentPos.x, dragCurrentPos.y, val, true, brushSize);
-            break;
-          case 'triangle':
-            drawTriangle(temp, startPos.x, startPos.y, dragCurrentPos.x, dragCurrentPos.y, val, false, brushSize);
-            break;
-          case 'filled-triangle':
-            drawTriangle(temp, startPos.x, startPos.y, dragCurrentPos.x, dragCurrentPos.y, val, true, brushSize);
-            break;
-          case 'diamond':
-            drawDiamond(temp, startPos.x, startPos.y, dragCurrentPos.x, dragCurrentPos.y, val, false, brushSize);
-            break;
-          case 'star':
-            drawStar(temp, startPos.x, startPos.y, dragCurrentPos.x, dragCurrentPos.y, val, brushSize);
-            break;
-          case 'arrow':
-            drawArrow(temp, startPos.x, startPos.y, dragCurrentPos.x, dragCurrentPos.y, val, brushSize);
-            break;
-          case 'plus':
-            drawPlus(temp, startPos.x, startPos.y, dragCurrentPos.x, dragCurrentPos.y, val, brushSize);
-            break;
-        }
+      if (isShapeTool(activeTool)) {
+        const endpoints = calculateShapeEndpoints(activeTool, startPos, endCoords, {
+          shiftKey: e?.shiftKey || isShiftHeldRef.current,
+          ctrlKey: e?.ctrlKey || isControlHeldRef.current,
+        });
+        drawShape(
+          temp,
+          activeTool,
+          endpoints.x0,
+          endpoints.y0,
+          endpoints.x1,
+          endpoints.y1,
+          val,
+          brushSize
+        );
+        isDrawingStrokeRef.current = false;
         commitGridState(temp);
       }
     }
 
     setIsDrawing(false);
+    isDrawingStrokeRef.current = false;
     setStartPos(null);
     setDragCurrentPos(null);
     lastDrawPosRef.current = null;
@@ -1040,3 +1042,5 @@ export function useBwpxCanvasPointer({
     getGridCoords,
   };
 }
+
+export const useBwpxCanvasPointer = usePixelCanvasPointer;
