@@ -58,6 +58,11 @@ export interface UseBwpxCanvasPointerProps {
     y: number;
     width: number;
     height: number;
+    rects?: { x: number; y: number; w: number; h: number }[];
+    gifData?: {
+      frames: { grid: BwpxGrid; delayMs: number }[];
+      name?: string;
+    };
   } | null;
   setGhostPlacement: (gp: {
     grid: BwpxGrid;
@@ -66,6 +71,11 @@ export interface UseBwpxCanvasPointerProps {
     y: number;
     width: number;
     height: number;
+    rects?: { x: number; y: number; w: number; h: number }[];
+    gifData?: {
+      frames: { grid: BwpxGrid; delayMs: number }[];
+      name?: string;
+    };
   } | null | ((prev: any) => any)) => void;
   slices: SpriteSlice[];
   slicesRef: React.MutableRefObject<SpriteSlice[]>;
@@ -79,6 +89,8 @@ export interface UseBwpxCanvasPointerProps {
   onSelectSliceRef: React.MutableRefObject<((id: string, isMulti?: boolean) => void) | undefined>;
   onSelectSlicesRef: React.MutableRefObject<((ids: string[]) => void) | undefined>;
   onNewSelectionRef: React.MutableRefObject<((rect: { x: number; y: number; width: number; height: number } | null) => void) | undefined>;
+  onAddSlicesRef?: React.MutableRefObject<((slices: SpriteSlice[]) => void) | undefined>;
+  onSlicesChangeRef?: React.MutableRefObject<((slices: SpriteSlice[]) => void) | undefined>;
   onSliceMove?: (sliceId: string, newX: number, newY: number) => void;
   onSlicesMove?: (updates: { id: string; dx: number; dy: number }[]) => void;
   onSliceMoveRef?: React.MutableRefObject<((sliceId: string, newX: number, newY: number) => void) | undefined>;
@@ -130,6 +142,8 @@ export function usePixelCanvasPointer({
   onSelectSliceRef,
   onSelectSlicesRef,
   onNewSelectionRef,
+  onAddSlicesRef,
+  onSlicesChangeRef,
   onSliceMove,
   onSlicesMove,
   onSliceMoveRef,
@@ -262,24 +276,82 @@ export function usePixelCanvasPointer({
         const targetX = ghostPlacement.x;
         const targetY = ghostPlacement.y;
         const next = grid.clone();
-        next.clearRect({ x: targetX, y: targetY, w: ghostPlacement.width, h: ghostPlacement.height });
-        ghostPlacement.pixels.forEach(([rx, ry]) => {
-          next.set(targetX + rx, targetY + ry, 1);
-        });
-        commitGridState(next);
-        setSelection({
-          x: targetX,
-          y: targetY,
-          w: ghostPlacement.width,
-          h: ghostPlacement.height,
-          active: true,
-        });
-        onNewSelectionRef.current?.({
-          x: targetX,
-          y: targetY,
-          width: ghostPlacement.width,
-          height: ghostPlacement.height,
-        });
+
+        if (ghostPlacement.gifData && ghostPlacement.gifData.frames.length > 0) {
+          const frameCount = ghostPlacement.gifData.frames.length;
+          const frameWidth = Math.round(ghostPlacement.width / frameCount);
+          const frameHeight = ghostPlacement.height;
+
+          ghostPlacement.gifData.frames.forEach((frame, i) => {
+            const placementX = targetX + i * frameWidth;
+            const placementY = targetY;
+            next.clearRect({ x: placementX, y: placementY, w: frameWidth, h: frameHeight });
+            const pixels = frame.grid.getAllPixels();
+            pixels.forEach(([px, py]) => {
+              next.set(placementX + px, placementY + py, 1);
+            });
+          });
+
+          // Construct unique groupId and SpriteSlice entries
+          const rawName = (ghostPlacement.gifData.name || 'Anim').trim();
+          const sanitizedName = rawName.replace(/[^a-zA-Z0-9_]/g, '_');
+          const cleanId = `SYMBOL_${sanitizedName.toUpperCase()}_${Date.now().toString().slice(-4)}`;
+          const groupColor = '#00d2ff';
+
+          const newSlices: SpriteSlice[] = ghostPlacement.gifData.frames.map((_, i) => ({
+            id: i === 0 ? cleanId : `${cleanId}_SUB_${i}`,
+            name: i === 0 ? rawName : undefined,
+            groupId: cleanId,
+            groupOrder: i + 1,
+            x: targetX + i * frameWidth,
+            y: targetY,
+            width: frameWidth,
+            height: frameHeight,
+            color: groupColor,
+          }));
+
+          // Add slices via callbacks
+          if (onAddSlicesRef?.current) {
+            onAddSlicesRef.current(newSlices);
+          } else if (onSlicesChangeRef?.current) {
+            onSlicesChangeRef.current([...(slicesRef.current || []), ...newSlices]);
+          }
+
+          // Select newly added slices
+          const newSliceIds = newSlices.map(s => s.id);
+          if (onSelectSlicesRef.current) {
+            onSelectSlicesRef.current(newSliceIds);
+          } else if (onSelectSliceRef.current && newSliceIds[0]) {
+            onSelectSliceRef.current(newSliceIds[0]);
+          }
+
+          commitGridState(next, {
+            x: targetX,
+            y: targetY,
+            w: ghostPlacement.width,
+            h: ghostPlacement.height,
+            active: true,
+          });
+        } else {
+          next.clearRect({ x: targetX, y: targetY, w: ghostPlacement.width, h: ghostPlacement.height });
+          ghostPlacement.pixels.forEach(([rx, ry]) => {
+            next.set(targetX + rx, targetY + ry, 1);
+          });
+          commitGridState(next);
+          setSelection({
+            x: targetX,
+            y: targetY,
+            w: ghostPlacement.width,
+            h: ghostPlacement.height,
+            active: true,
+          });
+          onNewSelectionRef.current?.({
+            x: targetX,
+            y: targetY,
+            width: ghostPlacement.width,
+            height: ghostPlacement.height,
+          });
+        }
         setGhostPlacement(null);
       } else if (e.button === 2) {
         setGhostPlacement(null);

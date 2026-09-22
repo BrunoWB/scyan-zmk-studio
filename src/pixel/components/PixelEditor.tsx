@@ -316,8 +316,13 @@ export const PixelEditor: React.FC<PixelEditorProps> = ({
     width: number;
     height: number;
     pixels: [number, number][];
+    rects?: { x: number; y: number; w: number; h: number }[];
     x: number;
     y: number;
+    gifData?: {
+      frames: { grid: BwpxGrid; delayMs: number }[];
+      name?: string;
+    };
   } | null>(null);
   const ghostPlacementRef = useRef(ghostPlacement);
   ghostPlacementRef.current = ghostPlacement;
@@ -513,6 +518,14 @@ export const PixelEditor: React.FC<PixelEditorProps> = ({
               y: ghost.y,
               w: ghost.width,
               h: ghost.height,
+              rects: ghost.rects
+                ? ghost.rects.map(r => ({
+                    x: ghost.x + r.x,
+                    y: ghost.y + r.y,
+                    w: r.w,
+                    h: r.h,
+                  }))
+                : undefined,
             }
           : null;
 
@@ -602,6 +615,8 @@ export const PixelEditor: React.FC<PixelEditorProps> = ({
     onSelectSliceRef,
     onSelectSlicesRef,
     onNewSelectionRef,
+    onAddSlicesRef,
+    onSlicesChangeRef,
     onSliceMove,
     onSlicesMove,
     onSliceMoveRef,
@@ -1216,109 +1231,51 @@ export const PixelEditor: React.FC<PixelEditorProps> = ({
     setImportModalOpen(false);
     setPendingImageSource(null);
 
-    // If multi-frame GIF animation:
-    if (gifData && gifData.frames.length > 0) {
-      const frameCount = gifData.frames.length;
-      const spot = findAvailableSpot(
-        grid,
-        slicesRef.current || [],
-        width,
-        height,
-        frameCount,
-        initialWidth,
-        initialHeight
-      );
-
-      // Stamp frames onto canvas
-      const next = grid.clone();
-      gifData.frames.forEach((frame, i) => {
-        const placement = spot.frames[i];
-        if (!placement) return;
-        const pixels = frame.grid.getAllPixels();
-        pixels.forEach(([px, py]) => {
-          next.set(placement.x + px, placement.y + py, 1);
-        });
-      });
-
-      // Construct unique groupId and SpriteSlice entries
-      const rawName = (gifData.name || 'Anim').trim();
-      const sanitizedName = rawName.replace(/[^a-zA-Z0-9_]/g, '_');
-      const cleanId = `SYMBOL_${sanitizedName.toUpperCase()}_${Date.now().toString().slice(-4)}`;
-      const groupColor = '#00d2ff';
-
-      const newSlices: SpriteSlice[] = spot.frames.map((placement, i) => ({
-        id: i === 0 ? cleanId : `${cleanId}_SUB_${i}`,
-        name: i === 0 ? rawName : undefined,
-        groupId: cleanId,
-        groupOrder: i + 1,
-        x: placement.x,
-        y: placement.y,
-        width,
-        height,
-        color: groupColor,
-      }));
-
-      // Add slices via callbacks
-      if (onAddSlicesRef.current) {
-        onAddSlicesRef.current(newSlices);
-      } else if (onSlicesChangeRef.current) {
-        onSlicesChangeRef.current([...(slicesRef.current || []), ...newSlices]);
-      }
-
-      // Select newly added slices
-      const newSliceIds = newSlices.map(s => s.id);
-      if (onSelectSlicesRef.current) {
-        onSelectSlicesRef.current(newSliceIds);
-      } else if (onSelectSliceRef.current && newSliceIds[0]) {
-        onSelectSliceRef.current(newSliceIds[0]);
-      }
-
-      // Commit grid state with active marquee selection over the pasted group
-      commitGridState(next, {
-        x: spot.bounds.x,
-        y: spot.bounds.y,
-        w: spot.bounds.w,
-        h: spot.bounds.h,
-        active: true,
-      });
-
-      // Adjust viewport pan if the placed group is outside view
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const screenX = pan.x + spot.bounds.x * zoom;
-        const screenY = pan.y + spot.bounds.y * zoom;
-        if (
-          screenX < 0 ||
-          screenY < 0 ||
-          screenX + spot.bounds.w * zoom > canvas.width ||
-          screenY + spot.bounds.h * zoom > canvas.height
-        ) {
-          setPan({
-            x: Math.round(canvas.width / 2 - (spot.bounds.x + spot.bounds.w / 2) * zoom),
-            y: Math.round(canvas.height / 2 - (spot.bounds.y + spot.bounds.h / 2) * zoom),
-          });
-        }
-      }
-
-      return;
-    }
-
-    // Static image fallback: ghost placement
     const canvas = canvasRef.current;
+    const isMultiFrame = Boolean(gifData && gifData.frames.length > 0);
+    const frameCount = isMultiFrame ? gifData!.frames.length : 1;
+    const totalW = isMultiFrame ? width * frameCount : width;
+
+    const hoverPos = hoverPosRef.current;
     let initialX = 0;
     let initialY = 0;
-    if (canvas) {
-      initialX = Math.round((-pan.x + canvas.width / 2) / zoom - width / 2);
+    if (hoverPos) {
+      initialX = hoverPos.x - Math.floor(totalW / 2);
+      initialY = hoverPos.y - Math.floor(height / 2);
+    } else if (canvas) {
+      initialX = Math.round((-pan.x + canvas.width / 2) / zoom - totalW / 2);
       initialY = Math.round((-pan.y + canvas.height / 2) / zoom - height / 2);
+    }
+
+    let ghostPixels: [number, number][] = [];
+    let rects: { x: number; y: number; w: number; h: number }[] | undefined = undefined;
+
+    if (isMultiFrame && gifData) {
+      rects = gifData.frames.map((_, i) => ({
+        x: i * width,
+        y: 0,
+        w: width,
+        h: height,
+      }));
+      gifData.frames.forEach((frame, i) => {
+        const framePix = frame.grid.getAllPixels();
+        framePix.forEach(([rx, ry]) => {
+          ghostPixels.push([rx + i * width, ry]);
+        });
+      });
+    } else {
+      ghostPixels = importedGrid.getAllPixels();
     }
 
     setGhostPlacement({
       grid: importedGrid,
-      width,
+      width: totalW,
       height,
-      pixels: importedGrid.getAllPixels(),
+      pixels: ghostPixels,
+      rects,
       x: initialX,
       y: initialY,
+      gifData,
     });
   };
 

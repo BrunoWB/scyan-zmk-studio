@@ -43,6 +43,7 @@ export interface RenderOverlayOptions {
   ghost?: GhostOverlay | null;
   selection?: SelectionOverlay | null;
   bgColor?: string;
+  clearCanvas?: boolean;
 }
 
 export interface RenderBwpxOptions extends RenderBaseOptions {
@@ -245,7 +246,9 @@ export function renderOverlayCanvas(
   } = options;
 
   ctx.imageSmoothingEnabled = false;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (options.clearCanvas !== false) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
 
   const panX = Math.round(pan.x);
   const panY = Math.round(pan.y);
@@ -383,7 +386,7 @@ export function renderBwpxCanvas(
   renderBaseCanvas(canvas, ctx, options);
   renderOverlayCanvas(canvas, ctx, {
     ...options,
-    // in combined mode, do not clear the base canvas
+    clearCanvas: false,
     bgColor: options.bgColor,
   });
 }

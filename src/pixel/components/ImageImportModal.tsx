@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { PixelGrid as BwpxGrid } from '../core/PixelGrid';
-import { convertImageElementToGrid } from '../core/imageConversion';
-import { renderBwpxCanvas } from '../core/gridRenderer';
+import { convertImageElementToGrid, detectContentBoundingBox, type ContentBoundingBox } from '../core/imageConversion';
+import { renderBaseCanvas } from '../core/gridRenderer';
 import {
   isGifBuffer,
   decodeGif,
@@ -29,6 +29,7 @@ import './ImageImportModal.css';
 export interface ImageImportModalProps {
   isOpen: boolean;
   imageSource: File | Blob | string | null;
+  allowColor?: boolean;
   onClose: () => void;
   onConfirm: (
     grid: BwpxGrid,
@@ -46,6 +47,7 @@ type ScalePreset = 'original' | 'fit-34' | 'fit-32' | 'fit-64' | 'fit-16' | 'cus
 export const ImageImportModal: React.FC<ImageImportModalProps> = ({
   isOpen,
   imageSource,
+  allowColor: _allowColor = false,
   onClose,
   onConfirm,
 }) => {
@@ -70,8 +72,7 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
     w: 0,
     h: 0,
   });
-  const [previewZoom, setPreviewZoom] = useState<number>(4);
-  const [previewPan, setPreviewPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const refCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -148,7 +149,10 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
             setDecodedGif(decoded);
             setImgElement(null);
             setOriginalDimensions({ w: decoded.width, h: decoded.height });
-            setCropRect({ x: 0, y: 0, w: decoded.width, h: decoded.height });
+            const box = detectContentBoundingBox(
+              decoded.frames.map((f) => ({ width: f.width, height: f.height, rgba: f.rgba }))
+            );
+            setCropRect(box || { x: 0, y: 0, w: decoded.width, h: decoded.height });
             setCustomWidth(decoded.width);
             setCustomHeight(decoded.height);
             setScalePreset('original');
@@ -170,7 +174,23 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
         const origW = img.naturalWidth || img.width;
         const origH = img.naturalHeight || img.height;
         setOriginalDimensions({ w: origW, h: origH });
-        setCropRect({ x: 0, y: 0, w: origW, h: origH });
+        let box: ContentBoundingBox | null = null;
+        try {
+          const offscreen = document.createElement('canvas');
+          offscreen.width = origW;
+          offscreen.height = origH;
+          const ctx = offscreen.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0);
+            const imgData = ctx.getImageData(0, 0, origW, origH);
+            box = detectContentBoundingBox([
+              { width: origW, height: origH, rgba: imgData.data },
+            ]);
+          }
+        } catch (e) {
+          console.warn('Auto-snap failed on image load:', e);
+        }
+        setCropRect(box || { x: 0, y: 0, w: origW, h: origH });
         setCustomWidth(origW);
         setCustomHeight(origH);
         setScalePreset('original');
@@ -350,47 +370,58 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
     ctx.putImageData(imgData, 0, 0);
   }, [decodedGif, currentFrameIndex]);
 
-  // Center and fit preview canvas when dimensions change
-  useEffect(() => {
-    if (!previewContainerRef.current || targetDimensions.w === 0 || targetDimensions.h === 0) return;
-
-    const rect = previewContainerRef.current.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
-
-    const zoomX = (rect.width - 40) / targetDimensions.w;
-    const zoomY = (rect.height - 40) / targetDimensions.h;
-    const fitZoom = Math.max(1, Math.min(24, Math.floor(Math.min(zoomX, zoomY))));
-
-    setPreviewZoom(fitZoom);
-    setPreviewPan({
-      x: Math.round((rect.width - targetDimensions.w * fitZoom) / 2),
-      y: Math.round((rect.height - targetDimensions.h * fitZoom) / 2),
-    });
-  }, [targetDimensions]);
-
-  // Render preview canvas using shared gridRenderer
+  // Render preview canvas
   const renderPreview = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !convertedGrid) return;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    renderBwpxCanvas(canvas, ctx, {
+    const container = previewContainerRef.current;
+    const containerW = container?.clientWidth || 320;
+    const containerH = container?.clientHeight || 220;
+    canvas.width = containerW;
+    canvas.height = containerH;
+
+    if (!convertedGrid) {
+      ctx.fillStyle = '#0b0d11';
+      ctx.fillRect(0, 0, containerW, containerH);
+      return;
+    }
+
+    const fitZoom = Math.max(
+      1,
+      Math.min(
+        16,
+        Math.floor(
+          Math.min(
+            (containerW - 32) / Math.max(1, convertedGrid.width),
+            (containerH - 32) / Math.max(1, convertedGrid.height)
+          )
+        )
+      )
+    );
+    const pan = {
+      x: Math.round((containerW - convertedGrid.width * fitZoom) / 2),
+      y: Math.round((containerH - convertedGrid.height * fitZoom) / 2),
+    };
+
+    renderBaseCanvas(canvas, ctx, {
       grid: convertedGrid,
-      zoom: previewZoom,
-      pan: previewPan,
+      zoom: fitZoom,
+      pan,
       pixelColor: '#ffffff',
       bgColor: '#0b0d11',
       showAxes: false,
-      showGridLines: previewZoom >= 4,
+      showGridLines: fitZoom >= 4,
       frameBounds: {
         x: 0,
         y: 0,
-        w: targetDimensions.w,
-        h: targetDimensions.h,
+        w: convertedGrid.width,
+        h: convertedGrid.height,
       },
     });
-  }, [convertedGrid, previewZoom, previewPan, targetDimensions]);
+  }, [convertedGrid]);
 
   useEffect(() => {
     renderPreview();
@@ -399,15 +430,7 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
   // Auto-resize canvas element to match container
   useEffect(() => {
     const updateSize = () => {
-      if (previewContainerRef.current && canvasRef.current) {
-        const w = previewContainerRef.current.clientWidth;
-        const h = previewContainerRef.current.clientHeight;
-        if (w > 0 && h > 0) {
-          canvasRef.current.width = w;
-          canvasRef.current.height = h;
-          renderPreview();
-        }
-      }
+      renderPreview();
     };
     updateSize();
     window.addEventListener('resize', updateSize);
@@ -463,11 +486,38 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
   }, [isOpen, handleConfirm, onClose, decodedGif, gifFrames.length]);
 
   // Reset crop to full original dimensions
-  const handleResetCrop = () => {
+  const handleResetCrop = useCallback(() => {
     if (originalDimensions.w > 0 && originalDimensions.h > 0) {
       setCropRect({ x: 0, y: 0, w: originalDimensions.w, h: originalDimensions.h });
     }
-  };
+  }, [originalDimensions]);
+
+  // Snap crop to content
+  const handleSnapToContent = useCallback(() => {
+    if (decodedGif && decodedGif.frames.length > 0) {
+      const box = detectContentBoundingBox(
+        decodedGif.frames.map((f) => ({ width: f.width, height: f.height, rgba: f.rgba }))
+      );
+      if (box) setCropRect(box);
+    } else if (imgElement && originalDimensions.w > 0 && originalDimensions.h > 0) {
+      try {
+        const offscreen = document.createElement('canvas');
+        offscreen.width = originalDimensions.w;
+        offscreen.height = originalDimensions.h;
+        const ctx = offscreen.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(imgElement, 0, 0);
+          const imgData = ctx.getImageData(0, 0, originalDimensions.w, originalDimensions.h);
+          const box = detectContentBoundingBox([
+            { width: originalDimensions.w, height: originalDimensions.h, rgba: imgData.data },
+          ]);
+          if (box) setCropRect(box);
+        }
+      } catch (err) {
+        console.warn('Auto-snap failed:', err);
+      }
+    }
+  }, [decodedGif, imgElement, originalDimensions]);
 
   const isCropped =
     cropRect !== null &&
@@ -516,23 +566,26 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
 
       let { x, y, w, h } = initialCrop;
 
+      const minW = Math.min(origW, 2);
+      const minH = Math.min(origH, 2);
+
       if (handleType === 'move') {
         x = Math.max(0, Math.min(origW - w, Math.round(initialCrop.x + dx)));
         y = Math.max(0, Math.min(origH - h, Math.round(initialCrop.y + dy)));
       } else {
         if (handleType.includes('e')) {
-          w = Math.max(2, Math.min(origW - x, Math.round(initialCrop.w + dx)));
+          w = Math.max(minW, Math.min(origW - x, Math.round(initialCrop.w + dx)));
         }
         if (handleType.includes('s')) {
-          h = Math.max(2, Math.min(origH - y, Math.round(initialCrop.h + dy)));
+          h = Math.max(minH, Math.min(origH - y, Math.round(initialCrop.h + dy)));
         }
         if (handleType.includes('w')) {
-          const newX = Math.max(0, Math.min(initialCrop.x + initialCrop.w - 2, Math.round(initialCrop.x + dx)));
+          const newX = Math.max(0, Math.min(initialCrop.x + initialCrop.w - minW, Math.round(initialCrop.x + dx)));
           w = initialCrop.w + (initialCrop.x - newX);
           x = newX;
         }
         if (handleType.includes('n')) {
-          const newY = Math.max(0, Math.min(initialCrop.y + initialCrop.h - 2, Math.round(initialCrop.y + dy)));
+          const newY = Math.max(0, Math.min(initialCrop.y + initialCrop.h - minH, Math.round(initialCrop.y + dy)));
           h = initialCrop.h + (initialCrop.y - newY);
           y = newY;
         }
@@ -590,16 +643,29 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
                       GIF • {decodedGif.frames.length} frames
                     </span>
                   )}
-                  {isCropped && (
-                    <button
-                      type="button"
-                      onClick={handleResetCrop}
-                      className="image-import-reset-crop-btn"
-                      title="Reset crop to full image"
-                    >
-                      <Crop size={11} />
-                      <span>Reset</span>
-                    </button>
+                  {(imgElement || decodedGif) && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleSnapToContent}
+                        className="image-import-reset-crop-btn"
+                        title="Snap to Content"
+                        aria-label="Snap to Content"
+                      >
+                        <Sparkles size={11} />
+                        <span>Snap to Content</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleResetCrop}
+                        className="image-import-reset-crop-btn"
+                        title="Reset Crop"
+                        aria-label="Reset Crop"
+                      >
+                        <Crop size={11} />
+                        <span>Reset Crop</span>
+                      </button>
+                    </>
                   )}
                 </div>
                 <strong>
