@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "1.1.13",
+        "date": "2026-09-22",
+        "commitHash": "b2c5c6d",
+        "changes": [
+          "feat(pixel): rename bwpx to pixel, add grouped shape tools & arrow primitives, update all references"
+        ]
+      },
+      {
         "patch": "1.1.12",
         "date": "2026-09-21",
         "commitHash": "b375b6b",
