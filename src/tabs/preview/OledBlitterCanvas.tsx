@@ -25,6 +25,11 @@ export interface OledBlitterRenderState {
   bongoState?: 0 | 1 | 2;
   animationTimestamp?: number;
   isIdle?: boolean;
+  typewriterText?: string;
+  typewriterState?: import('../../types/widget').TypewriterState;
+  activeKeys?: string[];
+  lastKey?: string;
+  keypressState?: import('../../types/widget').KeypressState;
 }
 
 export interface OledBlitterCanvasProps {
@@ -93,6 +98,11 @@ export const OledBlitterCanvas: React.FC<OledBlitterCanvasProps> = ({
       customizations: renderState?.customizations,
       bongoState: renderState?.bongoState,
       animationTimestamp: renderState?.animationTimestamp ?? 0,
+      typewriterText: renderState?.typewriterText,
+      typewriterState: renderState?.typewriterState,
+      activeKeys: renderState?.activeKeys,
+      lastKey: renderState?.lastKey,
+      keypressState: renderState?.keypressState,
     });
 
     canvas.width = vWidth * PIXEL_PITCH;

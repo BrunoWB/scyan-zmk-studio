@@ -72,6 +72,8 @@ const BLOCK_COLORS: Record<string, string> = {
   'layer-art': '#34d399',
   'wpm': '#fbbf24',
   'branding': '#f472b6',
+  'typewriter': '#e879f9',
+  'keypress': '#22d3ee',
 };
 
 export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({

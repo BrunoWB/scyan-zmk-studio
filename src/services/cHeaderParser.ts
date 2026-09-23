@@ -582,6 +582,7 @@ export function parseCHeader(cCode: string): ParsedAssets {
 
     // 7. If metadata JSON was missing or incomplete, reconstruct from C layout block arrays
     if (!hasMetadataComment || !metadata || (!metadata.displays && !metadata.centralBlocks && !metadata.peripheralBlocks && !(metadata as any).leftBlocks && !metadata.peripheralScreens)) {
+      const seenRawWidgetTypes = new Set<string>();
       const parseCBlocks = (arrayName: string, side: 'central' | 'peripheral' | string) => {
         const arrMatch = cCode.match(new RegExp(`${arrayName}\\[[^\\]]*\\]\\s*=\\s*\\{([\\s\\S]*?)\\};`));
         if (!arrMatch || !arrMatch[1]) return undefined;
@@ -666,7 +667,20 @@ export function parseCHeader(cCode: string): ParsedAssets {
                     widgetType = 'animation';
                     defaultName = 'Animation';
                     break;
+                  case '12':
+                  case 'WIDGET_TYPE_TYPEWRITER':
+                    widgetType = 'typewriter';
+                    defaultName = 'Typewriter';
+                    break;
+                  case '13':
+                  case 'WIDGET_TYPE_KEYPRESS':
+                    widgetType = 'keypress';
+                    defaultName = 'Keypress';
+                    break;
                 }
+
+                const modeMatch = body.match(/\.mode\s*=\s*(-?\d+)/);
+                const blockMode = modeMatch ? parseInt(modeMatch[1], 10) : 0;
 
                 let customText: string | undefined;
                 if (textMatch && textMatch[1] && textMatch[1] !== 'NULL' && textMatch[1] !== '0') {
@@ -677,19 +691,19 @@ export function parseCHeader(cCode: string): ParsedAssets {
                   }
                 }
 
-                const p1Match = body.match(/\.param1\s*=\s*(-?\d+)/);
-                const p2Match = body.match(/\.param2\s*=\s*(-?\d+)/);
-                const p3Match = body.match(/\.param3\s*=\s*(-?\d+)/);
-                const param1 = p1Match ? parseInt(p1Match[1], 10) : 0;
-                const param2 = p2Match ? parseInt(p2Match[1], 10) : 0;
-                const param3 = p3Match ? parseInt(p3Match[1], 10) : 0;
+                const p1Match = body.match(/\.param1\s*=\s*(-?\d+(?:\.\d+)?)/);
+                const p2Match = body.match(/\.param2\s*=\s*(-?\d+(?:\.\d+)?)/);
+                const p3Match = body.match(/\.param3\s*=\s*(-?\d+(?:\.\d+)?)/);
+                const param1 = p1Match ? parseFloat(p1Match[1]) : 0;
+                const param2 = p2Match ? parseFloat(p2Match[1]) : 0;
+                const param3 = p3Match ? parseFloat(p3Match[1]) : 0;
 
                 const blockId = `${side}-${widgetType}-${idx++}`;
                 const parsedBlock: LayoutBlock = {
                   id: blockId,
                   widgetType,
                   instanceId: `inst_${blockId}`,
-                  name: customText || defaultName,
+                  name: (widgetType === 'keypress' && customText && customText.startsWith('SYMBOL_')) ? defaultName : (customText || defaultName),
                   x: xMatch ? parseInt(xMatch[1], 10) : 0,
                   y: yMatch ? parseInt(yMatch[1], 10) : 0,
                   width: wMatch ? parseInt(wMatch[1], 10) : 16,
@@ -787,6 +801,98 @@ export function parseCHeader(cCode: string): ParsedAssets {
                     };
                     metadata.widgetInstances['animation'] = [animInst];
                     metadata.widgetInstances['loop'] = [{ ...animInst, widgetTypeId: 'loop' }];
+                  }
+                } else if (widgetType === 'typewriter') {
+                  if (!metadata) metadata = { version: 1 };
+                  if (!metadata.widgetInstances) metadata.widgetInstances = {};
+                  if (!metadata.widgetInstances['typewriter'] || metadata.widgetInstances['typewriter'].length === 0) {
+                    const twMode = blockMode === 1 ? 'spot' : blockMode === 2 ? 'random' : 'inline';
+                    const twDir = param1 === 1 ? 'ew' : param1 === 2 ? 'ns' : param1 === 3 ? 'sn' : 'we';
+                    const twCleaning = param2 >= 0 ? param2 : 0;
+                    const twFontSize = p3Match
+                      ? (param3 === 1 ? 'big' : (param3 === 2 ? 'both' : 'small'))
+                      : (twMode === 'random' ? 'both' : 'small');
+                    const twLetterBank = blockMode === 2 ? (param1 > 0 ? param1 : 20) : undefined;
+                    metadata.widgetInstances['typewriter'] = [{
+                      id: parsedBlock.instanceId!,
+                      widgetTypeId: 'typewriter',
+                      label: 'Typewriter',
+                      config: {
+                        mode: twMode,
+                        typewriterMode: twMode,
+                        typewriterDirection: twDir,
+                        typewriterCleaning: twCleaning,
+                        ...(twLetterBank !== undefined ? { typewriterLetterBank: twLetterBank, typewriterBankSize: twLetterBank } : {}),
+                        typewriterWidth: parsedBlock.width,
+                        typewriterHeight: parsedBlock.height,
+                        fontSize: twFontSize,
+                        typewriterFadeType: 'instant',
+                        typewriterFadeTime: 0.5,
+                      },
+                      slots: {},
+                    }];
+                  }
+                } else if (widgetType === 'keypress') {
+                  if (!metadata) metadata = { version: 1 };
+                  if (!metadata.widgetInstances) metadata.widgetInstances = {};
+                  if (!metadata.widgetInstances['keypress']) metadata.widgetInstances['keypress'] = [];
+                  const existingKp = metadata.widgetInstances['keypress'].find(i => i.id === parsedBlock.instanceId);
+                  if (!hasMetadataComment || !existingKp) {
+                    const symIdsMatch = body.match(/\.symbol_ids\s*=\s*\{([^}]+)\}/);
+                    const textsMatch = body.match(/\.text_entries\s*=\s*\{([^}]+)\}/);
+                    const symIdMatch = body.match(/\.symbol_id\s*=\s*([A-Za-z0-9_]+)/);
+
+                    const parsedSyms = symIdsMatch && symIdsMatch[1]
+                      ? symIdsMatch[1].split(',').map(s => s.trim()).filter(s => s && s !== '0' && s !== 'NULL')
+                      : [];
+                    const parsedTexts = textsMatch && textsMatch[1]
+                      ? textsMatch[1].split(',').map(s => {
+                          const t = s.trim();
+                          try { return JSON.parse(t); } catch { return t.replace(/^"|"$/g, ''); }
+                        }).filter(s => s && s !== 'NULL' && s !== '0')
+                      : [];
+
+                    const elements: import('../types/widget').KeypressElement[] = [];
+                    const count = Math.min(parsedSyms.length, parsedTexts.length);
+                    for (let ei = 0; ei < count; ei++) {
+                      elements.push({ key: parsedTexts[ei], symbolId: parsedSyms[ei] });
+                    }
+
+                    if (elements.length === 0) {
+                      elements.push(
+                        { key: 'ArrowUp', symbolId: 'SYMBOL_ARROW_UP' },
+                        { key: 'ArrowDown', symbolId: 'SYMBOL_ARROW_DOWN' },
+                        { key: 'ArrowLeft', symbolId: 'SYMBOL_ARROW_LEFT' },
+                        { key: 'ArrowRight', symbolId: 'SYMBOL_ARROW_RIGHT' },
+                      );
+                    }
+
+                    const idleSymId = ((blockMode === 1 || (symIdMatch && !parsedSyms.includes(symIdMatch[1]))) && symIdMatch && symIdMatch[1] !== '0' && symIdMatch[1] !== 'NULL')
+                      ? symIdMatch[1]
+                      : undefined;
+
+                    const newInst = {
+                      id: parsedBlock.instanceId!,
+                      widgetTypeId: 'keypress',
+                      label: 'Keypress',
+                      config: {
+                        mode: 'symbol' as const,
+                        idleSymbolId: idleSymId,
+                        keypressElements: elements,
+                      },
+                      slots: {},
+                    };
+
+                    if (!hasMetadataComment) {
+                      if (!seenRawWidgetTypes.has('keypress')) {
+                        seenRawWidgetTypes.add('keypress');
+                        metadata.widgetInstances['keypress'] = [newInst];
+                      } else {
+                        metadata.widgetInstances['keypress'].push(newInst);
+                      }
+                    } else if (!existingKp) {
+                      metadata.widgetInstances['keypress'].push(newInst);
+                    }
                   }
                 }
               }
@@ -1082,6 +1188,35 @@ export function parseCHeader(cCode: string): ParsedAssets {
         Object.values(metadata.peripheralScreens).forEach(ps => {
           reconcileAnimationBlocks(ps.blocks);
           reconcileAnimationBlocks(ps.idleBlocks);
+        });
+      }
+
+      // Reconcile blocks with widget instances for typewriter to ensure natural dimensions
+      const reconcileTypewriterBlocks = (blockList?: LayoutBlock[]) => {
+        if (!blockList) return;
+        const twDef = getWidgetDefinition('typewriter');
+        if (!twDef) return;
+        blockList.forEach(block => {
+          const type = block.widgetType || block.id;
+          const normType = normalizeWidgetType(type);
+          if (normType === 'typewriter') {
+            const inst = resolveWidgetInstance(metadata?.widgetInstances, normType, block.instanceId);
+            if (inst) {
+              const naturalSize = getWidgetNaturalSize(twDef, symbolSlices, inst, parsedSmall, fontMappings);
+              if (!block.width) block.width = naturalSize.width;
+              if (!block.height) block.height = naturalSize.height;
+            }
+          }
+        });
+      };
+      reconcileTypewriterBlocks(metadata.centralBlocks);
+      reconcileTypewriterBlocks(metadata.peripheralBlocks);
+      reconcileTypewriterBlocks(metadata.idleCentralBlocks);
+      reconcileTypewriterBlocks(metadata.idlePeripheralBlocks);
+      if (metadata.peripheralScreens) {
+        Object.values(metadata.peripheralScreens).forEach(ps => {
+          reconcileTypewriterBlocks(ps.blocks);
+          reconcileTypewriterBlocks(ps.idleBlocks);
         });
       }
     }
@@ -1607,6 +1742,8 @@ static const struct display_font font_default = {
     c += `    WIDGET_TYPE_CAPS_LOCK,\n`;
     c += `    WIDGET_TYPE_BONGO,\n`;
     c += `    WIDGET_TYPE_LOOP,\n`;
+    c += `    WIDGET_TYPE_TYPEWRITER,\n`;
+    c += `    WIDGET_TYPE_KEYPRESS,\n`;
     c += `};\n\n`;
     c += `#define MAX_BLOCK_SYMBOLS 16\n`;
     c += `#define MAX_BLOCK_TEXTS 16\n\n`;
@@ -1643,6 +1780,8 @@ static const struct display_font font_default = {
       else if (normType.includes('screensaver') || normType.includes('art') || normType.includes('mascot')) enumType = 'WIDGET_TYPE_SCREENSAVER';
       else if (normType.includes('bongo')) enumType = 'WIDGET_TYPE_BONGO';
       else if (normType.includes('loop') || normType.includes('animation')) enumType = 'WIDGET_TYPE_LOOP';
+      else if (normType.includes('typewriter')) enumType = 'WIDGET_TYPE_TYPEWRITER';
+      else if (normType.includes('keypress') || normType.includes('key-press')) enumType = 'WIDGET_TYPE_KEYPRESS';
 
       const lookupKey = (normType.includes('connection') || normType.includes('output')) ? 'connection'
         : normType.includes('battery') ? 'battery'
@@ -1655,11 +1794,13 @@ static const struct display_font font_default = {
         : normType.includes('caps') ? 'caps-lock'
         : normType.includes('bongo') ? 'bongo'
         : (normType.includes('animation') || normType.includes('loop')) ? 'animation'
+        : normType.includes('typewriter') ? 'typewriter'
+        : (normType.includes('keypress') || normType.includes('key-press')) ? 'keypress'
         : normType;
 
       const instance = resolveWidgetInstance(metadata.widgetInstances, lookupKey, block.instanceId);
 
-      const mode = (instance?.config?.mode === 'font') ? 1 : 0;
+      let mode = (instance?.config?.mode === 'font') ? 1 : 0;
       let param1 = 0;
       let param2 = 0;
       let param3 = 0;
@@ -1670,6 +1811,21 @@ static const struct display_font font_default = {
       } else if (enumType === 'WIDGET_TYPE_LOOP') {
         param1 = instance?.config?.loopSpeedMs ?? 250;
         param2 = (instance?.config?.loop ?? true) ? 0 : 1;
+      } else if (enumType === 'WIDGET_TYPE_TYPEWRITER') {
+        const twMode = instance?.config?.typewriterMode || (['inline', 'spot', 'random'].includes(instance?.config?.mode as string) ? instance?.config?.mode : 'inline');
+        mode = twMode === 'spot' ? 1 : twMode === 'random' ? 2 : 0;
+        const dir = instance?.config?.typewriterDirection || 'we';
+        param1 = twMode === 'random'
+          ? (instance?.config?.typewriterBankSize ?? instance?.config?.typewriterLetterBank ?? 20)
+          : (dir === 'ew' ? 1 : dir === 'ns' ? 2 : dir === 'sn' ? 3 : 0);
+        param2 = instance?.config?.typewriterCleaning ?? 0;
+        const configuredFontSize = instance?.config?.fontSize || (twMode === 'random' ? 'both' : 'small');
+        param3 = configuredFontSize === 'big' ? 1 : (configuredFontSize === 'both' ? 2 : 0);
+      } else if (enumType === 'WIDGET_TYPE_KEYPRESS') {
+        const elements = instance?.config?.keypressElements || instance?.config?.keypressBindings || [];
+        const idleSym = instance?.config?.idleSymbolId || instance?.config?.keypressIdleSymbolId;
+        mode = idleSym ? 1 : 0;
+        param1 = elements.length;
       } else {
         if (instance?.config?.fontSize === 'big') {
           param3 = 1;
@@ -1683,7 +1839,14 @@ static const struct display_font font_default = {
 
       const symbolIds: string[] = [];
       let loopTotalFrames = 0;
-      if (enumType === 'WIDGET_TYPE_OUTPUT_STATUS') {
+      if (enumType === 'WIDGET_TYPE_KEYPRESS') {
+        const elements = instance?.config?.keypressElements || instance?.config?.keypressBindings || [];
+        for (const el of elements) {
+          if (symbolIds.length < 16) {
+            symbolIds.push(el.symbolId);
+          }
+        }
+      } else if (enumType === 'WIDGET_TYPE_OUTPUT_STATUS') {
         const usbGid = instance?.config?.groupId || 'SYMBOL_USB';
         const usbMatch = symbolSlices.find(s => (s.groupId === usbGid && s.groupOrder === 1) || s.groupId === usbGid || s.id === usbGid)
           || symbolSlices.find(s => s.id.includes('USB') || s.groupId?.includes('USB'));
@@ -1792,14 +1955,24 @@ static const struct display_font font_default = {
         }
       }
 
-      const symbolId = symbolIds[0] || (symbolSlices[0]?.id || '0');
+      const keypressIdleId = (enumType === 'WIDGET_TYPE_KEYPRESS')
+        ? (instance?.config?.idleSymbolId || instance?.config?.keypressIdleSymbolId)
+        : undefined;
+      const symbolId = keypressIdleId || symbolIds[0] || (symbolSlices[0]?.id || '0');
       const symbolCount = (enumType === 'WIDGET_TYPE_LOOP' && loopTotalFrames > 0)
         ? loopTotalFrames
         : symbolIds.length;
       const symbolIdsStr = symbolIds.length > 0 ? `{ ${symbolIds.join(', ')} }` : `{ 0 }`;
 
       const textEntries: string[] = [];
-      if (enumType === 'WIDGET_TYPE_OUTPUT_STATUS' && instance?.config?.textEntries && instance.config.textEntries.length > 0) {
+      if (enumType === 'WIDGET_TYPE_KEYPRESS') {
+        const elements = instance?.config?.keypressElements || instance?.config?.keypressBindings || [];
+        for (const el of elements) {
+          if (textEntries.length < 16) {
+            textEntries.push(JSON.stringify(el.key));
+          }
+        }
+      } else if (enumType === 'WIDGET_TYPE_OUTPUT_STATUS' && instance?.config?.textEntries && instance.config.textEntries.length > 0) {
         if (instance.config.textEntries.length >= 7) {
           textEntries.push(JSON.stringify(instance.config.textEntries[0]));
           for (let i = 2; i < instance.config.textEntries.length && textEntries.length < 16; i++) {
@@ -1827,7 +2000,9 @@ static const struct display_font font_default = {
       const textEntriesStr = textEntries.length > 0 ? `{ ${textEntries.join(', ')} }` : `{ NULL }`;
 
       let customText = 'NULL';
-      if (textEntries.length > 0) {
+      if (keypressIdleId) {
+        customText = JSON.stringify(keypressIdleId);
+      } else if (textEntries.length > 0) {
         customText = textEntries[0];
       } else if (enumType === 'WIDGET_TYPE_BRANDING' && block.name && !block.name.includes('Default') && !block.name.includes('Text') && !block.name.includes('Model')) {
         customText = JSON.stringify(block.name);
@@ -1844,7 +2019,7 @@ static const struct display_font font_default = {
           ? instance.config.textEntries[0]
           : (customText !== 'NULL' ? JSON.parse(customText) : 'ZMK')) || 'ZMK';
         const mappings = (fontInput.length > 0 && 'chars' in fontInput[0]) ? (fontInput as FontCharMapping[]) : undefined;
-        const fontSize = instance?.config?.fontSize || 'small';
+        const fontSize = instance?.config?.fontSize === 'big' ? 'big' : 'small';
         bw = Math.min(32, Math.max(measureTextWidth(textToMeasure.toUpperCase(), smallGlyphs, mappings, fontSize), 4));
         bh = fontSize === 'big' ? 10 : 5;
       }
@@ -1901,6 +2076,17 @@ static const struct display_font font_default = {
         const animDef = getWidgetDefinition('animation');
         if (animDef) {
           const naturalSize = getWidgetNaturalSize(animDef, symbolSlices, instance);
+          bw = naturalSize.width;
+          bh = naturalSize.height;
+          block.width = bw;
+          block.height = bh;
+        }
+      }
+
+      if (enumType === 'WIDGET_TYPE_TYPEWRITER') {
+        const twDef = getWidgetDefinition('typewriter');
+        if (twDef) {
+          const naturalSize = getWidgetNaturalSize(twDef, symbolSlices, instance);
           bw = naturalSize.width;
           bh = naturalSize.height;
           block.width = bw;

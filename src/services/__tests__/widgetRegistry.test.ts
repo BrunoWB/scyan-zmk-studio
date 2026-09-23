@@ -29,9 +29,10 @@ import {
   DEFAULT_FONT_MAPPINGS,
   type SpriteSlice,
   type LayoutBlock,
+  type FontCharMapping,
 } from '../../types/zmk';
 import { getDefaultAssets } from '../cHeaderParser';
-import type { WidgetRenderContext } from '../../types/widget';
+import type { WidgetRenderContext, WidgetInstance } from '../../types/widget';
 
 describe('Widget Registry - Single Source of Truth', () => {
   let symbolsGrid: BwpxGrid;
@@ -284,6 +285,8 @@ describe('Widget Registry - Single Source of Truth', () => {
     expect(getWidgetDefinition('layer-banner')?.requiresMaster).toBe(true);
     expect(getWidgetDefinition('wpm')?.requiresMaster).toBe(true);
     expect(getWidgetDefinition('wpm-chart')?.requiresMaster).toBe(true);
+    expect(getWidgetDefinition('typewriter')?.requiresMaster).toBe(true);
+    expect(getWidgetDefinition('keypress')?.requiresMaster).toBe(true);
 
     // Peripheral-capable widgets should not require master
     expect(getWidgetDefinition('battery')?.requiresMaster).toBeFalsy();
@@ -377,11 +380,13 @@ describe('Widget Registry - Single Source of Truth', () => {
         'caps-lock',
       ]);
 
-      expect(tier2.length).toBe(3);
+      expect(tier2.length).toBe(5);
       expect(tier2.map(w => w.id)).toEqual([
         'layer-banner',
         'wpm',
         'wpm-chart',
+        'typewriter',
+        'keypress',
       ]);
 
       expect(tier3.length).toBe(4);
@@ -1508,6 +1513,2504 @@ describe('Widget Registry - Single Source of Truth', () => {
       const wpmInst = createDefaultWidgetInstance('wpm', DEFAULT_SYMBOL_SLICES);
       expect(wpmInst.config?.groupId).toBe('SYMBOL_ARROW_HEAD');
       expect(wpmInst.config?.targetValue).toBe(70);
+
+      const typewriterInst = createDefaultWidgetInstance('typewriter', DEFAULT_SYMBOL_SLICES);
+      expect(typewriterInst.widgetTypeId).toBe('typewriter');
+      expect(typewriterInst.config?.typewriterMode).toBe('inline');
+      expect(typewriterInst.config?.typewriterDirection).toBe('we');
+      expect(typewriterInst.config?.typewriterWidth).toBe(32);
+    });
+  });
+
+  describe('Typewriter Widget', () => {
+    const typewriterDef = WIDGET_REGISTRY.find(w => w.id === 'typewriter')!;
+
+    it('has valid registry definition in Tier 2 with typing category', () => {
+      expect(typewriterDef).toBeDefined();
+      expect(typewriterDef.tier).toBe(2);
+      expect(typewriterDef.category).toBe('typing');
+      expect(typewriterDef.icon).toBe('keyboard');
+      expect(normalizeWidgetType('typewriter')).toBe('typewriter');
+      expect(normalizeWidgetType('block-typewriter')).toBe('typewriter');
+    });
+
+    describe('getWidgetNaturalSize', () => {
+      it('calculates size for spot mode (small 5x5, big 10x10)', () => {
+        const spotSmallInst: WidgetInstance = {
+          id: 't-spot-s',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Spot Small',
+          config: { mode: 'spot' as const, typewriterMode: 'spot' as const, fontSize: 'small' as const },
+        };
+        const spotBigInst: WidgetInstance = {
+          id: 't-spot-b',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Spot Big',
+          config: { mode: 'spot' as const, typewriterMode: 'spot' as const, fontSize: 'big' as const },
+        };
+
+        const sizeSmall = getWidgetNaturalSize(typewriterDef, [], spotSmallInst, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS);
+        expect(sizeSmall).toEqual({ width: 5, height: 5 });
+
+        const sizeBig = getWidgetNaturalSize(typewriterDef, [], spotBigInst, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS);
+        expect(sizeBig).toEqual({ width: 10, height: 10 });
+      });
+
+      it('calculates size for random mode using custom width and height', () => {
+        const randomInst: WidgetInstance = {
+          id: 't-rnd',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Random',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 28,
+            typewriterHeight: 22,
+          },
+        };
+        const size = getWidgetNaturalSize(typewriterDef, [], randomInst, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS);
+        expect(size).toEqual({ width: 28, height: 22 });
+      });
+
+      it('calculates size for inline horizontal mode (height calculated from font, user chooses width)', () => {
+        const inlineWeSmall: WidgetInstance = {
+          id: 't-we-s',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Inline WE',
+          config: {
+            mode: 'inline' as const,
+            typewriterMode: 'inline' as const,
+            typewriterDirection: 'we' as const,
+            typewriterWidth: 30,
+            fontSize: 'small' as const,
+          },
+        };
+        const inlineEwBig: WidgetInstance = {
+          id: 't-ew-b',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Inline EW',
+          config: {
+            mode: 'inline' as const,
+            typewriterMode: 'inline' as const,
+            typewriterDirection: 'ew' as const,
+            typewriterWidth: 26,
+            fontSize: 'big' as const,
+          },
+        };
+
+        const sizeWe = getWidgetNaturalSize(typewriterDef, [], inlineWeSmall, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS);
+        expect(sizeWe).toEqual({ width: 30, height: 5 });
+
+        const sizeEw = getWidgetNaturalSize(typewriterDef, [], inlineEwBig, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS);
+        expect(sizeEw).toEqual({ width: 26, height: 10 });
+      });
+
+      it('calculates size for inline vertical mode (width calculated from font, user chooses height)', () => {
+        const inlineNsSmall: WidgetInstance = {
+          id: 't-ns-s',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Inline NS',
+          config: {
+            mode: 'inline' as const,
+            typewriterMode: 'inline' as const,
+            typewriterDirection: 'ns' as const,
+            typewriterHeight: 48,
+            fontSize: 'small' as const,
+          },
+        };
+        const inlineSnBig: WidgetInstance = {
+          id: 't-sn-b',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Inline SN',
+          config: {
+            mode: 'inline' as const,
+            typewriterMode: 'inline' as const,
+            typewriterDirection: 'sn' as const,
+            typewriterHeight: 64,
+            fontSize: 'big' as const,
+          },
+        };
+
+        const sizeNs = getWidgetNaturalSize(typewriterDef, [], inlineNsSmall, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS);
+        expect(sizeNs).toEqual({ width: 5, height: 48 });
+
+        const sizeSn = getWidgetNaturalSize(typewriterDef, [], inlineSnBig, DEFAULT_FONT_GLYPHS, DEFAULT_FONT_MAPPINGS);
+        expect(sizeSn).toEqual({ width: 10, height: 64 });
+      });
+    });
+
+    describe('render', () => {
+      it('renders in spot mode, keeping only latest letter and wiping after cleaning timeout', () => {
+        const grid = new BwpxGrid(32, 16);
+        const inst: WidgetInstance = {
+          id: 't-spot',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Spot',
+          config: {
+            mode: 'spot' as const,
+            typewriterMode: 'spot' as const,
+            typewriterCleaning: 2, // 2 seconds
+          },
+        };
+
+        const ctx: WidgetRenderContext = {
+          ...renderContext,
+          instances: { typewriter: [inst] },
+          activeInstanceId: inst.id,
+          blockWidth: 32,
+          blockHeight: 16,
+          typewriterState: {
+            text: 'HELLO',
+            lastChar: 'O',
+            lastTimestamp: 1000,
+          },
+          animationTimestamp: 1500, // 0.5s idle -> should be visible
+        };
+
+        // Render with 'O'
+        renderWidgetById('typewriter', grid, 0, ctx);
+        let nonZeroCount = 0;
+        for (let y = 0; y < 16; y++) {
+          for (let x = 0; x < 32; x++) {
+            if (grid.get(x, y)) nonZeroCount++;
+          }
+        }
+        expect(nonZeroCount).toBeGreaterThan(0);
+
+        // Advance animationTimestamp past cleaning window (1000 + 2000 = 3000)
+        const wipedGrid = new BwpxGrid(32, 16);
+        const wipedCtx = { ...ctx, animationTimestamp: 4000 };
+        renderWidgetById('typewriter', wipedGrid, 0, wipedCtx);
+        let wipedCount = 0;
+        for (let y = 0; y < 16; y++) {
+          for (let x = 0; x < 32; x++) {
+            if (wipedGrid.get(x, y)) wipedCount++;
+          }
+        }
+        expect(wipedCount).toBe(0);
+      });
+
+      it('renders in random mode at specified coordinates and wipes when idle', () => {
+        const grid = new BwpxGrid(32, 32);
+        const inst: WidgetInstance = {
+          id: 't-rnd',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Random',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 32,
+            typewriterHeight: 32,
+            typewriterCleaning: 3,
+          },
+        };
+
+        const ctx: WidgetRenderContext = {
+          ...renderContext,
+          instances: { typewriter: [inst] },
+          activeInstanceId: inst.id,
+          blockWidth: 32,
+          blockHeight: 32,
+          typewriterState: {
+            text: 'Z',
+            lastChar: 'Z',
+            lastTimestamp: 100,
+            randomX: 10,
+            randomY: 10,
+          },
+          animationTimestamp: 500,
+        };
+
+        renderWidgetById('typewriter', grid, 0, ctx);
+        let count = 0;
+        for (let y = 0; y < 32; y++) {
+          for (let x = 0; x < 32; x++) {
+            if (grid.get(x, y)) count++;
+          }
+        }
+        expect(count).toBeGreaterThan(0);
+
+        // Test wiping after 3s
+        const wipedGrid = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', wipedGrid, 0, { ...ctx, animationTimestamp: 3500 });
+        let wipedCount = 0;
+        for (let y = 0; y < 32; y++) {
+          for (let x = 0; x < 32; x++) {
+            if (wipedGrid.get(x, y)) wipedCount++;
+          }
+        }
+        expect(wipedCount).toBe(0);
+      });
+
+      it('supports normalized random coordinate scaling', () => {
+        const grid = new BwpxGrid(64, 32);
+        const inst: WidgetInstance = {
+          id: 't-rnd-norm',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Random Normalized',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 64,
+            typewriterHeight: 32,
+          },
+        };
+
+        const ctx: WidgetRenderContext = {
+          ...renderContext,
+          instances: { typewriter: [inst] },
+          activeInstanceId: inst.id,
+          blockWidth: 64,
+          blockHeight: 32,
+          typewriterState: {
+            text: 'A',
+            lastChar: 'A',
+            lastTimestamp: 100,
+            randomX: 0.8, // 80% across the 64px width
+            randomY: 0.5, // 50% down the 32px height
+          },
+        };
+
+        renderWidgetById('typewriter', grid, 0, ctx);
+        let rightHalfCount = 0;
+        for (let y = 0; y < 32; y++) {
+          for (let x = 32; x < 64; x++) {
+            if (grid.get(x, y)) rightHalfCount++;
+          }
+        }
+        expect(rightHalfCount).toBeGreaterThan(0);
+      });
+
+      it('manages letter bank in random mode with FIFO queue keeping up to bank capacity', () => {
+        const grid = new BwpxGrid(32, 32);
+        const inst: WidgetInstance = {
+          id: 't-rnd-bank',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Random Bank',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 32,
+            typewriterHeight: 32,
+            typewriterLetterBank: 3,
+            fontSize: 'small',
+          },
+        };
+
+        const ctx: WidgetRenderContext = {
+          ...renderContext,
+          instances: { typewriter: [inst] },
+          activeInstanceId: inst.id,
+          blockWidth: 32,
+          blockHeight: 32,
+          typewriterState: {
+            randomLetters: [
+              { char: 'A', x: 2, y: 2 },
+              { char: 'B', x: 12, y: 12 },
+              { char: 'C', x: 22, y: 22 },
+            ],
+            lastTimestamp: 1000,
+          },
+          animationTimestamp: 1000,
+        };
+
+        renderWidgetById('typewriter', grid, 0, ctx);
+
+        // Verify pixels in the 3 regions where A, B, C are placed
+        const countRegion = (g: BwpxGrid, minX: number, maxX: number, minY: number, maxY: number) => {
+          let count = 0;
+          for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
+              if (g.get(x, y)) count++;
+            }
+          }
+          return count;
+        };
+
+        expect(countRegion(grid, 2, 6, 2, 6)).toBeGreaterThan(0); // 'A'
+        expect(countRegion(grid, 12, 16, 12, 16)).toBeGreaterThan(0); // 'B'
+        expect(countRegion(grid, 22, 26, 22, 26)).toBeGreaterThan(0); // 'C'
+
+        // Now push a 4th letter 'D' at x:2, y:22. Bank capacity is 3, so oldest ('A') is dropped from FIFO
+        const gridAfterD = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', gridAfterD, 0, {
+          ...ctx,
+          typewriterState: {
+            randomLetters: [
+              { char: 'A', x: 2, y: 2 },
+              { char: 'B', x: 12, y: 12 },
+              { char: 'C', x: 22, y: 22 },
+              { char: 'D', x: 2, y: 22 },
+            ],
+            lastTimestamp: 1500,
+          },
+          animationTimestamp: 1500,
+        });
+
+        // 'A' at (2, 2) must have disappeared
+        expect(countRegion(gridAfterD, 2, 6, 2, 6)).toBe(0);
+        // 'B', 'C', 'D' must still be present
+        expect(countRegion(gridAfterD, 12, 16, 12, 16)).toBeGreaterThan(0); // 'B'
+        expect(countRegion(gridAfterD, 22, 26, 22, 26)).toBeGreaterThan(0); // 'C'
+        expect(countRegion(gridAfterD, 2, 6, 22, 26)).toBeGreaterThan(0); // 'D'
+      });
+
+      it('disperses letters across a 128px tall box when using normalized coordinates', () => {
+        const inst: WidgetInstance = {
+          id: 't-rnd-128',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Random 128',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 32,
+            typewriterHeight: 128,
+            typewriterLetterBank: 10,
+            fontSize: 'small',
+          },
+        };
+
+        const grid = new BwpxGrid(32, 128);
+        const ctx: WidgetRenderContext = {
+          ...renderContext,
+          instances: { typewriter: [inst] },
+          activeInstanceId: inst.id,
+          blockWidth: 32,
+          blockHeight: 128,
+          typewriterState: {
+            randomLetters: [
+              { char: 'T', x: 0.1, y: 0.1 },
+              { char: 'Y', x: 0.3, y: 0.4 },
+              { char: 'P', x: 0.5, y: 0.7 },
+              { char: 'E', x: 0.2, y: 0.95 },
+            ],
+            lastTimestamp: 1000,
+          },
+          animationTimestamp: 1000,
+        };
+
+        renderWidgetById('typewriter', grid, 0, ctx);
+
+        const countRegion = (g: BwpxGrid, minX: number, maxX: number, minY: number, maxY: number) => {
+          let count = 0;
+          for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
+              if (g.get(x, y)) count++;
+            }
+          }
+          return count;
+        };
+
+        // 'T' near top (y around 12)
+        expect(countRegion(grid, 0, 31, 0, 30)).toBeGreaterThan(0);
+        // 'Y' in upper-middle (y around 49)
+        expect(countRegion(grid, 0, 31, 35, 65)).toBeGreaterThan(0);
+        // 'P' in lower-middle (y around 86)
+        expect(countRegion(grid, 0, 31, 70, 100)).toBeGreaterThan(0);
+        // 'E' near bottom (y around 117)
+        expect(countRegion(grid, 0, 31, 105, 127)).toBeGreaterThan(0);
+      });
+
+      it('disperses letters across 128px height when using deterministic fallback hash', () => {
+        const inst: WidgetInstance = {
+          id: 't-rnd-hash-128',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Random Hash 128',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 32,
+            typewriterHeight: 128,
+            typewriterLetterBank: 16,
+            fontSize: 'small',
+          },
+        };
+
+        const grid = new BwpxGrid(32, 128);
+        const ctx: WidgetRenderContext = {
+          ...renderContext,
+          instances: { typewriter: [inst] },
+          activeInstanceId: inst.id,
+          blockWidth: 32,
+          blockHeight: 128,
+          typewriterText: 'TESBSTABTSRRETRA',
+          typewriterState: {
+            text: 'TESBSTABTSRRETRA',
+            lastTimestamp: 1000,
+          },
+          animationTimestamp: 1000,
+        };
+
+        renderWidgetById('typewriter', grid, 0, ctx);
+
+        const countRegion = (g: BwpxGrid, minX: number, maxX: number, minY: number, maxY: number) => {
+          let count = 0;
+          for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
+              if (g.get(x, y)) count++;
+            }
+          }
+          return count;
+        };
+
+        // Letters must be dispersed across top, middle, and bottom thirds of the 128px space
+        const topCount = countRegion(grid, 0, 31, 0, 42);
+        const midCount = countRegion(grid, 0, 31, 43, 85);
+        const botCount = countRegion(grid, 0, 31, 86, 127);
+
+        expect(topCount).toBeGreaterThan(0);
+        expect(midCount).toBeGreaterThan(0);
+        expect(botCount).toBeGreaterThan(0);
+      });
+
+      it('preserves exact pixel placement for integer coordinates like (1, 1) without blowing up', () => {
+        const inst: WidgetInstance = {
+          id: 't-rnd-pixel-fidelity',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Pixel Fidelity',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 32,
+            typewriterHeight: 128,
+            typewriterLetterBank: 5,
+            fontSize: 'small',
+          },
+        };
+
+        const grid = new BwpxGrid(32, 128);
+        const ctx: WidgetRenderContext = {
+          ...renderContext,
+          instances: { typewriter: [inst] },
+          activeInstanceId: inst.id,
+          blockWidth: 32,
+          blockHeight: 128,
+          typewriterState: {
+            randomLetters: [
+              { char: 'A', x: 1, y: 1 },
+            ],
+            lastTimestamp: 1000,
+          },
+          animationTimestamp: 1000,
+        };
+
+        renderWidgetById('typewriter', grid, 0, ctx);
+
+        const countRegion = (g: BwpxGrid, minX: number, maxX: number, minY: number, maxY: number) => {
+          let count = 0;
+          for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
+              if (g.get(x, y)) count++;
+            }
+          }
+          return count;
+        };
+
+        // 'A' must be at (1, 1), not scaled to the bottom (123)
+        expect(countRegion(grid, 1, 5, 1, 5)).toBeGreaterThan(0);
+        expect(countRegion(grid, 0, 31, 50, 127)).toBe(0);
+      });
+
+      it('correctly maps boundary normalized coordinates including (0, 0.95) and (0.5, 1.0)', () => {
+        const inst: WidgetInstance = {
+          id: 't-rnd-norm-bounds',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Norm Bounds',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 32,
+            typewriterHeight: 128,
+            typewriterLetterBank: 5,
+            fontSize: 'small',
+          },
+        };
+
+        const grid = new BwpxGrid(32, 128);
+        const ctx: WidgetRenderContext = {
+          ...renderContext,
+          instances: { typewriter: [inst] },
+          activeInstanceId: inst.id,
+          blockWidth: 32,
+          blockHeight: 128,
+          typewriterState: {
+            randomLetters: [
+              { char: 'A', x: 0, y: 0.95 },
+              { char: 'B', x: 0.5, y: 1.0 },
+            ],
+            lastTimestamp: 1000,
+          },
+          animationTimestamp: 1000,
+        };
+
+        renderWidgetById('typewriter', grid, 0, ctx);
+
+        const countRegion = (g: BwpxGrid, minX: number, maxX: number, minY: number, maxY: number) => {
+          let count = 0;
+          for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
+              if (g.get(x, y)) count++;
+            }
+          }
+          return count;
+        };
+
+        // 'A' at x=0, y=0.95 -> near bottom (y around 117)
+        expect(countRegion(grid, 0, 10, 110, 127)).toBeGreaterThan(0);
+        // 'B' at x=0.5, y=1.0 -> at the very bottom edge (y=123)
+        expect(countRegion(grid, 10, 20, 120, 127)).toBeGreaterThan(0);
+      });
+
+      it('renders blocks to grid with dynamic typewriter height from naturalSize', () => {
+        const inst: WidgetInstance = {
+          id: 't-rnd-dyn-block',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Dyn Block',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 32,
+            typewriterHeight: 128,
+            typewriterLetterBank: 5,
+            fontSize: 'small',
+          },
+        };
+
+        const grid = new BwpxGrid(32, 128);
+        const block: LayoutBlock = {
+          id: 'block-typewriter-1',
+          name: 'Typewriter Block',
+          widgetType: 'typewriter',
+          instanceId: inst.id,
+          x: 0,
+          y: 0,
+          width: 32,
+          height: 32, // Stale default block height; should be overridden by instance's naturalSize (128)
+          enabled: true,
+        };
+
+        const ctx: WidgetRenderContext = {
+          ...renderContext,
+          instances: { typewriter: [inst] },
+          typewriterState: {
+            randomLetters: [
+              { char: 'Z', x: 0.5, y: 0.9 },
+            ],
+            lastTimestamp: 1000,
+          },
+          animationTimestamp: 1000,
+        };
+
+        renderBlocksToGrid([block], grid, ctx);
+
+        let bottomPixels = 0;
+        for (let y = 100; y < 128; y++) {
+          for (let x = 0; x < 32; x++) {
+            if (grid.get(x, y)) bottomPixels++;
+          }
+        }
+        // 'Z' should render near the bottom around y=110, proving 128 height was used instead of 32
+        expect(bottomPixels).toBeGreaterThan(0);
+      });
+
+      it('gradually empties the random mode letter bank during idle cleaning', () => {
+        const inst: WidgetInstance = {
+          id: 't-rnd-clean',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Random Idle Cleaning',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 32,
+            typewriterHeight: 32,
+            typewriterLetterBank: 3,
+            typewriterCleaning: 2, // 2 seconds per item
+            fontSize: 'small',
+          },
+        };
+
+        const ctx: WidgetRenderContext = {
+          ...renderContext,
+          instances: { typewriter: [inst] },
+          activeInstanceId: inst.id,
+          blockWidth: 32,
+          blockHeight: 32,
+          typewriterState: {
+            randomLetters: [
+              { char: 'A', x: 2, y: 2 },
+              { char: 'B', x: 12, y: 12 },
+              { char: 'C', x: 22, y: 22 },
+            ],
+            lastTimestamp: 1000,
+          },
+        };
+
+        const countRegion = (g: BwpxGrid, minX: number, maxX: number, minY: number, maxY: number) => {
+          let count = 0;
+          for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
+              if (g.get(x, y)) count++;
+            }
+          }
+          return count;
+        };
+
+        // At 1.0s elapsed (animationTimestamp: 2000): 0 cleaning intervals elapsed, all 3 letters visible
+        const grid0 = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', grid0, 0, { ...ctx, animationTimestamp: 2000 });
+        expect(countRegion(grid0, 2, 6, 2, 6)).toBeGreaterThan(0); // 'A'
+        expect(countRegion(grid0, 12, 16, 12, 16)).toBeGreaterThan(0); // 'B'
+        expect(countRegion(grid0, 22, 26, 22, 26)).toBeGreaterThan(0); // 'C'
+
+        // At 2.5s elapsed (animationTimestamp: 3500): 1 interval elapsed -> 'A' popped, 'B' and 'C' remain
+        const grid1 = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', grid1, 0, { ...ctx, animationTimestamp: 3500 });
+        expect(countRegion(grid1, 2, 6, 2, 6)).toBe(0); // 'A' popped
+        expect(countRegion(grid1, 12, 16, 12, 16)).toBeGreaterThan(0); // 'B'
+        expect(countRegion(grid1, 22, 26, 22, 26)).toBeGreaterThan(0); // 'C'
+
+        // At 4.5s elapsed (animationTimestamp: 5500): 2 intervals elapsed -> 'A' and 'B' popped, only 'C' remains
+        const grid2 = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', grid2, 0, { ...ctx, animationTimestamp: 5500 });
+        expect(countRegion(grid2, 2, 6, 2, 6)).toBe(0); // 'A' popped
+        expect(countRegion(grid2, 12, 16, 12, 16)).toBe(0); // 'B' popped
+        expect(countRegion(grid2, 22, 26, 22, 26)).toBeGreaterThan(0); // 'C' remains
+
+        // At 6.5s elapsed (animationTimestamp: 7500): 3 intervals elapsed -> bank completely emptied
+        const grid3 = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', grid3, 0, { ...ctx, animationTimestamp: 7500 });
+        let totalPixels = 0;
+        for (let y = 0; y < 32; y++) {
+          for (let x = 0; x < 32; x++) {
+            if (grid3.get(x, y)) totalPixels++;
+          }
+        }
+        expect(totalPixels).toBe(0);
+      });
+
+      it('supports letterBank property and typewriterBankSize config alias in random mode', () => {
+        const inst: WidgetInstance = {
+          id: 't-rnd-banksize',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Random Bank Size',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 32,
+            typewriterHeight: 32,
+            typewriterBankSize: 2, // bank capacity 2
+            fontSize: 'small',
+          },
+        };
+
+        const countRegion = (g: BwpxGrid, minX: number, maxX: number, minY: number, maxY: number) => {
+          let count = 0;
+          for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
+              if (g.get(x, y)) count++;
+            }
+          }
+          return count;
+        };
+
+        const grid = new BwpxGrid(32, 32);
+        // Providing 3 letters in letterBank; capacity is 2 so only B and C should survive
+        renderWidgetById('typewriter', grid, 0, {
+          ...renderContext,
+          instances: { typewriter: [inst] },
+          activeInstanceId: inst.id,
+          blockWidth: 32,
+          blockHeight: 32,
+          typewriterState: {
+            letterBank: [
+              { char: 'A', x: 2, y: 2 },
+              { char: 'B', x: 12, y: 12 },
+              { char: 'C', x: 22, y: 22 },
+            ],
+            lastTimestamp: 1000,
+          },
+          animationTimestamp: 1000,
+        });
+
+        expect(countRegion(grid, 2, 6, 2, 6)).toBe(0); // 'A' evicted by bank capacity of 2
+        expect(countRegion(grid, 12, 16, 12, 16)).toBeGreaterThan(0); // 'B'
+        expect(countRegion(grid, 22, 26, 22, 26)).toBeGreaterThan(0); // 'C'
+      });
+
+      it('supports decimal cleaning with 0.05 second steps (50ms interval)', () => {
+        const inst: WidgetInstance = {
+          id: 't-rnd-dec-clean',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Decimal Cleaning',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 32,
+            typewriterHeight: 32,
+            typewriterBankSize: 3,
+            typewriterCleaning: 0.05, // 0.05s = 50ms per item
+            fontSize: 'small',
+          },
+        };
+
+        const countRegion = (g: BwpxGrid, minX: number, maxX: number, minY: number, maxY: number) => {
+          let count = 0;
+          for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
+              if (g.get(x, y)) count++;
+            }
+          }
+          return count;
+        };
+
+        const baseCtx: WidgetRenderContext = {
+          ...renderContext,
+          instances: { typewriter: [inst] },
+          activeInstanceId: inst.id,
+          blockWidth: 32,
+          blockHeight: 32,
+          typewriterState: {
+            letterBank: [
+              { char: 'A', x: 2, y: 2 },
+              { char: 'B', x: 12, y: 12 },
+              { char: 'C', x: 22, y: 22 },
+            ],
+            lastTimestamp: 1000,
+          },
+        };
+
+        // At 30ms elapsed (timestamp: 1030): 0 intervals elapsed -> all 3 remain
+        const grid0 = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', grid0, 0, { ...baseCtx, animationTimestamp: 1030 });
+        expect(countRegion(grid0, 2, 6, 2, 6)).toBeGreaterThan(0); // 'A'
+        expect(countRegion(grid0, 12, 16, 12, 16)).toBeGreaterThan(0); // 'B'
+        expect(countRegion(grid0, 22, 26, 22, 26)).toBeGreaterThan(0); // 'C'
+
+        // At 60ms elapsed (timestamp: 1060): 1 interval of 50ms elapsed -> 'A' popped
+        const grid1 = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', grid1, 0, { ...baseCtx, animationTimestamp: 1060 });
+        expect(countRegion(grid1, 2, 6, 2, 6)).toBe(0); // 'A' popped
+        expect(countRegion(grid1, 12, 16, 12, 16)).toBeGreaterThan(0); // 'B'
+        expect(countRegion(grid1, 22, 26, 22, 26)).toBeGreaterThan(0); // 'C'
+
+        // At 110ms elapsed (timestamp: 1110): 2 intervals elapsed -> 'A' and 'B' popped
+        const grid2 = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', grid2, 0, { ...baseCtx, animationTimestamp: 1110 });
+        expect(countRegion(grid2, 2, 6, 2, 6)).toBe(0); // 'A' popped
+        expect(countRegion(grid2, 12, 16, 12, 16)).toBe(0); // 'B' popped
+        expect(countRegion(grid2, 22, 26, 22, 26)).toBeGreaterThan(0); // 'C'
+
+        // At 160ms elapsed (timestamp: 1160): 3 intervals elapsed -> bank emptied
+        const grid3 = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', grid3, 0, { ...baseCtx, animationTimestamp: 1160 });
+        let totalPix = 0;
+        for (let y = 0; y < 32; y++) {
+          for (let x = 0; x < 32; x++) {
+            if (grid3.get(x, y)) totalPix++;
+          }
+        }
+        expect(totalPix).toBe(0);
+      });
+
+      it('disables cleaning when typewriterCleaning is 0 in random mode', () => {
+        const inst: WidgetInstance = {
+          id: 't-rnd-no-clean',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter No Clean',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 32,
+            typewriterHeight: 32,
+            typewriterBankSize: 2,
+            typewriterCleaning: 0, // Off
+            fontSize: 'small',
+          },
+        };
+
+        const countRegion = (g: BwpxGrid, minX: number, maxX: number, minY: number, maxY: number) => {
+          let count = 0;
+          for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
+              if (g.get(x, y)) count++;
+            }
+          }
+          return count;
+        };
+
+        const grid = new BwpxGrid(32, 32);
+        // Even after 100 seconds (100,000ms), letters remain
+        renderWidgetById('typewriter', grid, 0, {
+          ...renderContext,
+          instances: { typewriter: [inst] },
+          activeInstanceId: inst.id,
+          blockWidth: 32,
+          blockHeight: 32,
+          typewriterState: {
+            letterBank: [
+              { char: 'A', x: 2, y: 2 },
+              { char: 'B', x: 12, y: 12 },
+            ],
+            lastTimestamp: 1000,
+          },
+          animationTimestamp: 101000,
+        });
+
+        expect(countRegion(grid, 2, 6, 2, 6)).toBeGreaterThan(0);
+        expect(countRegion(grid, 12, 16, 12, 16)).toBeGreaterThan(0);
+      });
+
+      describe('Typewriter Random Mode Fade Transitions', () => {
+        const countRegion = (g: BwpxGrid, minX: number, maxX: number, minY: number, maxY: number) => {
+          let count = 0;
+          for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
+              if (g.get(x, y)) count++;
+            }
+          }
+          return count;
+        };
+
+        it('applies 1bpp Bayer dither decay progressively during fade window and clears when complete', () => {
+          const inst: WidgetInstance = {
+            id: 't-dither-fade',
+            widgetTypeId: 'typewriter',
+            label: 'Typewriter Dither Fade',
+            config: {
+              mode: 'random' as const,
+              typewriterMode: 'random' as const,
+              typewriterCleaning: 2, // 2s intervals
+              typewriterFadeType: 'dither',
+              typewriterFadeTime: 1.0, // 1s fade duration
+              typewriterWidth: 32,
+              typewriterHeight: 32,
+              fontSize: 'small',
+            },
+          };
+
+          const baseContext = {
+            ...renderContext,
+            instances: { typewriter: [inst] },
+            activeInstanceId: inst.id,
+            blockWidth: 32,
+            blockHeight: 32,
+            typewriterState: {
+              letterBank: [
+                { char: 'A', x: 2, y: 2 },
+                { char: 'B', x: 16, y: 16 },
+              ],
+              lastTimestamp: 1000,
+            },
+          };
+
+          // 1. Before eviction (elapsed = 1000ms < 2000ms): 'A' is fully intact
+          const gBefore = new BwpxGrid(32, 32);
+          renderWidgetById('typewriter', gBefore, 0, { ...baseContext, animationTimestamp: 2000 });
+          const fullCountA = countRegion(gBefore, 2, 6, 2, 6);
+          expect(fullCountA).toBeGreaterThan(5);
+
+          // 2. Mid-fade (elapsed = 2500ms -> cycle 1, timeIntoInterval = 500ms, progress = 0.5):
+          // Bayer dithering should drop some pixels but leave others visible
+          const gMid = new BwpxGrid(32, 32);
+          renderWidgetById('typewriter', gMid, 0, { ...baseContext, animationTimestamp: 3500 });
+          const midCountA = countRegion(gMid, 2, 6, 2, 6);
+          expect(midCountA).toBeGreaterThan(0);
+          expect(midCountA).toBeLessThan(fullCountA);
+          // Letter 'B' should be completely unaffected
+          expect(countRegion(gMid, 16, 20, 16, 20)).toBeGreaterThan(0);
+
+          // 3. Fade complete (elapsed = 3000ms -> cycle 1, timeIntoInterval = 1000ms >= fadeMs):
+          // 'A' must be completely cleared, 'B' intact
+          const gAfter = new BwpxGrid(32, 32);
+          renderWidgetById('typewriter', gAfter, 0, { ...baseContext, animationTimestamp: 4000 });
+          expect(countRegion(gAfter, 2, 6, 2, 6)).toBe(0);
+          expect(countRegion(gAfter, 16, 20, 16, 20)).toBeGreaterThan(0);
+        });
+
+        it('applies pseudo-random dissolve decay progressively during fade window', () => {
+          const inst: WidgetInstance = {
+            id: 't-dissolve-fade',
+            widgetTypeId: 'typewriter',
+            label: 'Typewriter Dissolve Fade',
+            config: {
+              mode: 'random' as const,
+              typewriterMode: 'random' as const,
+              typewriterCleaning: 2,
+              typewriterFadeType: 'dissolve',
+              typewriterFadeTime: 1.0,
+              typewriterWidth: 32,
+              typewriterHeight: 32,
+              fontSize: 'small',
+            },
+          };
+
+          const baseContext = {
+            ...renderContext,
+            instances: { typewriter: [inst] },
+            activeInstanceId: inst.id,
+            blockWidth: 32,
+            blockHeight: 32,
+            typewriterState: {
+              letterBank: [
+                { char: 'A', x: 2, y: 2, timestamp: 1000 },
+                { char: 'B', x: 16, y: 16, timestamp: 1000 },
+              ],
+              lastTimestamp: 1000,
+            },
+          };
+
+          const gBefore = new BwpxGrid(32, 32);
+          renderWidgetById('typewriter', gBefore, 0, { ...baseContext, animationTimestamp: 2000 });
+          const fullCount = countRegion(gBefore, 2, 6, 2, 6);
+          expect(fullCount).toBeGreaterThan(5);
+
+          const gMid = new BwpxGrid(32, 32);
+          renderWidgetById('typewriter', gMid, 0, { ...baseContext, animationTimestamp: 3500 });
+          const midCount = countRegion(gMid, 2, 6, 2, 6);
+          expect(midCount).toBeGreaterThan(0);
+          expect(midCount).toBeLessThan(fullCount);
+
+          const gAfter = new BwpxGrid(32, 32);
+          renderWidgetById('typewriter', gAfter, 0, { ...baseContext, animationTimestamp: 4000 });
+          expect(countRegion(gAfter, 2, 6, 2, 6)).toBe(0);
+        });
+
+        it('toggles visibility at high frequency for blink fade and disappears after fade window', () => {
+          const inst: WidgetInstance = {
+            id: 't-blink-fade',
+            widgetTypeId: 'typewriter',
+            label: 'Typewriter Blink Fade',
+            config: {
+              mode: 'random' as const,
+              typewriterMode: 'random' as const,
+              typewriterCleaning: 2,
+              typewriterFadeType: 'blink',
+              typewriterFadeTime: 1.0,
+              typewriterWidth: 32,
+              typewriterHeight: 32,
+              fontSize: 'small',
+            },
+          };
+
+          const baseContext = {
+            ...renderContext,
+            instances: { typewriter: [inst] },
+            activeInstanceId: inst.id,
+            blockWidth: 32,
+            blockHeight: 32,
+            typewriterState: {
+              letterBank: [
+                { char: 'A', x: 2, y: 2 },
+              ],
+              lastTimestamp: 1000,
+            },
+          };
+
+          // In blink phase (elapsed in [2000..3000ms]):
+          // At timestamp where Math.floor(now / 80) % 2 === 0: visible
+          // At timestamp where Math.floor(now / 80) % 2 === 1: hidden
+          // Find timestamps in [3100, 3300] for both states:
+          // 3200 / 80 = 40 (even -> visible)
+          // 3280 / 80 = 41 (odd -> hidden)
+          const gVisible = new BwpxGrid(32, 32);
+          renderWidgetById('typewriter', gVisible, 0, { ...baseContext, animationTimestamp: 3200 });
+          expect(countRegion(gVisible, 2, 6, 2, 6)).toBeGreaterThan(0);
+
+          const gHidden = new BwpxGrid(32, 32);
+          renderWidgetById('typewriter', gHidden, 0, { ...baseContext, animationTimestamp: 3280 });
+          expect(countRegion(gHidden, 2, 6, 2, 6)).toBe(0);
+
+          // Once fade window ends (elapsed >= 3000ms, animationTimestamp >= 4000):
+          // Permanently gone
+          const gDone = new BwpxGrid(32, 32);
+          renderWidgetById('typewriter', gDone, 0, { ...baseContext, animationTimestamp: 4000 });
+          expect(countRegion(gDone, 2, 6, 2, 6)).toBe(0);
+        });
+
+        it('instantly drops letters when fadeType is instant even with cleaning > 0', () => {
+          const inst: WidgetInstance = {
+            id: 't-instant-fade',
+            widgetTypeId: 'typewriter',
+            label: 'Typewriter Instant Fade',
+            config: {
+              mode: 'random' as const,
+              typewriterMode: 'random' as const,
+              typewriterCleaning: 2,
+              typewriterFadeType: 'instant',
+              typewriterFadeTime: 1.0,
+              typewriterWidth: 32,
+              typewriterHeight: 32,
+              fontSize: 'small',
+            },
+          };
+
+          const baseContext = {
+            ...renderContext,
+            instances: { typewriter: [inst] },
+            activeInstanceId: inst.id,
+            blockWidth: 32,
+            blockHeight: 32,
+            typewriterState: {
+              letterBank: [
+                { char: 'A', x: 2, y: 2 },
+                { char: 'B', x: 16, y: 16 },
+              ],
+              lastTimestamp: 1000,
+            },
+          };
+
+          // At elapsed = 2050ms (50ms into cycle 1), instant means 'A' is immediately gone
+          const gMid = new BwpxGrid(32, 32);
+          renderWidgetById('typewriter', gMid, 0, { ...baseContext, animationTimestamp: 3050 });
+          expect(countRegion(gMid, 2, 6, 2, 6)).toBe(0);
+          expect(countRegion(gMid, 16, 20, 16, 20)).toBeGreaterThan(0);
+        });
+
+        it('supports concurrent overlapping fade intervals when fadeTime exceeds cleaning interval without truncation', () => {
+          const inst: WidgetInstance = {
+            id: 't-overlapping-fade',
+            widgetTypeId: 'typewriter',
+            label: 'Typewriter Overlapping Fade',
+            config: {
+              mode: 'random' as const,
+              typewriterMode: 'random' as const,
+              typewriterCleaning: 1, // 1s interval
+              typewriterFadeType: 'dither',
+              typewriterFadeTime: 2.5, // 2.5s fade duration (> cleaning)
+              typewriterWidth: 32,
+              typewriterHeight: 32,
+              fontSize: 'small',
+            },
+          };
+
+          const baseContext = {
+            ...renderContext,
+            instances: { typewriter: [inst] },
+            activeInstanceId: inst.id,
+            blockWidth: 32,
+            blockHeight: 32,
+            typewriterState: {
+              letterBank: [
+                { char: 'A', x: 2, y: 2 },
+                { char: 'B', x: 16, y: 16 },
+              ],
+              lastTimestamp: 1000,
+            },
+          };
+
+          // At elapsed = 2200ms (animationTimestamp = 3200):
+          // Letter A (tStart = 1000ms): elapsed - tStart = 1200ms, progress = 1200 / 2500 = 0.48 (actively fading via dither)
+          // Letter B (tStart = 2000ms): elapsed - tStart = 200ms, progress = 200 / 2500 = 0.08 (also actively fading via dither!)
+          const gOverlap = new BwpxGrid(32, 32);
+          renderWidgetById('typewriter', gOverlap, 0, { ...baseContext, animationTimestamp: 3200 });
+
+          const countA = countRegion(gOverlap, 2, 6, 2, 6);
+          const countB = countRegion(gOverlap, 16, 20, 16, 20);
+
+          // Both letters should be actively rendered with dither pixels
+          expect(countA).toBeGreaterThan(0);
+          expect(countB).toBeGreaterThan(0);
+
+          // Letter A has higher progress (0.48) than Letter B (0.08), so Letter A has fewer or equal remaining pixels
+          expect(countA).toBeLessThanOrEqual(countB);
+
+          // At elapsed = 3600ms (animationTimestamp = 4600):
+          // Letter A (tEnd = 3500ms): elapsed >= 3500ms -> completely evicted!
+          // Letter B (tStart = 2000ms, tEnd = 4500ms): elapsed - tStart = 1600ms, progress = 1600 / 2500 = 0.64 (still fading)
+          const gLater = new BwpxGrid(32, 32);
+          renderWidgetById('typewriter', gLater, 0, { ...baseContext, animationTimestamp: 4600 });
+          expect(countRegion(gLater, 2, 6, 2, 6)).toBe(0);
+          expect(countRegion(gLater, 16, 20, 16, 20)).toBeGreaterThan(0);
+
+          // At elapsed = 4600ms (animationTimestamp = 5600):
+          // Both completely evicted
+          const gAllDone = new BwpxGrid(32, 32);
+          renderWidgetById('typewriter', gAllDone, 0, { ...baseContext, animationTimestamp: 5600 });
+          expect(countRegion(gAllDone, 2, 6, 2, 6)).toBe(0);
+          expect(countRegion(gAllDone, 16, 20, 16, 20)).toBe(0);
+        });
+      });
+
+      it('handles empty space characters added to the letter bank without rendering them', () => {
+        const grid = new BwpxGrid(32, 32);
+        const inst: WidgetInstance = {
+          id: 't-rnd-space',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Random Space',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 32,
+            typewriterHeight: 32,
+            typewriterLetterBank: 2,
+            fontSize: 'small',
+          },
+        };
+
+        const ctx: WidgetRenderContext = {
+          ...renderContext,
+          instances: { typewriter: [inst] },
+          activeInstanceId: inst.id,
+          blockWidth: 32,
+          blockHeight: 32,
+          typewriterState: {
+            randomLetters: [
+              { char: 'A', x: 2, y: 2 },
+              { char: ' ', x: 12, y: 12 }, // Empty space slot in bank
+            ],
+            lastTimestamp: 1000,
+          },
+          animationTimestamp: 1000,
+        };
+
+        renderWidgetById('typewriter', grid, 0, ctx);
+
+        let totalPixels = 0;
+        let aPixels = 0;
+        for (let y = 0; y < 32; y++) {
+          for (let x = 0; x < 32; x++) {
+            if (grid.get(x, y)) {
+              totalPixels++;
+              if (x >= 2 && x <= 6 && y >= 2 && y <= 6) aPixels++;
+            }
+          }
+        }
+        expect(aPixels).toBeGreaterThan(0);
+        // Only 'A' rendered, space didn't draw any pixels
+        expect(totalPixels).toBe(aPixels);
+
+        // Pushing another space pushes 'A' out of the 2-capacity bank
+        const grid2 = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', grid2, 0, {
+          ...ctx,
+          typewriterState: {
+            randomLetters: [
+              { char: 'A', x: 2, y: 2 },
+              { char: ' ', x: 12, y: 12 },
+              { char: ' ', x: 20, y: 20 },
+            ],
+            lastTimestamp: 1200,
+          },
+          animationTimestamp: 1200,
+        });
+
+        let totalPixels2 = 0;
+        for (let y = 0; y < 32; y++) {
+          for (let x = 0; x < 32; x++) {
+            if (grid2.get(x, y)) totalPixels2++;
+          }
+        }
+        expect(totalPixels2).toBe(0);
+      });
+
+      it('renders in inline mode (we, ew, ns, sn) and auto-adds spaces during idle cleaning', () => {
+        const instWe: WidgetInstance = {
+          id: 't-inl-we',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Inline WE',
+          config: {
+            mode: 'inline' as const,
+            typewriterMode: 'inline' as const,
+            typewriterDirection: 'we' as const,
+            typewriterWidth: 32,
+            typewriterCleaning: 1, // 1 space per second idle
+          },
+        };
+
+        const grid = new BwpxGrid(32, 8);
+        const ctx: WidgetRenderContext = {
+          ...renderContext,
+          instances: { typewriter: [instWe] },
+          activeInstanceId: instWe.id,
+          blockWidth: 32,
+          blockHeight: 8,
+          typewriterText: 'HI',
+          typewriterState: {
+            text: 'HI',
+            lastChar: 'I',
+            lastTimestamp: 1000,
+          },
+          animationTimestamp: 1200, // < 1s idle
+        };
+
+        renderWidgetById('typewriter', grid, 0, ctx);
+        let pixels = 0;
+        for (let y = 0; y < 8; y++) {
+          for (let x = 0; x < 32; x++) {
+            if (grid.get(x, y)) pixels++;
+          }
+        }
+        expect(pixels).toBeGreaterThan(0);
+
+        // East to West (ew) test
+        const instEw: WidgetInstance = {
+          id: 't-inl-ew',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Inline EW',
+          config: {
+            mode: 'inline' as const,
+            typewriterMode: 'inline' as const,
+            typewriterDirection: 'ew' as const,
+            typewriterWidth: 32,
+          },
+        };
+        const gridEw = new BwpxGrid(32, 8);
+        renderWidgetById('typewriter', gridEw, 0, {
+          ...renderContext,
+          instances: { typewriter: [instEw] },
+          activeInstanceId: instEw.id,
+          blockWidth: 32,
+          blockHeight: 8,
+          typewriterText: 'AB',
+        });
+        let ewPixels = 0;
+        for (let y = 0; y < 8; y++) {
+          for (let x = 0; x < 32; x++) {
+            if (gridEw.get(x, y)) ewPixels++;
+          }
+        }
+        expect(ewPixels).toBeGreaterThan(0);
+
+        // Vertical ns test
+        const instNs: WidgetInstance = {
+          id: 't-inl-ns',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Inline NS',
+          config: {
+            mode: 'inline' as const,
+            typewriterMode: 'inline' as const,
+            typewriterDirection: 'ns' as const,
+            typewriterHeight: 32,
+          },
+        };
+        const gridNs = new BwpxGrid(8, 32);
+        renderWidgetById('typewriter', gridNs, 0, {
+          ...renderContext,
+          instances: { typewriter: [instNs] },
+          activeInstanceId: instNs.id,
+          blockWidth: 8,
+          blockHeight: 32,
+          typewriterText: 'OK',
+        });
+        let nsPixels = 0;
+        for (let y = 0; y < 32; y++) {
+          for (let x = 0; x < 8; x++) {
+            if (gridNs.get(x, y)) nsPixels++;
+          }
+        }
+        expect(nsPixels).toBeGreaterThan(0);
+
+        // Vertical sn test
+        const instSn: WidgetInstance = {
+          id: 't-inl-sn',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Inline SN',
+          config: {
+            mode: 'inline' as const,
+            typewriterMode: 'inline' as const,
+            typewriterDirection: 'sn' as const,
+            typewriterHeight: 32,
+          },
+        };
+        const gridSn = new BwpxGrid(8, 32);
+        renderWidgetById('typewriter', gridSn, 0, {
+          ...renderContext,
+          instances: { typewriter: [instSn] },
+          activeInstanceId: instSn.id,
+          blockWidth: 8,
+          blockHeight: 32,
+          typewriterText: 'UP',
+        });
+        let snPixels = 0;
+        for (let y = 0; y < 32; y++) {
+          for (let x = 0; x < 8; x++) {
+            if (gridSn.get(x, y)) snPixels++;
+          }
+        }
+        expect(snPixels).toBeGreaterThan(0);
+      });
+
+      it('handles NS overflow scrolling by pushing older characters upward and keeping latest at bottom', () => {
+        const instNs: WidgetInstance = {
+          id: 't-scrolling-ns',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Scroll NS',
+          config: {
+            mode: 'inline' as const,
+            typewriterMode: 'inline' as const,
+            typewriterDirection: 'ns' as const,
+            typewriterHeight: 11, // Can fit exactly 2 characters (5px + 1px gap + 5px)
+          },
+        };
+
+        const countRegion = (g: BwpxGrid, minY: number, maxY: number) => {
+          let count = 0;
+          for (let y = minY; y <= maxY; y++) {
+            for (let x = 0; x < 8; x++) {
+              if (g.get(x, y)) count++;
+            }
+          }
+          return count;
+        };
+
+        // 1. Single character 'A' starts at top (y: 0..4)
+        const grid1 = new BwpxGrid(8, 11);
+        renderWidgetById('typewriter', grid1, 0, {
+          ...renderContext,
+          instances: { typewriter: [instNs] },
+          activeInstanceId: instNs.id,
+          blockWidth: 8,
+          blockHeight: 11,
+          typewriterText: 'A',
+        });
+        expect(countRegion(grid1, 0, 4)).toBeGreaterThan(0); // 'A' at top
+        expect(countRegion(grid1, 6, 10)).toBe(0); // Bottom is empty
+
+        // 2. Two characters 'AB' fills the 11px column (top: 'A' at 0..4, bottom: 'B' at 6..10)
+        const grid2 = new BwpxGrid(8, 11);
+        renderWidgetById('typewriter', grid2, 0, {
+          ...renderContext,
+          instances: { typewriter: [instNs] },
+          activeInstanceId: instNs.id,
+          blockWidth: 8,
+          blockHeight: 11,
+          typewriterText: 'AB',
+        });
+        expect(countRegion(grid2, 0, 4)).toBeGreaterThan(0); // 'A' at top
+        expect(countRegion(grid2, 6, 10)).toBeGreaterThan(0); // 'B' at bottom
+
+        // 3. Overflow: typing 'ABC' pushes older character 'A' upward off-screen; 'B' is at top, 'C' is at bottom
+        const grid3 = new BwpxGrid(8, 11);
+        renderWidgetById('typewriter', grid3, 0, {
+          ...renderContext,
+          instances: { typewriter: [instNs] },
+          activeInstanceId: instNs.id,
+          blockWidth: 8,
+          blockHeight: 11,
+          typewriterText: 'ABC',
+        });
+        expect(countRegion(grid3, 0, 4)).toBeGreaterThan(0); // 'B' at top
+        expect(countRegion(grid3, 6, 10)).toBeGreaterThan(0); // 'C' at bottom
+      });
+
+      it('handles SN overflow scrolling by pushing older characters downward and keeping latest at top', () => {
+        const instSn: WidgetInstance = {
+          id: 't-scrolling-sn',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Scroll SN',
+          config: {
+            mode: 'inline' as const,
+            typewriterMode: 'inline' as const,
+            typewriterDirection: 'sn' as const,
+            typewriterHeight: 11, // Can fit exactly 2 characters (5px + 1px gap + 5px)
+          },
+        };
+
+        const countRegion = (g: BwpxGrid, minY: number, maxY: number) => {
+          let count = 0;
+          for (let y = minY; y <= maxY; y++) {
+            for (let x = 0; x < 8; x++) {
+              if (g.get(x, y)) count++;
+            }
+          }
+          return count;
+        };
+
+        // 1. Single character 'A' starts at bottom (y: 6..10)
+        const grid1 = new BwpxGrid(8, 11);
+        renderWidgetById('typewriter', grid1, 0, {
+          ...renderContext,
+          instances: { typewriter: [instSn] },
+          activeInstanceId: instSn.id,
+          blockWidth: 8,
+          blockHeight: 11,
+          typewriterText: 'A',
+        });
+        expect(countRegion(grid1, 0, 4)).toBe(0); // Top is empty
+        expect(countRegion(grid1, 6, 10)).toBeGreaterThan(0); // 'A' at bottom
+
+        // 2. Two characters 'AB' fills column: 'A' at bottom (6..10), 'B' at top (0..4)
+        const grid2 = new BwpxGrid(8, 11);
+        renderWidgetById('typewriter', grid2, 0, {
+          ...renderContext,
+          instances: { typewriter: [instSn] },
+          activeInstanceId: instSn.id,
+          blockWidth: 8,
+          blockHeight: 11,
+          typewriterText: 'AB',
+        });
+        expect(countRegion(grid2, 0, 4)).toBeGreaterThan(0); // 'B' at top
+        expect(countRegion(grid2, 6, 10)).toBeGreaterThan(0); // 'A' at bottom
+
+        // 3. Overflow: typing 'ABC' pushes older character 'A' downward off-screen; 'B' is at bottom, 'C' is at top
+        const grid3 = new BwpxGrid(8, 11);
+        renderWidgetById('typewriter', grid3, 0, {
+          ...renderContext,
+          instances: { typewriter: [instSn] },
+          activeInstanceId: instSn.id,
+          blockWidth: 8,
+          blockHeight: 11,
+          typewriterText: 'ABC',
+        });
+        expect(countRegion(grid3, 0, 4)).toBeGreaterThan(0); // 'C' at top
+        expect(countRegion(grid3, 6, 10)).toBeGreaterThan(0); // 'B' at bottom
+      });
+
+      it('handles WE overflow scrolling by pushing text left and keeping latest typed characters visible', () => {
+        const instWe: WidgetInstance = {
+          id: 't-scrolling-we',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Scroll WE',
+          config: {
+            mode: 'inline' as const,
+            typewriterMode: 'inline' as const,
+            typewriterDirection: 'we' as const,
+            typewriterWidth: 20,
+          },
+        };
+
+        // 1. Short text 'A' fits within 20px box and renders starting at left edge
+        const gridShort = new BwpxGrid(20, 8);
+        renderWidgetById('typewriter', gridShort, 0, {
+          ...renderContext,
+          instances: { typewriter: [instWe] },
+          activeInstanceId: instWe.id,
+          blockWidth: 20,
+          blockHeight: 8,
+          typewriterText: 'A',
+        });
+
+        // Left edge (x in [0, 4]) has pixels for 'A'
+        let leftPixelsShort = 0;
+        for (let y = 0; y < 8; y++) {
+          for (let x = 0; x < 4; x++) {
+            if (gridShort.get(x, y)) leftPixelsShort++;
+          }
+        }
+        expect(leftPixelsShort).toBeGreaterThan(0);
+
+        // Right edge (x in [16, 19]) has NO pixels
+        let rightPixelsShort = 0;
+        for (let y = 0; y < 8; y++) {
+          for (let x = 16; x < 20; x++) {
+            if (gridShort.get(x, y)) rightPixelsShort++;
+          }
+        }
+        expect(rightPixelsShort).toBe(0);
+
+        // 2. Long text overflowing 20px: 'ABCDEFGH' (approx 40px wide)
+        // Newest characters ('H') should push text left and be visible at the right edge
+        const gridLong = new BwpxGrid(20, 8);
+        renderWidgetById('typewriter', gridLong, 0, {
+          ...renderContext,
+          instances: { typewriter: [instWe] },
+          activeInstanceId: instWe.id,
+          blockWidth: 20,
+          blockHeight: 8,
+          typewriterText: 'ABCDEFGH',
+        });
+
+        // Right edge (x in [16, 19]) MUST now have pixels (showing 'H')
+        let rightPixelsLong = 0;
+        for (let y = 0; y < 8; y++) {
+          for (let x = 16; x < 20; x++) {
+            if (gridLong.get(x, y)) rightPixelsLong++;
+          }
+        }
+        expect(rightPixelsLong).toBeGreaterThan(0);
+
+        // 3. Typing another character ('ABCDEFGHI') pushes further left:
+        // Right edge now contains 'I'
+        const gridLonger = new BwpxGrid(20, 8);
+        renderWidgetById('typewriter', gridLonger, 0, {
+          ...renderContext,
+          instances: { typewriter: [instWe] },
+          activeInstanceId: instWe.id,
+          blockWidth: 20,
+          blockHeight: 8,
+          typewriterText: 'ABCDEFGHI',
+        });
+
+        let rightPixelsLonger = 0;
+        for (let y = 0; y < 8; y++) {
+          for (let x = 16; x < 20; x++) {
+            if (gridLonger.get(x, y)) rightPixelsLonger++;
+          }
+        }
+        expect(rightPixelsLonger).toBeGreaterThan(0);
+      });
+
+      it('handles EW RTL typing and overflow scrolling by placing new characters at typing front and pushing older right', () => {
+        const instEw: WidgetInstance = {
+          id: 't-scrolling-ew',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Scroll EW',
+          config: {
+            mode: 'inline' as const,
+            typewriterMode: 'inline' as const,
+            typewriterDirection: 'ew' as const,
+            typewriterWidth: 20,
+          },
+        };
+
+        // 1. Short text 'A' fits within 20px box and renders at the right edge
+        const gridShort = new BwpxGrid(20, 8);
+        renderWidgetById('typewriter', gridShort, 0, {
+          ...renderContext,
+          instances: { typewriter: [instEw] },
+          activeInstanceId: instEw.id,
+          blockWidth: 20,
+          blockHeight: 8,
+          typewriterText: 'A',
+        });
+
+        // Left edge (x in [0, 4]) has NO pixels for short text in EW
+        let leftPixelsShort = 0;
+        for (let y = 0; y < 8; y++) {
+          for (let x = 0; x < 4; x++) {
+            if (gridShort.get(x, y)) leftPixelsShort++;
+          }
+        }
+        expect(leftPixelsShort).toBe(0);
+
+        // Right edge (x in [16, 19]) has pixels for 'A'
+        let rightPixelsShort = 0;
+        for (let y = 0; y < 8; y++) {
+          for (let x = 16; x < 20; x++) {
+            if (gridShort.get(x, y)) rightPixelsShort++;
+          }
+        }
+        expect(rightPixelsShort).toBeGreaterThan(0);
+
+        // 2. Long text overflowing 20px: 'ABCDEFGH'
+        // In EW, newest characters ('H') are at typing front (x=0) and older characters are pushed right
+        const gridLong = new BwpxGrid(20, 8);
+        renderWidgetById('typewriter', gridLong, 0, {
+          ...renderContext,
+          instances: { typewriter: [instEw] },
+          activeInstanceId: instEw.id,
+          blockWidth: 20,
+          blockHeight: 8,
+          typewriterText: 'ABCDEFGH',
+        });
+
+        // Left edge (x in [0, 4]) MUST now have pixels (showing 'H' at typing front)
+        let leftPixelsLong = 0;
+        for (let y = 0; y < 8; y++) {
+          for (let x = 0; x < 4; x++) {
+            if (gridLong.get(x, y)) leftPixelsLong++;
+          }
+        }
+        expect(leftPixelsLong).toBeGreaterThan(0);
+
+        // 3. Typing another character ('ABCDEFGHI') puts 'I' at x=0, shifting 'H' to the right
+        const gridLonger = new BwpxGrid(20, 8);
+        renderWidgetById('typewriter', gridLonger, 0, {
+          ...renderContext,
+          instances: { typewriter: [instEw] },
+          activeInstanceId: instEw.id,
+          blockWidth: 20,
+          blockHeight: 8,
+          typewriterText: 'ABCDEFGHI',
+        });
+
+        let leftPixelsLonger = 0;
+        for (let y = 0; y < 8; y++) {
+          for (let x = 0; x < 4; x++) {
+            if (gridLonger.get(x, y)) leftPixelsLonger++;
+          }
+        }
+        expect(leftPixelsLonger).toBeGreaterThan(0);
+      });
+
+      it('cleans idle text by pushing characters off-screen in WE and EW modes', () => {
+        const instWe: WidgetInstance = {
+          id: 't-idle-we',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Idle WE',
+          config: {
+            mode: 'inline' as const,
+            typewriterMode: 'inline' as const,
+            typewriterDirection: 'we' as const,
+            typewriterWidth: 20,
+            typewriterCleaning: 1, // 1 space per second
+          },
+        };
+
+        const gridWeCleaned = new BwpxGrid(20, 8);
+        renderWidgetById('typewriter', gridWeCleaned, 0, {
+          ...renderContext,
+          instances: { typewriter: [instWe] },
+          activeInstanceId: instWe.id,
+          blockWidth: 20,
+          blockHeight: 8,
+          typewriterText: 'AB',
+          typewriterState: {
+            text: 'AB',
+            lastChar: 'B',
+            lastTimestamp: 1000,
+          },
+          animationTimestamp: 1000 + 10000, // 10s idle -> 10 spaces added, pushing 'AB' completely off left
+        });
+
+        let wePixels = 0;
+        for (let y = 0; y < 8; y++) {
+          for (let x = 0; x < 20; x++) {
+            if (gridWeCleaned.get(x, y)) wePixels++;
+          }
+        }
+        expect(wePixels).toBe(0);
+
+        const instEw: WidgetInstance = {
+          id: 't-idle-ew',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Idle EW',
+          config: {
+            mode: 'inline' as const,
+            typewriterMode: 'inline' as const,
+            typewriterDirection: 'ew' as const,
+            typewriterWidth: 20,
+            typewriterCleaning: 1, // 1 space per second
+          },
+        };
+
+        const gridEwCleaned = new BwpxGrid(20, 8);
+        renderWidgetById('typewriter', gridEwCleaned, 0, {
+          ...renderContext,
+          instances: { typewriter: [instEw] },
+          activeInstanceId: instEw.id,
+          blockWidth: 20,
+          blockHeight: 8,
+          typewriterText: 'AB',
+          typewriterState: {
+            text: 'AB',
+            lastChar: 'B',
+            lastTimestamp: 1000,
+          },
+          animationTimestamp: 1000 + 10000, // 10s idle -> 10 spaces added, pushing 'AB' completely off right
+        });
+
+        let ewPixels = 0;
+        for (let y = 0; y < 8; y++) {
+          for (let x = 0; x < 20; x++) {
+            if (gridEwCleaned.get(x, y)) ewPixels++;
+          }
+        }
+        expect(ewPixels).toBe(0);
+      });
+
+      it('falls back to letter timestamps when lastTimestamp is omitted in typewriterState', () => {
+        const inst: WidgetInstance = {
+          id: 't-rnd-item-ts',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Item TS',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 32,
+            typewriterHeight: 32,
+            typewriterBankSize: 3,
+            typewriterCleaning: 0.1, // 100ms per letter
+            fontSize: 'small',
+          },
+        };
+
+        const countRegion = (g: BwpxGrid, minX: number, maxX: number, minY: number, maxY: number) => {
+          let count = 0;
+          for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
+              if (g.get(x, y)) count++;
+            }
+          }
+          return count;
+        };
+
+        // Bank with timestamps on each letter, no root lastTimestamp
+        const baseCtx: WidgetRenderContext = {
+          ...renderContext,
+          instances: { typewriter: [inst] },
+          activeInstanceId: inst.id,
+          blockWidth: 32,
+          blockHeight: 32,
+          typewriterState: {
+            letterBank: [
+              { char: 'X', x: 2, y: 2, timestamp: 1000 },
+              { char: 'Y', x: 12, y: 12, timestamp: 1000 },
+            ],
+          },
+        };
+
+        // At 50ms: 0 intervals elapsed -> both visible
+        const grid0 = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', grid0, 0, { ...baseCtx, animationTimestamp: 1050 });
+        expect(countRegion(grid0, 2, 6, 2, 6)).toBeGreaterThan(0);
+        expect(countRegion(grid0, 12, 16, 12, 16)).toBeGreaterThan(0);
+
+        // At 120ms: 1 interval of 100ms elapsed -> X popped
+        const grid1 = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', grid1, 0, { ...baseCtx, animationTimestamp: 1120 });
+        expect(countRegion(grid1, 2, 6, 2, 6)).toBe(0);
+        expect(countRegion(grid1, 12, 16, 12, 16)).toBeGreaterThan(0);
+
+        // At 220ms: 2 intervals elapsed -> both popped
+        const grid2 = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', grid2, 0, { ...baseCtx, animationTimestamp: 1220 });
+        let total = 0;
+        for (let y = 0; y < 32; y++) {
+          for (let x = 0; x < 32; x++) {
+            if (grid2.get(x, y)) total++;
+          }
+        }
+        expect(total).toBe(0);
+      });
+
+      it('respects decimal cleaning in spot mode and inline mode', () => {
+        // Spot mode with 0.15s (150ms) cleaning
+        const instSpot: WidgetInstance = {
+          id: 't-spot-dec',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Spot Dec',
+          config: {
+            mode: 'spot' as const,
+            typewriterMode: 'spot' as const,
+            typewriterCleaning: 0.15,
+            fontSize: 'small',
+          },
+        };
+
+        const gridSpotBefore = new BwpxGrid(16, 16);
+        renderWidgetById('typewriter', gridSpotBefore, 0, {
+          ...renderContext,
+          instances: { typewriter: [instSpot] },
+          activeInstanceId: instSpot.id,
+          blockWidth: 16,
+          blockHeight: 16,
+          typewriterState: { lastChar: 'Z', lastTimestamp: 1000 },
+          animationTimestamp: 1100, // 100ms < 150ms -> visible
+        });
+        let spotPixBefore = 0;
+        for (let y = 0; y < 16; y++) {
+          for (let x = 0; x < 16; x++) {
+            if (gridSpotBefore.get(x, y)) spotPixBefore++;
+          }
+        }
+        expect(spotPixBefore).toBeGreaterThan(0);
+
+        const gridSpotAfter = new BwpxGrid(16, 16);
+        renderWidgetById('typewriter', gridSpotAfter, 0, {
+          ...renderContext,
+          instances: { typewriter: [instSpot] },
+          activeInstanceId: instSpot.id,
+          blockWidth: 16,
+          blockHeight: 16,
+          typewriterState: { lastChar: 'Z', lastTimestamp: 1000 },
+          animationTimestamp: 1160, // 160ms >= 150ms -> wiped
+        });
+        let spotPixAfter = 0;
+        for (let y = 0; y < 16; y++) {
+          for (let x = 0; x < 16; x++) {
+            if (gridSpotAfter.get(x, y)) spotPixAfter++;
+          }
+        }
+        expect(spotPixAfter).toBe(0);
+      });
+
+      it('supports fontSize "both" in random mode and renders mixed small and big letters', () => {
+        const instBoth: WidgetInstance = {
+          id: 't-rnd-both',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Random Both',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 32,
+            typewriterHeight: 32,
+            fontSize: 'both',
+          },
+        };
+
+        // Letter bank with explicit small and big font sizes
+        const grid = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', grid, 0, {
+          ...renderContext,
+          instances: { typewriter: [instBoth] },
+          activeInstanceId: instBoth.id,
+          blockWidth: 32,
+          blockHeight: 32,
+          typewriterState: {
+            letterBank: [
+              { char: 'A', x: 2, y: 2, fontSize: 'small' },
+              { char: 'B', x: 12, y: 12, fontSize: 'big' },
+            ],
+            lastTimestamp: 1000,
+          },
+          animationTimestamp: 1000,
+        });
+
+        // 'A' should occupy at most 5x5 region [2..6, 2..6]
+        let aPixels = 0;
+        let outsideA = 0;
+        for (let y = 2; y <= 6; y++) {
+          for (let x = 2; x <= 6; x++) {
+            if (grid.get(x, y)) aPixels++;
+          }
+        }
+        for (let y = 2; y <= 10; y++) {
+          for (let x = 7; x <= 11; x++) {
+            if (grid.get(x, y)) outsideA++;
+          }
+        }
+        expect(aPixels).toBeGreaterThan(0);
+        expect(outsideA).toBe(0); // Small font doesn't bleed beyond 5x5
+
+        // 'B' with 'big' font occupies up to 10x10 region [12..21, 12..21]
+        let bPixels = 0;
+        let bTallPixels = 0;
+        for (let y = 12; y <= 21; y++) {
+          for (let x = 12; x <= 21; x++) {
+            if (grid.get(x, y)) {
+              bPixels++;
+              if (y >= 18) bTallPixels++; // Big font height > 5 (6..10)
+            }
+          }
+        }
+        expect(bPixels).toBeGreaterThan(0);
+        expect(bTallPixels).toBeGreaterThan(0); // Proves big font was drawn
+      });
+
+      it('pseudo-randomly selects between small and big when fontSize is "both" and letter has no explicit size', () => {
+        const instBothAuto: WidgetInstance = {
+          id: 't-rnd-both-auto',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter Random Both Auto',
+          config: {
+            mode: 'random' as const,
+            typewriterMode: 'random' as const,
+            typewriterWidth: 32,
+            typewriterHeight: 32,
+            fontSize: 'both',
+          },
+        };
+
+        const grid = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', grid, 0, {
+          ...renderContext,
+          instances: { typewriter: [instBothAuto] },
+          activeInstanceId: instBothAuto.id,
+          blockWidth: 32,
+          blockHeight: 32,
+          typewriterState: {
+            letterBank: [
+              { char: 'A', x: 2, y: 2 },
+              { char: 'Z', x: 14, y: 14 },
+            ],
+            lastTimestamp: 1000,
+          },
+          animationTimestamp: 1000,
+        });
+
+        let total = 0;
+        for (let y = 0; y < 32; y++) {
+          for (let x = 0; x < 32; x++) {
+            if (grid.get(x, y)) total++;
+          }
+        }
+        expect(total).toBeGreaterThan(0);
+      });
+
+      it('has new defaults for typewriter random mode in getDefaultWidgetConfig', () => {
+        const def = getDefaultWidgetConfig('typewriter');
+        expect(def.typewriterLetterBank).toBe(20);
+        expect(def.typewriterBankSize).toBe(20);
+        expect(def.typewriterCleaning).toBe(0.2);
+        expect(def.typewriterFadeType).toBe('dither');
+        expect(def.typewriterFadeTime).toBe(0.15);
+        expect(def.fontSize).toBe('both');
+      });
+
+      it('verifies font availability fallback: falls back to whichever font is available when fontSize is both', () => {
+        const dummyGrid = new BwpxGrid(128, 32);
+        // Atlas with only small font mapping
+        const smallOnlyMappings: FontCharMapping[] = [
+          {
+            id: 'map-A',
+            chars: 'A',
+            small: { x: 0, y: 0, width: 4, height: 5, advanceX: 5 },
+          },
+        ];
+
+        const gridSmallOnly = new BwpxGrid(32, 32);
+        const instBoth: WidgetInstance = {
+          id: 'tw-rnd-avail',
+          widgetTypeId: 'typewriter',
+          label: 'Typewriter',
+          config: {
+            mode: 'random',
+            typewriterMode: 'random',
+            fontSize: 'both',
+          },
+        };
+
+        renderWidgetById('typewriter', gridSmallOnly, 0, {
+          ...renderContext,
+          fontGrid: dummyGrid,
+          fontMappings: smallOnlyMappings,
+          instances: { typewriter: [instBoth] },
+          activeInstanceId: instBoth.id,
+          typewriterState: {
+            randomLetters: [
+              { char: 'A', x: 2, y: 2, fontSize: 'big' }, // Requested big, but atlas only has small
+            ],
+          },
+        });
+
+        // Small height is 5px, so y=2 to y=6 could have pixels, but y >= 7 should have none
+        let pixelsBelow5 = 0;
+        for (let y = 7; y < 32; y++) {
+          for (let x = 0; x < 32; x++) {
+            if (gridSmallOnly.get(x, y)) pixelsBelow5++;
+          }
+        }
+        expect(pixelsBelow5).toBe(0);
+
+        // Atlas with only big font mapping
+        const bigOnlyMappings: FontCharMapping[] = [
+          {
+            id: 'map-B',
+            chars: 'B',
+            big: { x: 10, y: 0, width: 8, height: 10, advanceX: 9 },
+          },
+        ];
+
+        const gridBigOnly = new BwpxGrid(32, 32);
+        renderWidgetById('typewriter', gridBigOnly, 0, {
+          ...renderContext,
+          fontGrid: dummyGrid,
+          fontMappings: bigOnlyMappings,
+          instances: { typewriter: [instBoth] },
+          activeInstanceId: instBoth.id,
+          typewriterState: {
+            randomLetters: [
+              { char: 'B', x: 2, y: 2, fontSize: 'small' }, // Requested small, but atlas only has big
+            ],
+          },
+        });
+        // Rendering completed without crashing and utilized big glyph
+        expect(gridBigOnly.width).toBe(32);
+      });
+    });
+
+    describe('keypress widget', () => {
+      const testSymbolsGrid = new BwpxGrid(64, 64);
+      // Place marker pixels for each symbol slice
+      testSymbolsGrid.set(0, 0, 1);  // SYM_UP: relative (0, 0)
+      testSymbolsGrid.set(9, 0, 1);  // SYM_DOWN: relative (1, 0)
+      testSymbolsGrid.set(18, 0, 1); // SYM_LEFT: relative (2, 0)
+      testSymbolsGrid.set(27, 0, 1); // SYM_RIGHT: relative (3, 0)
+      testSymbolsGrid.set(36, 0, 1); // SYM_IDLE: relative (4, 0)
+
+      const testSlices: SpriteSlice[] = [
+        { id: 'SYM_UP', name: 'Up', groupId: 'ARROWS', groupOrder: 1, x: 0, y: 0, width: 8, height: 8, color: '#fff' },
+        { id: 'SYM_DOWN', name: 'Down', groupId: 'ARROWS', groupOrder: 2, x: 8, y: 0, width: 8, height: 8, color: '#fff' },
+        { id: 'SYM_LEFT', name: 'Left', groupId: 'ARROWS', groupOrder: 3, x: 16, y: 0, width: 8, height: 8, color: '#fff' },
+        { id: 'SYM_RIGHT', name: 'Right', groupId: 'ARROWS', groupOrder: 4, x: 24, y: 0, width: 8, height: 8, color: '#fff' },
+        { id: 'SYM_IDLE', name: 'Idle', groupId: 'MISC', groupOrder: 1, x: 32, y: 0, width: 8, height: 8, color: '#fff' },
+      ];
+
+      it('is registered in Tier 2 with category typing', () => {
+        const def = getWidgetDefinition('keypress');
+        expect(def).toBeDefined();
+        expect(def?.tier).toBe(2);
+        expect(def?.category).toBe('typing');
+        expect(def?.associatedSliceIds).toContain('SYMBOL_ARROW_UP');
+        expect(def?.associatedSliceIds).toContain('SYMBOL_ARROW_DOWN');
+        expect(def?.associatedSliceIds).toContain('SYMBOL_ARROW_LEFT');
+        expect(def?.associatedSliceIds).toContain('SYMBOL_ARROW_RIGHT');
+      });
+
+      it('generates default config with arrow key elements', () => {
+        const config = getDefaultWidgetConfig('keypress', testSlices);
+        expect(config.keypressElements).toBeDefined();
+        expect(config.keypressElements?.length).toBe(4);
+        expect(config.keypressElements?.[0].key).toBe('ArrowUp');
+        expect(config.keypressElements?.[1].key).toBe('ArrowDown');
+        expect(config.keypressElements?.[2].key).toBe('ArrowLeft');
+        expect(config.keypressElements?.[3].key).toBe('ArrowRight');
+      });
+
+      it('renders matching symbol while key is pressed', () => {
+        const inst: WidgetInstance = {
+          id: 'keypress-test-1',
+          widgetTypeId: 'keypress',
+          label: 'Keypress Test',
+          config: {
+            mode: 'symbol',
+            keypressElements: [
+              { key: 'ArrowUp', symbolId: 'SYM_UP' },
+              { key: 'ArrowDown', symbolId: 'SYM_DOWN' },
+              { key: 'ArrowLeft', symbolId: 'SYM_LEFT' },
+              { key: 'ArrowRight', symbolId: 'SYM_RIGHT' },
+            ],
+          },
+        };
+
+        const grid = new BwpxGrid(16, 16);
+        const kpState = {};
+        renderWidgetById('keypress', grid, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: ['ArrowUp'],
+          keypressState: kpState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+
+        // SYM_UP marker pixel (0, 0) should be set
+        expect(grid.get(0, 0)).toBe(1);
+        expect(grid.get(1, 0)).toBe(0);
+      });
+
+      it('keeps last key pressed symbol on screen when idle is not given', () => {
+        const inst: WidgetInstance = {
+          id: 'keypress-test-no-idle',
+          widgetTypeId: 'keypress',
+          label: 'Keypress No Idle',
+          config: {
+            mode: 'symbol',
+            idleSymbolId: undefined,
+            keypressElements: [
+              { key: 'ArrowUp', symbolId: 'SYM_UP' },
+              { key: 'ArrowDown', symbolId: 'SYM_DOWN' },
+            ],
+          },
+        };
+
+        const kpState: { activeKeys?: string[]; lastKey?: string; lastSymbolId?: string } = {};
+
+        // 1. Press ArrowUp
+        const grid1 = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', grid1, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: ['ArrowUp'],
+          lastKey: 'ArrowUp',
+          keypressState: kpState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(grid1.get(0, 0)).toBe(1); // SYM_UP
+        expect(kpState.lastSymbolId).toBe('SYM_UP');
+
+        // 2. Release ArrowUp (activeKeys empty)
+        const grid2 = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', grid2, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: [],
+          lastKey: 'ArrowUp',
+          keypressState: kpState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        // SYM_UP must stay on!
+        expect(grid2.get(0, 0)).toBe(1);
+        expect(grid2.get(1, 0)).toBe(0);
+
+        // 3. Press ArrowDown
+        const grid3 = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', grid3, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: ['ArrowDown'],
+          lastKey: 'ArrowDown',
+          keypressState: kpState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(grid3.get(1, 0)).toBe(1); // SYM_DOWN
+        expect(kpState.lastSymbolId).toBe('SYM_DOWN');
+
+        // 4. Release ArrowDown
+        const grid4 = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', grid4, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: [],
+          lastKey: 'ArrowDown',
+          keypressState: kpState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        // SYM_DOWN stays on until next symbol
+        expect(grid4.get(1, 0)).toBe(1);
+        expect(grid4.get(0, 0)).toBe(0);
+      });
+
+      it('shows idle symbol when key is released and idle symbol is given', () => {
+        const inst: WidgetInstance = {
+          id: 'keypress-test-with-idle',
+          widgetTypeId: 'keypress',
+          label: 'Keypress With Idle',
+          config: {
+            mode: 'symbol',
+            idleSymbolId: 'SYM_IDLE',
+            keypressElements: [
+              { key: 'ArrowUp', symbolId: 'SYM_UP' },
+            ],
+          },
+        };
+
+        const kpState = {};
+
+        // 1. Initial idle state (no keys pressed)
+        const gridIdle = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', gridIdle, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: [],
+          keypressState: kpState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        // SYM_IDLE marker pixel (4, 0)
+        expect(gridIdle.get(4, 0)).toBe(1);
+        expect(gridIdle.get(0, 0)).toBe(0);
+
+        // 2. Press ArrowUp
+        const gridPressed = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', gridPressed, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: ['ArrowUp'],
+          keypressState: kpState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(gridPressed.get(0, 0)).toBe(1); // SYM_UP
+        expect(gridPressed.get(4, 0)).toBe(0);
+
+        // 3. Release ArrowUp -> returns to idle symbol
+        const gridReleased = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', gridReleased, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: [],
+          keypressState: kpState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(gridReleased.get(4, 0)).toBe(1); // SYM_IDLE
+        expect(gridReleased.get(0, 0)).toBe(0);
+      });
+
+      it('supports case-insensitivity and arrow aliases', () => {
+        const inst: WidgetInstance = {
+          id: 'keypress-test-alias',
+          widgetTypeId: 'keypress',
+          label: 'Keypress Alias',
+          config: {
+            mode: 'symbol',
+            keypressElements: [
+              { key: 'ArrowLeft', symbolId: 'SYM_LEFT' },
+              { key: 'w', symbolId: 'SYM_UP' },
+            ],
+          },
+        };
+
+        // 'Left' alias for 'ArrowLeft'
+        const grid1 = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', grid1, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: ['Left'],
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(grid1.get(2, 0)).toBe(1); // SYM_LEFT
+
+        // 'KeyW' code for 'w'
+        const grid2 = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', grid2, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: ['KeyW'],
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(grid2.get(0, 0)).toBe(1); // SYM_UP
+      });
+
+      it('correctly handles multi-key rollover and reprioritizes held key upon releasing most recent key', () => {
+        const inst: WidgetInstance = {
+          id: 'keypress-test-rollover',
+          widgetTypeId: 'keypress',
+          label: 'Keypress Rollover',
+          config: {
+            mode: 'symbol',
+            keypressElements: [
+              { key: 'ArrowUp', symbolId: 'SYM_UP' },
+              { key: 'ArrowDown', symbolId: 'SYM_DOWN' },
+            ],
+          },
+        };
+
+        const kpState = {};
+
+        // 1. Hold ArrowUp
+        const grid1 = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', grid1, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: ['ArrowUp'],
+          lastKey: 'ArrowUp',
+          keypressState: kpState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(grid1.get(0, 0)).toBe(1); // SYM_UP
+        expect(grid1.get(1, 0)).toBe(0);
+
+        // 2. Chording: While still holding ArrowUp, press ArrowDown
+        const grid2 = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', grid2, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: ['ArrowUp', 'ArrowDown'],
+          lastKey: 'ArrowDown',
+          keypressState: kpState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(grid2.get(1, 0)).toBe(1); // SYM_DOWN takes priority (most recent)
+        expect(grid2.get(0, 0)).toBe(0);
+
+        // 3. Release ArrowDown while STILL holding ArrowUp
+        const grid3 = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', grid3, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: ['ArrowUp'],
+          lastKey: 'ArrowDown', // lastKey is still ArrowDown from keyup
+          keypressState: kpState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(grid3.get(0, 0)).toBe(1); // SYM_UP is reprioritized because ArrowUp is still active!
+        expect(grid3.get(1, 0)).toBe(0);
+
+        // 4. Finally release ArrowUp
+        const grid4 = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', grid4, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: [],
+          lastKey: 'ArrowUp',
+          keypressState: kpState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(grid4.get(0, 0)).toBe(1); // SYM_UP stays on (last key pressed before idle)
+        expect(grid4.get(1, 0)).toBe(0);
+      });
+
+      it('normalizes Space, Esc, Enter, Backspace and ZMK &kp prefixes', () => {
+        const inst: WidgetInstance = {
+          id: 'keypress-test-special',
+          widgetTypeId: 'keypress',
+          label: 'Special Keys',
+          config: {
+            mode: 'symbol',
+            keypressElements: [
+              { key: 'Space', symbolId: 'SYM_IDLE' },
+              { key: 'Enter', symbolId: 'SYM_UP' },
+              { key: '&kp UP', symbolId: 'SYM_DOWN' },
+            ],
+          },
+        };
+
+        // Space bar press (event.key is ' ')
+        const gridSpace = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', gridSpace, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: [' '],
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(gridSpace.get(4, 0)).toBe(1); // SYM_IDLE mapped to Space
+
+        // Enter key press ('Return')
+        const gridEnter = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', gridEnter, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: ['Return'],
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(gridEnter.get(0, 0)).toBe(1); // SYM_UP mapped to Enter
+
+        // ArrowUp unicode '▲' matching '&kp UP' binding
+        const gridArrow = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', gridArrow, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst] },
+          activeInstanceId: inst.id,
+          activeKeys: ['▲'],
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(gridArrow.get(1, 0)).toBe(1); // SYM_DOWN mapped to &kp UP
+      });
+
+      it('tracks lastSymbol independently across multiple keypress instances', () => {
+        const inst1: WidgetInstance = {
+          id: 'kp-inst-1',
+          widgetTypeId: 'keypress',
+          label: 'Keypress 1',
+          config: {
+            mode: 'symbol',
+            keypressElements: [{ key: 'ArrowUp', symbolId: 'SYM_UP' }],
+          },
+        };
+        const inst2: WidgetInstance = {
+          id: 'kp-inst-2',
+          widgetTypeId: 'keypress',
+          label: 'Keypress 2',
+          config: {
+            mode: 'symbol',
+            keypressElements: [{ key: 'ArrowDown', symbolId: 'SYM_DOWN' }],
+          },
+        };
+
+        const sharedState = {};
+
+        // Press ArrowUp on inst1
+        const g1 = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', g1, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst1, inst2] },
+          activeInstanceId: inst1.id,
+          activeKeys: ['ArrowUp'],
+          keypressState: sharedState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(g1.get(0, 0)).toBe(1); // SYM_UP
+
+        // Release on inst1
+        const g1Rel = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', g1Rel, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst1, inst2] },
+          activeInstanceId: inst1.id,
+          activeKeys: [],
+          keypressState: sharedState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(g1Rel.get(0, 0)).toBe(1); // SYM_UP retained
+
+        // Now press ArrowDown on inst2
+        const g2 = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', g2, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst1, inst2] },
+          activeInstanceId: inst2.id,
+          activeKeys: ['ArrowDown'],
+          keypressState: sharedState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(g2.get(1, 0)).toBe(1); // SYM_DOWN
+
+        // Release on inst2
+        const g2Rel = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', g2Rel, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst1, inst2] },
+          activeInstanceId: inst2.id,
+          activeKeys: [],
+          keypressState: sharedState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(g2Rel.get(1, 0)).toBe(1); // SYM_DOWN retained
+
+        // Verify inst1 still retains SYM_UP without being corrupted by inst2
+        const g1Recheck = new BwpxGrid(16, 16);
+        renderWidgetById('keypress', g1Recheck, 0, 0, {
+          ...renderContext,
+          symbolsGrid: testSymbolsGrid,
+          symbolSlices: testSlices,
+          instances: { keypress: [inst1, inst2] },
+          activeInstanceId: inst1.id,
+          activeKeys: [],
+          keypressState: sharedState,
+          blockWidth: 8,
+          blockHeight: 8,
+        });
+        expect(g1Recheck.get(0, 0)).toBe(1); // SYM_UP still intact!
+        expect(g1Recheck.get(1, 0)).toBe(0);
+      });
     });
   });
 });

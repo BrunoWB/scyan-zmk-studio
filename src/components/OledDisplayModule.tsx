@@ -27,6 +27,11 @@ export interface OledDisplayModuleProps {
   customText?: string;
   instances?: WidgetInstanceMap;
   customizations?: WidgetCustomizationMap;
+  typewriterText?: string;
+  typewriterState?: import('../types/widget').TypewriterState;
+  activeKeys?: string[];
+  lastKey?: string;
+  keypressState?: import('../types/widget').KeypressState;
   scale?: number;
   showHousing?: boolean;
   showLiveDot?: boolean;
@@ -63,6 +68,11 @@ export const OledDisplayModule: React.FC<OledDisplayModuleProps> = ({
   customText = 'SCYAN',
   instances,
   customizations,
+  typewriterText,
+  typewriterState,
+  activeKeys,
+  lastKey,
+  keypressState,
   scale = 1,
   showHousing = true,
   showLiveDot: _showLiveDot = false,
@@ -85,8 +95,8 @@ export const OledDisplayModule: React.FC<OledDisplayModuleProps> = ({
 
   const hasAnimation = useMemo(() => {
     return blocks.some((b) => {
-      const t = (b.widgetType || '').toLowerCase();
-      return t.includes('animation') || t.includes('loop') || t.includes('bongo');
+      const t = (b.widgetType || b.id || '').toLowerCase();
+      return t.includes('animation') || t.includes('loop') || t.includes('bongo') || t.includes('typewriter');
     });
   }, [blocks]);
 
@@ -95,7 +105,7 @@ export const OledDisplayModule: React.FC<OledDisplayModuleProps> = ({
     animStartTimeRef.current = Date.now();
     const interval = setInterval(() => {
       setAnimTimestamp(Date.now() - animStartTimeRef.current);
-    }, 50);
+    }, 30);
     return () => clearInterval(interval);
   }, [hasAnimation]);
 
@@ -145,6 +155,11 @@ export const OledDisplayModule: React.FC<OledDisplayModuleProps> = ({
       customizations,
       bongoState: wpm > 0 ? 1 : 0,
       animationTimestamp: animTimestamp,
+      typewriterText,
+      typewriterState,
+      activeKeys,
+      lastKey,
+      keypressState,
     });
 
     canvas.width = vWidth * PIXEL_PITCH;
@@ -184,6 +199,11 @@ export const OledDisplayModule: React.FC<OledDisplayModuleProps> = ({
     instances,
     customizations,
     animTimestamp,
+    typewriterText,
+    typewriterState,
+    activeKeys,
+    lastKey,
+    keypressState,
   ]);
 
   const housingWidth = displayDim.displayW + OLED_BORDER_UNITS * 2;

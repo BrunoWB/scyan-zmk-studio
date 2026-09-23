@@ -53,6 +53,7 @@ export const populateDefaultWidgetInstances = (
       w.id === 'wpm-chart' ||
       w.id === 'animation' ||
       w.id === 'loop' ||
+      w.id === 'typewriter' ||
       (w.associatedSliceIds && w.associatedSliceIds.length > 0);
     if (!defaults[w.id] && !clearedSet.has(w.id) && shouldAutoPopulate) {
       if (w.id === 'animation' || w.id === 'loop') {
@@ -93,6 +94,53 @@ export const populateDefaultWidgetInstances = (
           slots: {},
         };
         defaults[w.id] = [campfireInst, duckInst, capybaraInst];
+      } else if (w.id === 'typewriter') {
+        defaults[w.id] = [
+          {
+            id: 'typewriter-inline',
+            widgetTypeId: 'typewriter',
+            label: 'Inline Stream',
+            config: {
+              mode: 'inline',
+              typewriterMode: 'inline',
+              typewriterDirection: 'we',
+              typewriterCleaning: 0,
+              typewriterWidth: 32,
+              fontSize: 'small',
+            },
+            slots: {},
+          },
+          {
+            id: 'typewriter-spot',
+            widgetTypeId: 'typewriter',
+            label: 'Single Letter Spot',
+            config: {
+              mode: 'spot',
+              typewriterMode: 'spot',
+              fontSize: 'big',
+              typewriterCleaning: 2,
+            },
+            slots: {},
+          },
+          {
+            id: 'typewriter-random',
+            widgetTypeId: 'typewriter',
+            label: 'Random Scatter',
+            config: {
+              mode: 'random',
+              typewriterMode: 'random',
+              typewriterWidth: 32,
+              typewriterHeight: 32,
+              fontSize: 'both',
+              typewriterCleaning: 0.2,
+              typewriterLetterBank: 20,
+              typewriterBankSize: 20,
+              typewriterFadeType: 'dither',
+              typewriterFadeTime: 0.15,
+            },
+            slots: {},
+          },
+        ];
       } else {
         defaults[w.id] = [createDefaultWidgetInstance(w.id, symbolSlices)];
       }
@@ -107,7 +155,7 @@ export const populateDefaultWidgetInstances = (
       if (!inst.config) {
         inst.config = getDefaultWidgetConfig(normId, symbolSlices);
       } else if (inst.config.mode === 'symbol') {
-        if (!inst.config.groupId && !inst.config.groupIds && normId !== 'wpm-chart') {
+        if (!inst.config.groupId && !inst.config.groupIds && normId !== 'wpm-chart' && normId !== 'typewriter' && normId !== 'keypress') {
           const defConfig = getDefaultWidgetConfig(normId, symbolSlices);
           if (defConfig.groupId) inst.config.groupId = defConfig.groupId;
           if (defConfig.groupIds) inst.config.groupIds = defConfig.groupIds;

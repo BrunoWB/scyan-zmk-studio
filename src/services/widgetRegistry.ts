@@ -9,7 +9,22 @@ import type {
   WidgetSlotConfig,
   WidgetInstance,
   WidgetInstanceConfig,
+  TypewriterMode,
+  TypewriterDirection,
+  TypewriterFadeType,
+  KeypressElement,
 } from '../types/widget';
+
+/**
+ * 4x4 Bayer threshold matrix for 1bpp ordered dithering.
+ * Normalized to 16 levels (0..15).
+ */
+export const BAYER_4X4: readonly (readonly number[])[] = [
+  [0, 8, 2, 10],
+  [12, 4, 14, 6],
+  [3, 11, 1, 9],
+  [15, 7, 13, 5],
+];
 
 /**
  * 3x5 fallback bitmap fonts for punctuation characters not always included in custom 1bpp font atlases.
@@ -236,6 +251,55 @@ export const PUNCTUATION_3X5: Record<string, number[]> = {
 };
 
 /**
+ * Normalizes a key identifier or code into a canonical string for matching.
+ * Handles space, backspace, enter, escape, arrow key aliases (ArrowUp, Up, ▲, &kp UP),
+ * KeyA vs A codes, and Digit1 / N1 codes.
+ */
+export function normalizeKey(key: string): string {
+  if (!key) return '';
+  if (key === ' ') return 'space';
+  let k = key.trim().toLowerCase();
+  // Strip ZMK action prefix like &kp
+  if (k.startsWith('&kp ')) {
+    k = k.slice(4).trim();
+  }
+  // Space
+  if (k === 'space' || k === 'spc') return 'space';
+  // Enter / Return
+  if (k === 'enter' || k === 'return' || k === 'ret') return 'enter';
+  // Escape
+  if (k === 'escape' || k === 'esc') return 'escape';
+  // Backspace
+  if (k === 'backspace' || k === 'bspc') return 'backspace';
+  // Arrows
+  if (k === 'arrowup' || k === 'up' || k === '▲') return 'arrowup';
+  if (k === 'arrowdown' || k === 'down' || k === '▼') return 'arrowdown';
+  if (k === 'arrowleft' || k === 'left' || k === '◀') return 'arrowleft';
+  if (k === 'arrowright' || k === 'right' || k === '▶') return 'arrowright';
+  // Strip 'key' prefix: e.g. keyw -> w
+  if (k.startsWith('key') && k.length === 4) return k.slice(3);
+  // Strip 'digit' prefix: e.g. digit1 -> 1
+  if (k.startsWith('digit') && k.length === 6) return k.slice(5);
+  // Strip 'numpad' prefix: e.g. numpad1 -> 1
+  if (k.startsWith('numpad') && k.length === 7) return k.slice(6);
+  // ZMK digit code: e.g. n1 -> 1
+  if (/^n\d$/.test(k)) return k[1];
+  return k;
+}
+
+/**
+ * Normalizes and matches a key binding string against a pressed key/code.
+ * Handles case-insensitivity, arrow key aliases (ArrowUp vs Up vs ▲), space, and scan codes.
+ */
+export function isKeyMatching(bindingKey: string, pressedKey: string): boolean {
+  if (!bindingKey || !pressedKey) return false;
+  const nb = normalizeKey(bindingKey);
+  const np = normalizeKey(pressedKey);
+  if (nb && np && nb === np) return true;
+  return false;
+}
+
+/**
  * Utility to blit a named slice from symbolsGrid into destGrid at (destX, destY).
  * When boxWidth and/or boxHeight are provided, centers the slice horizontally and/or vertically (middle) within the bounded box.
  */
@@ -282,21 +346,25 @@ export function measureTextWidth(
   str: string,
   fontGlyphs?: FontGlyph[],
   fontMappings?: FontCharMapping[],
-  size: 'small' | 'big' = 'small'
+  size: 'small' | 'big' | 'both' = 'small'
 ): number {
   if (!str) return 0;
+  const effectiveSize = size === 'big' ? 'big' : 'small';
   let curX = 0;
   let maxX = 0;
 
   for (let i = 0; i < str.length; i++) {
     const char = str[i];
     if (char === ' ') {
-      curX += size === 'big' ? 6 : 4;
+      curX += effectiveSize === 'big' ? 6 : 4;
+      if (curX > maxX) {
+        maxX = curX;
+      }
       continue;
     }
 
-    let glyphWidth = size === 'big' ? 6 : 4;
-    let advanceX = size === 'big' ? 7 : 5;
+    let glyphWidth = effectiveSize === 'big' ? 6 : 4;
+    let advanceX = effectiveSize === 'big' ? 7 : 5;
     let found = false;
 
     // 1. Try fontMappings
@@ -305,7 +373,7 @@ export function measureTextWidth(
       if (!m) {
         m = fontMappings.find(item => item.chars.toUpperCase().includes(char.toUpperCase()));
       }
-      const slot = m ? (size === 'big' ? (m.big || m.small) : (m.small || m.big)) : null;
+      const slot = m ? (effectiveSize === 'big' ? (m.big || m.small) : (m.small || m.big)) : null;
       if (slot) {
         glyphWidth = slot.width;
         advanceX = slot.advanceX ?? (slot.width + 1);
@@ -329,7 +397,7 @@ export function measureTextWidth(
     if (!found) {
       const punct = PUNCTUATION_3X5[char];
       if (punct) {
-        const scale = size === 'big' ? 2 : 1;
+        const scale = effectiveSize === 'big' ? 2 : 1;
         glyphWidth = 3 * scale;
         advanceX = 3 * scale + 1;
         found = true;
@@ -366,6 +434,8 @@ export interface DrawTextOptions {
   boxWidth?: number;
   boxHeight?: number;
   verticalAlign?: 'top' | 'middle' | 'bottom';
+  clipRect?: { minX: number; minY: number; maxX: number; maxY: number };
+  pixelFilter?: (x: number, y: number) => boolean;
 }
 
 /**
@@ -381,28 +451,27 @@ export function drawText(
   str: string,
   startX: number,
   startY: number,
-  size: 'small' | 'big' = 'small',
+  size: 'small' | 'big' | 'both' = 'small',
   options?: DrawTextOptions
 ): number {
   if (!str) return startX;
+  const effectiveSize = size === 'big' ? 'big' : 'small';
 
   let originX = startX;
   let originY = startY;
 
   if (options) {
-    const textW = measureTextWidth(str, fontGlyphs, fontMappings, size);
-    const textH = size === 'big' ? 10 : 5;
+    const textW = measureTextWidth(str, fontGlyphs, fontMappings, effectiveSize);
+    const textH = effectiveSize === 'big' ? 10 : 5;
     const boxW = options.boxWidth ?? textW;
     const boxH = options.boxHeight ?? textH;
     const align = options.align ?? 'center';
     const vAlign = options.verticalAlign ?? 'middle';
 
-    if (boxW > textW) {
-      if (align === 'center') {
-        originX = startX + Math.floor((boxW - textW) / 2);
-      } else if (align === 'right') {
-        originX = startX + (boxW - textW);
-      }
+    if (align === 'right') {
+      originX = startX + (boxW - textW);
+    } else if (align === 'center') {
+      originX = startX + Math.floor((boxW - textW) / 2);
     }
 
     if (boxH > textH && vAlign === 'middle') {
@@ -417,7 +486,7 @@ export function drawText(
   for (let i = 0; i < str.length; i++) {
     const char = str[i];
     if (char === ' ') {
-      curX += size === 'big' ? 6 : 4;
+      curX += effectiveSize === 'big' ? 6 : 4;
       continue;
     }
 
@@ -429,16 +498,20 @@ export function drawText(
       if (!m) {
         m = fontMappings.find(item => item.chars.toUpperCase().includes(char.toUpperCase()));
       }
-      const slot = m ? (size === 'big' ? (m.big || m.small) : (m.small || m.big)) : null;
+      const slot = m ? (effectiveSize === 'big' ? (m.big || m.small) : (m.small || m.big)) : null;
       if (slot) {
         for (let gy = 0; gy < slot.height; gy++) {
           const targetY = originY + gy;
           if (targetY < 0 || targetY >= destGrid.height) continue;
+          if (options?.clipRect && (targetY < options.clipRect.minY || targetY >= options.clipRect.maxY)) continue;
           for (let gx = 0; gx < slot.width; gx++) {
             const targetX = curX + gx;
             if (targetX < 0 || targetX >= destGrid.width) continue;
+            if (options?.clipRect && (targetX < options.clipRect.minX || targetX >= options.clipRect.maxX)) continue;
             if (fontGrid.get(slot.x + gx, slot.y + gy)) {
-              destGrid.set(targetX, targetY, 1);
+              if (!options?.pixelFilter || options.pixelFilter(targetX, targetY)) {
+                destGrid.set(targetX, targetY, 1);
+              }
             }
           }
         }
@@ -457,11 +530,15 @@ export function drawText(
       for (let gy = 0; gy < glyph.height; gy++) {
         const targetY = originY + gy;
         if (targetY < 0 || targetY >= destGrid.height) continue;
+        if (options?.clipRect && (targetY < options.clipRect.minY || targetY >= options.clipRect.maxY)) continue;
         for (let gx = 0; gx < glyph.width; gx++) {
           const targetX = curX + gx;
           if (targetX < 0 || targetX >= destGrid.width) continue;
+          if (options?.clipRect && (targetX < options.clipRect.minX || targetX >= options.clipRect.maxX)) continue;
           if (fontGrid.get(glyph.x + gx, glyph.y + gy)) {
-            destGrid.set(targetX, targetY, 1);
+            if (!options?.pixelFilter || options.pixelFilter(targetX, targetY)) {
+              destGrid.set(targetX, targetY, 1);
+            }
           }
         }
       }
@@ -474,7 +551,7 @@ export function drawText(
     // 3. Fallback to 3x5 punctuation bitmap
     const punct = PUNCTUATION_3X5[char];
     if (punct) {
-      const scale = size === 'big' ? 2 : 1;
+      const scale = effectiveSize === 'big' ? 2 : 1;
       for (let gy = 0; gy < 5; gy++) {
         const row = punct[gy];
         for (let gx = 0; gx < 3; gx++) {
@@ -482,10 +559,14 @@ export function drawText(
             for (let sy = 0; sy < scale; sy++) {
               const targetY = originY + gy * scale + sy;
               if (targetY < 0 || targetY >= destGrid.height) continue;
+              if (options?.clipRect && (targetY < options.clipRect.minY || targetY >= options.clipRect.maxY)) continue;
               for (let sx = 0; sx < scale; sx++) {
                 const targetX = curX + gx * scale + sx;
                 if (targetX < 0 || targetX >= destGrid.width) continue;
-                destGrid.set(targetX, targetY, 1);
+                if (options?.clipRect && (targetX < options.clipRect.minX || targetX >= options.clipRect.maxX)) continue;
+                if (!options?.pixelFilter || options.pixelFilter(targetX, targetY)) {
+                  destGrid.set(targetX, targetY, 1);
+                }
               }
             }
           }
@@ -496,7 +577,7 @@ export function drawText(
     }
 
     if (!rendered) {
-      curX += size === 'big' ? 6 : 4;
+      curX += effectiveSize === 'big' ? 6 : 4;
     }
   }
 
@@ -552,7 +633,7 @@ export function renderSlot(
   slotId: string,
   context: WidgetRenderContext,
   fallbackBounds?: { width?: number; height?: number },
-  fontSize: 'small' | 'big' = 'small'
+  fontSize: 'small' | 'big' | 'both' = 'small'
 ): RenderSlotResult {
   const widget = getWidgetDefinition(widgetId);
   const normWidgetId = widget?.id || normalizeWidgetType(widgetId);
@@ -1076,6 +1157,437 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     },
   },
   {
+    id: 'typewriter',
+    name: 'Typewriter',
+    category: 'typing',
+    tier: 2,
+    requiresMaster: true,
+    description: 'Displays user typing in real time: inline text stream, single-letter spot, or random placement.',
+    defaultWidth: 32,
+    minWidth: 4,
+    maxWidth: 32,
+    defaultHeight: 5,
+    minHeight: 4,
+    maxHeight: 128,
+    icon: 'keyboard',
+    associatedSliceIds: [],
+    defaultPlacement: { side: 'central', defaultX: 0, defaultY: 70 },
+    slots: [],
+    render: (grid, destX, destY, ctx) => {
+      const inst = resolveWidgetInstance(ctx.instances, 'typewriter', ctx.activeInstanceId);
+      const mode: TypewriterMode = (inst?.config?.typewriterMode || (['inline', 'spot', 'random'].includes(inst?.config?.mode as string) ? inst?.config?.mode : undefined) || 'inline') as TypewriterMode;
+      const configuredFontSize = inst?.config?.fontSize || (mode === 'random' ? 'both' : 'small');
+      const fontSize = (configuredFontSize === 'both') ? 'small' : configuredFontSize;
+      const charH = fontSize === 'big' ? 10 : 5;
+      const charW = fontSize === 'big' ? 10 : 5;
+      const direction: TypewriterDirection = inst?.config?.typewriterDirection || 'we';
+      const cleaning = inst?.config?.typewriterCleaning ?? 0;
+
+      const isHorizontal = direction === 'we' || direction === 'ew';
+      const boxW = ctx.blockWidth ?? (mode === 'random' || isHorizontal ? (inst?.config?.typewriterWidth ?? 32) : charW);
+      const boxH = ctx.blockHeight ?? (mode === 'random' || !isHorizontal ? (inst?.config?.typewriterHeight ?? 32) : charH);
+
+      const rawText = ctx.typewriterText ?? ctx.typewriterState?.text ?? ctx.customText;
+      const lastChar = ctx.typewriterState?.lastChar ?? (rawText && rawText.length > 0 ? rawText[rawText.length - 1] : undefined);
+      const lastTimestamp = ctx.typewriterState?.lastTimestamp;
+      const rawBank = ctx.typewriterState?.letterBank || ctx.typewriterState?.randomLetters || ctx.typewriterState?.randomBank;
+      const effectiveLastTimestamp = lastTimestamp ?? (rawBank && rawBank.length > 0 ? rawBank[rawBank.length - 1].timestamp : undefined);
+      const now = (effectiveLastTimestamp && effectiveLastTimestamp > 1_000_000_000 && (ctx.animationTimestamp ?? 0) < 1_000_000_000)
+        ? Date.now()
+        : (ctx.animationTimestamp ?? Date.now());
+
+      const clip = { minX: destX, minY: destY, maxX: destX + boxW, maxY: destY + boxH };
+
+      // Spot mode: shows last letter typed, typing multiple letters overrides last letter, only keep latest
+      if (mode === 'spot') {
+        const spotCleaningMs = Math.round(cleaning * 1000);
+        if (cleaning > 0 && effectiveLastTimestamp && spotCleaningMs > 0 && (now - effectiveLastTimestamp >= spotCleaningMs)) {
+          return; // Wiped after idle duration
+        }
+        const char = lastChar || (rawText ? rawText[rawText.length - 1] : 'A');
+        if (!char || char === ' ') return;
+        drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, char, destX, destY, fontSize, {
+          align: 'center',
+          boxWidth: boxW,
+          boxHeight: boxH,
+          verticalAlign: 'middle',
+          clipRect: clip,
+        });
+        return;
+      }
+
+      // Random mode: chooses a random spot for the typed letter, up to bank capacity
+      if (mode === 'random') {
+        const bankCapacity = Math.max(1, inst?.config?.typewriterBankSize ?? inst?.config?.typewriterLetterBank ?? 20);
+
+        // 1. Resolve candidate bank letters
+        let bank: Array<{ char: string; x?: number; y?: number; fontSize?: 'small' | 'big'; timestamp?: number }> = [];
+
+        if (ctx.typewriterState?.letterBank && ctx.typewriterState.letterBank.length > 0) {
+          bank = [...ctx.typewriterState.letterBank];
+        } else if (ctx.typewriterState?.randomLetters && ctx.typewriterState.randomLetters.length > 0) {
+          bank = [...ctx.typewriterState.randomLetters];
+        } else if (ctx.typewriterState?.randomBank && ctx.typewriterState.randomBank.length > 0) {
+          bank = [...ctx.typewriterState.randomBank];
+        } else {
+          // Fallback when randomLetters array not directly supplied (e.g. legacy state or single test input)
+          if (rawText && rawText.length > 0) {
+            const chars = rawText.split('').slice(-bankCapacity);
+            bank = chars.map((c, i) => ({
+              char: c,
+              x: i === chars.length - 1 ? ctx.typewriterState?.randomX : undefined,
+              y: i === chars.length - 1 ? ctx.typewriterState?.randomY : undefined,
+              timestamp: lastTimestamp,
+            }));
+          } else if (lastChar && lastChar !== ' ') {
+            bank = [{
+              char: lastChar,
+              x: ctx.typewriterState?.randomX,
+              y: ctx.typewriterState?.randomY,
+              timestamp: lastTimestamp,
+            }];
+          }
+        }
+
+        // Limit to configured bank capacity (FIFO: most recent)
+        if (bank.length > bankCapacity) {
+          bank = bank.slice(-bankCapacity);
+        }
+
+        // 2. Idle cleaning: auto-remove/fade letters from the bank according to cleaning interval & fade effect
+        const fadeType: TypewriterFadeType = inst?.config?.typewriterFadeType || 'instant';
+        const fadeTimeSec = inst?.config?.typewriterFadeTime ?? 0.15;
+        const fadeMs = fadeType === 'instant' ? 0 : Math.max(0, Math.round(fadeTimeSec * 1000));
+        const cleaningMs = Math.round(cleaning * 1000);
+
+        // Detect available font sizes from atlas
+        const hasSmall = ctx.fontMappings && ctx.fontMappings.length > 0
+          ? ctx.fontMappings.some(m => !!m.small)
+          : true;
+        const hasBig = ctx.fontMappings && ctx.fontMappings.length > 0
+          ? ctx.fontMappings.some(m => !!m.big)
+          : (ctx.fontGlyphs && ctx.fontGlyphs.length > 0 ? true : true);
+
+        // 3. Render all letters currently remaining in the bank
+        for (let i = 0; i < bank.length; i++) {
+          const item = bank[i];
+          const char = item.char;
+          if (!char || char === ' ') continue;
+
+          let isFading = false;
+          let fadeProgress = 0;
+
+          if (cleaning > 0 && effectiveLastTimestamp && cleaningMs > 0) {
+            const elapsed = now - effectiveLastTimestamp;
+            if (elapsed >= cleaningMs) {
+              const tStart = (i + 1) * cleaningMs;
+              const tEnd = tStart + fadeMs;
+
+              if (fadeMs <= 0) {
+                if (elapsed >= tStart) {
+                  continue; // Evicted in instant mode
+                }
+              } else {
+                if (elapsed >= tEnd) {
+                  continue; // Evicted after fade completion
+                }
+                if (elapsed >= tStart) {
+                  isFading = true;
+                  fadeProgress = Math.min(1.0, Math.max(0.0, (elapsed - tStart) / fadeMs));
+                }
+              }
+            }
+          }
+
+          if (isFading) {
+            if (fadeProgress >= 1.0) continue;
+            if (fadeType === 'blink') {
+              // Toggle visibility at high frequency (every 80ms)
+              const blinkVisible = Math.floor(now / 80) % 2 === 0;
+              if (!blinkVisible) continue;
+            }
+          }
+
+          let letterSize: 'small' | 'big' = 'small';
+          if (configuredFontSize === 'small') {
+            letterSize = hasSmall ? 'small' : (hasBig ? 'big' : 'small');
+          } else if (configuredFontSize === 'big') {
+            letterSize = hasBig ? 'big' : (hasSmall ? 'small' : 'big');
+          } else {
+            // 'both' (default)
+            if (!hasBig) {
+              letterSize = 'small';
+            } else if (!hasSmall) {
+              letterSize = 'big';
+            } else if (item.fontSize === 'small' || item.fontSize === 'big') {
+              letterSize = item.fontSize;
+            } else {
+              // Deterministic pseudo-random pick based on char code, index, and timestamp
+              const code = char.charCodeAt(0) || 65;
+              const pseudoRandomChoice = (((code * 31 + (i + 1) * 17) ^ ((item.timestamp || 0) & 0xff)) & 1) === 0 ? 'small' : 'big';
+              letterSize = pseudoRandomChoice;
+            }
+          }
+
+          const letterCharH = letterSize === 'big' ? 10 : 5;
+          const letterW = measureTextWidth(char, ctx.fontGlyphs, ctx.fontMappings, letterSize);
+          const maxOffsetX = Math.max(0, boxW - letterW);
+          const maxOffsetY = Math.max(0, boxH - letterCharH);
+
+          let offsetX = 0;
+          let offsetY = 0;
+
+          if (item.x !== undefined && item.y !== undefined) {
+            const hasFloat = (!Number.isInteger(item.x) && item.x >= 0 && item.x <= 1) ||
+                             (!Number.isInteger(item.y) && item.y >= 0 && item.y <= 1);
+            const isExplicitlyNormalized = (item as any).normalized === true;
+            const isNormalized = (typeof item.x === 'number' && typeof item.y === 'number') &&
+              (item.x >= 0 && item.x <= 1 && item.y >= 0 && item.y <= 1) &&
+              (hasFloat || isExplicitlyNormalized);
+            const rx = isNormalized
+              ? Math.floor(item.x * (maxOffsetX + 1))
+              : item.x;
+            const ry = isNormalized
+              ? Math.floor(item.y * (maxOffsetY + 1))
+              : item.y;
+            offsetX = Math.max(0, Math.min(maxOffsetX, rx));
+            offsetY = Math.max(0, Math.min(maxOffsetY, ry));
+          } else {
+            // Deterministic pseudo-random placement based on char code and index using 32-bit integer hash
+            const code = char.charCodeAt(0) || 65;
+            let h1 = Math.imul(code, 0x9e3779b1) ^ Math.imul(i + 1, 0x85ebca6b);
+            h1 = Math.imul(h1 ^ (h1 >>> 16), 0x85ebca6b);
+            h1 = Math.imul(h1 ^ (h1 >>> 13), 0xc2b2ae35);
+            const rndX = ((h1 ^ (h1 >>> 16)) >>> 0) / 4294967296;
+
+            let h2 = Math.imul(code, 0x85ebca6b) ^ Math.imul(i + 1, 0xc2b2ae35);
+            h2 = Math.imul(h2 ^ (h2 >>> 16), 0x85ebca6b);
+            h2 = Math.imul(h2 ^ (h2 >>> 13), 0xc2b2ae35);
+            const rndY = ((h2 ^ (h2 >>> 16)) >>> 0) / 4294967296;
+
+            offsetX = maxOffsetX > 0 ? Math.floor(rndX * (maxOffsetX + 1)) : 0;
+            offsetY = maxOffsetY > 0 ? Math.floor(rndY * (maxOffsetY + 1)) : 0;
+          }
+
+          let pixelFilter: ((x: number, y: number) => boolean) | undefined = undefined;
+
+          if (isFading && fadeProgress > 0) {
+            if (fadeType === 'dither') {
+              pixelFilter = (px: number, py: number) => {
+                const bayerVal = (BAYER_4X4[((py % 4) + 4) % 4][((px % 4) + 4) % 4] + 0.5) / 16;
+                return bayerVal >= fadeProgress;
+              };
+            } else if (fadeType === 'dissolve') {
+              const seed = (char.charCodeAt(0) || 65) * 31 + (item.timestamp ? (item.timestamp % 10007) : (i * 17));
+              pixelFilter = (px: number, py: number) => {
+                let h = ((px * 374761393) ^ (py * 668265263) ^ (seed * 1013904223)) + 0x5bf03635;
+                h = Math.imul(h ^ (h >>> 13), 1274126177);
+                const rnd = ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+                return rnd >= fadeProgress;
+              };
+            }
+          }
+
+          drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, char, destX + offsetX, destY + offsetY, letterSize, {
+            align: 'left',
+            boxWidth: letterW,
+            boxHeight: letterCharH,
+            verticalAlign: 'top',
+            clipRect: clip,
+            pixelFilter,
+          });
+        }
+        return;
+      }
+
+      // Inline mode: shows text being written in screen like a text
+      let displayText = rawText !== undefined ? rawText : 'TYPE...';
+
+      // Auto add space to clean up idle if cleaning is configured
+      const inlineCleaningMs = Math.round(cleaning * 1000);
+      if (cleaning > 0 && lastTimestamp && inlineCleaningMs > 0 && (now - lastTimestamp >= inlineCleaningMs)) {
+        const idleSpaces = Math.floor((now - lastTimestamp) / inlineCleaningMs);
+        displayText = displayText + ' '.repeat(idleSpaces);
+      }
+
+      if (!displayText || displayText.trim().length === 0) return;
+
+      if (direction === 'we') {
+        // West -> East (horizontal LTR): text starts at West (destX) and grows East (right).
+        // When total width exceeds boxW, new letters push text to the left so the latest
+        // typed characters stay visible at the right edge (destX + boxW), while older characters scroll off left.
+        const totalW = measureTextWidth(displayText, ctx.fontGlyphs, ctx.fontMappings, fontSize);
+        if (totalW <= boxW) {
+          drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, displayText, destX, destY, fontSize, {
+            align: 'left',
+            boxWidth: boxW,
+            boxHeight: boxH,
+            verticalAlign: 'middle',
+            clipRect: clip,
+          });
+        } else {
+          // Overflow: align right so latest characters stay visible at the right edge, older scroll off left
+          drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, displayText, destX, destY, fontSize, {
+            align: 'right',
+            boxWidth: boxW,
+            boxHeight: boxH,
+            verticalAlign: 'middle',
+            clipRect: clip,
+          });
+        }
+      } else if (direction === 'ew') {
+        // East -> West (horizontal RTL): text begins at East (destX + boxW) and advances West (left).
+        // Each newly typed letter is placed at the typing front (advancing toward the left).
+        // When total text width exceeds boxW, newest characters stay visible at the typing edge (destX),
+        // while older characters push off to the right (East) and are clipped.
+        const reversed = displayText.split('').reverse().join('');
+        const totalW = measureTextWidth(reversed, ctx.fontGlyphs, ctx.fontMappings, fontSize);
+        if (totalW <= boxW) {
+          drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, reversed, destX, destY, fontSize, {
+            align: 'right',
+            boxWidth: boxW,
+            boxHeight: boxH,
+            verticalAlign: 'middle',
+            clipRect: clip,
+          });
+        } else {
+          // Overflow: align left so newest characters at the typing front stay visible at destX, older push right
+          drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, reversed, destX, destY, fontSize, {
+            align: 'left',
+            boxWidth: boxW,
+            boxHeight: boxH,
+            verticalAlign: 'middle',
+            clipRect: clip,
+          });
+        }
+      } else if (direction === 'ns') {
+        // North -> South (vertical column, top to bottom)
+        const stepY = charH + 1;
+        const maxChars = Math.max(1, Math.floor((boxH + 1) / stepY));
+        const charsToDraw = displayText.length > maxChars
+          ? displayText.slice(displayText.length - maxChars)
+          : displayText;
+
+        for (let i = 0; i < charsToDraw.length; i++) {
+          const ch = charsToDraw[i];
+          const charY = destY + i * stepY;
+          if (charY + charH > destY + boxH) break;
+          drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, ch, destX, charY, fontSize, {
+            align: 'center',
+            boxWidth: boxW,
+            boxHeight: charH,
+            verticalAlign: 'top',
+            clipRect: clip,
+          });
+        }
+      } else if (direction === 'sn') {
+        // South -> North (vertical column, bottom to top): first typed at South (bottom), latest at North (top)
+        const stepY = charH + 1;
+        const maxChars = Math.max(1, Math.floor((boxH + 1) / stepY));
+        const charsToDraw = displayText.length > maxChars
+          ? displayText.slice(displayText.length - maxChars)
+          : displayText;
+
+        for (let i = 0; i < charsToDraw.length; i++) {
+          const ch = charsToDraw[i];
+          const charY = destY + boxH - charH - i * stepY;
+          if (charY < destY) break;
+          drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, ch, destX, charY, fontSize, {
+            align: 'center',
+            boxWidth: boxW,
+            boxHeight: charH,
+            verticalAlign: 'top',
+            clipRect: clip,
+          });
+        }
+      }
+    },
+  },
+  {
+    id: 'keypress',
+    name: 'Keypress',
+    category: 'typing',
+    tier: 2,
+    requiresMaster: true,
+    description: 'Displays custom symbols mapped to specific key presses with optional idle symbol fallback.',
+    defaultWidth: 16,
+    minWidth: 4,
+    maxWidth: 32,
+    defaultHeight: 16,
+    minHeight: 4,
+    maxHeight: 128,
+    icon: 'keyboard',
+    associatedSliceIds: ['SYMBOL_ARROW_UP', 'SYMBOL_ARROW_DOWN', 'SYMBOL_ARROW_LEFT', 'SYMBOL_ARROW_RIGHT'],
+    defaultPlacement: { side: 'central', defaultX: 8, defaultY: 40 },
+    slots: [],
+    render: (grid, destX, destY, ctx) => {
+      const inst = resolveWidgetInstance(ctx.instances, 'keypress', ctx.activeInstanceId) || ctx.instances?.['keypress']?.[0];
+      const boxW = ctx.blockWidth;
+      const boxH = ctx.blockHeight;
+      const config = inst?.config;
+      const elements: KeypressElement[] = config?.keypressElements || config?.keypressBindings || [];
+      const idleSymbolId = config?.idleSymbolId || config?.keypressIdleSymbolId;
+
+      let activeSymbolId: string | undefined;
+
+      const activeKeys = ctx.activeKeys || ctx.keypressState?.activeKeys || [];
+      if (activeKeys.length > 0) {
+        for (let i = activeKeys.length - 1; i >= 0; i--) {
+          const key = activeKeys[i];
+          const match = elements.find(el => isKeyMatching(el.key, key));
+          if (match) {
+            activeSymbolId = match.symbolId;
+            break;
+          }
+        }
+      }
+
+      const instKey = inst?.id || 'keypress-default';
+
+      if (activeSymbolId && ctx.keypressState) {
+        ctx.keypressState.lastSymbolId = activeSymbolId;
+        if (!ctx.keypressState.lastSymbolByInstance) {
+          ctx.keypressState.lastSymbolByInstance = {};
+        }
+        ctx.keypressState.lastSymbolByInstance[instKey] = activeSymbolId;
+      }
+
+      let symbolToRender: string | undefined;
+      if (activeSymbolId) {
+        symbolToRender = activeSymbolId;
+      } else if (idleSymbolId && ctx.symbolSlices.some(s => s.id === idleSymbolId)) {
+        symbolToRender = idleSymbolId;
+      } else {
+        const lastSym = ctx.keypressState?.lastSymbolByInstance?.[instKey] || ctx.keypressState?.lastSymbolId;
+        if (lastSym && ctx.symbolSlices.some(s => s.id === lastSym)) {
+          symbolToRender = lastSym;
+        } else {
+          const lastKey = ctx.lastKey || ctx.keypressState?.lastKey;
+          if (lastKey) {
+            const match = elements.find(el => isKeyMatching(el.key, lastKey));
+            if (match) {
+              symbolToRender = match.symbolId;
+              if (ctx.keypressState) {
+                ctx.keypressState.lastSymbolId = match.symbolId;
+                if (!ctx.keypressState.lastSymbolByInstance) {
+                  ctx.keypressState.lastSymbolByInstance = {};
+                }
+                ctx.keypressState.lastSymbolByInstance[instKey] = match.symbolId;
+              }
+            }
+          }
+        }
+        if (!symbolToRender && elements.length > 0) {
+          symbolToRender = elements[0].symbolId;
+        }
+      }
+
+      if (symbolToRender) {
+        blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, symbolToRender, destX, destY, boxW, boxH);
+      }
+    },
+  },
+  {
     id: 'screensaver',
     name: 'Image',
     category: 'art',
@@ -1291,6 +1803,13 @@ export function normalizeWidgetType(idOrType: string): string {
     case 'block-loop':
     case 'loop':
       return 'animation';
+    case 'block-typewriter':
+    case 'typewriter':
+      return 'typewriter';
+    case 'block-keypress':
+    case 'keypress':
+    case 'key-press':
+      return 'keypress';
     default:
       return idOrType;
   }
@@ -1330,6 +1849,51 @@ export function getWidgetNaturalSize(
   fontMappings?: FontCharMapping[]
 ): { width: number; height: number } {
   const { associatedSliceIds, defaultWidth, defaultHeight } = widget;
+
+  if (widget.id === 'typewriter') {
+    const inst = activeInstance;
+    const mode: TypewriterMode = (inst?.config?.typewriterMode || (['inline', 'spot', 'random'].includes(inst?.config?.mode as string) ? inst?.config?.mode : undefined) || 'inline') as TypewriterMode;
+    const fontSize = inst?.config?.fontSize || 'small';
+    const charH = fontSize === 'big' ? 10 : 5;
+    const charW = fontSize === 'big' ? 10 : 5;
+
+    if (mode === 'spot') {
+      return { width: charW, height: charH };
+    }
+    if (mode === 'random') {
+      return {
+        width: inst?.config?.typewriterWidth ?? defaultWidth,
+        height: inst?.config?.typewriterHeight ?? 32,
+      };
+    }
+    // Inline mode
+    const direction = inst?.config?.typewriterDirection || 'we';
+    if (direction === 'we' || direction === 'ew') {
+      return {
+        width: inst?.config?.typewriterWidth ?? defaultWidth,
+        height: charH,
+      };
+    } else {
+      return {
+        width: charW,
+        height: inst?.config?.typewriterHeight ?? 32,
+      };
+    }
+  }
+
+  if (widget.id === 'keypress') {
+    const inst = activeInstance;
+    const elements = inst?.config?.keypressElements || inst?.config?.keypressBindings || [];
+    const idleId = inst?.config?.idleSymbolId || inst?.config?.keypressIdleSymbolId;
+    const allSymIds = [...elements.map(e => e.symbolId), idleId].filter(Boolean) as string[];
+    const matchingSlices = symbolSlices.filter(s => allSymIds.includes(s.id));
+    if (matchingSlices.length > 0) {
+      const maxW = Math.max(...matchingSlices.map(s => s.width));
+      const maxH = Math.max(...matchingSlices.map(s => s.height));
+      return { width: Math.max(4, maxW), height: Math.max(4, maxH) };
+    }
+    return { width: defaultWidth, height: defaultHeight };
+  }
 
   if (widget.id === 'wpm-chart' && activeInstance?.config?.wpmChart) {
     return {
@@ -1597,9 +2161,9 @@ export function renderBlocksToGrid(
     const activeInstance = resolveWidgetInstance(context.instances, normType, block.instanceId);
     const resolvedInstanceId = activeInstance?.id ?? block.instanceId;
     const naturalSize = def ? getWidgetNaturalSize(def, context.symbolSlices || [], activeInstance, context.fontGlyphs, context.fontMappings) : null;
-    const isChart = normType === 'wpm-chart';
-    const effectiveWidth = (isChart && naturalSize) ? naturalSize.width : (block.width ?? naturalSize?.width ?? def?.defaultWidth);
-    const effectiveHeight = (isChart && naturalSize) ? naturalSize.height : (block.height ?? naturalSize?.height ?? def?.defaultHeight);
+    const isDynamicSize = normType === 'wpm-chart' || normType === 'typewriter';
+    const effectiveWidth = (isDynamicSize && naturalSize) ? naturalSize.width : (block.width ?? naturalSize?.width ?? def?.defaultWidth);
+    const effectiveHeight = (isDynamicSize && naturalSize) ? naturalSize.height : (block.height ?? naturalSize?.height ?? def?.defaultHeight);
     const activeContext = {
       ...context,
       activeInstanceId: resolvedInstanceId,
@@ -1633,6 +2197,20 @@ export function getDefaultWidgetConfig(
       return {
         mode: 'symbol',
         wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 },
+      };
+
+    case 'typewriter':
+      return {
+        mode: 'inline',
+        typewriterMode: 'inline',
+        typewriterDirection: 'we',
+        typewriterCleaning: 0.2,
+        typewriterWidth: 32,
+        typewriterLetterBank: 20,
+        typewriterBankSize: 20,
+        fontSize: 'both',
+        typewriterFadeType: 'dither',
+        typewriterFadeTime: 0.15,
       };
 
     case 'connection':
@@ -1806,6 +2384,24 @@ export function getDefaultWidgetConfig(
         groupId: animGroup?.groupId || 'SYMBOL_CAMPFIRE',
         loopSpeedMs: 150,
         loop: true,
+      };
+    }
+
+    case 'keypress': {
+      const up = symbolSlices.find(s => s.id === 'SYMBOL_ARROW_UP')?.id || 'SYMBOL_ARROW_UP';
+      const down = symbolSlices.find(s => s.id === 'SYMBOL_ARROW_DOWN')?.id || 'SYMBOL_ARROW_DOWN';
+      const left = symbolSlices.find(s => s.id === 'SYMBOL_ARROW_LEFT')?.id || 'SYMBOL_ARROW_LEFT';
+      const right = symbolSlices.find(s => s.id === 'SYMBOL_ARROW_RIGHT')?.id || 'SYMBOL_ARROW_RIGHT';
+      return {
+        mode: 'symbol',
+        groupId: 'SYMBOL_ARROWS',
+        idleSymbolId: undefined,
+        keypressElements: [
+          { key: 'ArrowUp', symbolId: up },
+          { key: 'ArrowDown', symbolId: down },
+          { key: 'ArrowLeft', symbolId: left },
+          { key: 'ArrowRight', symbolId: right },
+        ],
       };
     }
 

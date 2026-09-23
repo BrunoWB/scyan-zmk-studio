@@ -15,12 +15,16 @@ import type {
   DisplayWidgetDefinition,
   WidgetInstanceMap,
   WidgetInstance,
+  TypewriterRandomLetter,
+  TypewriterFadeType,
+  KeypressState,
 } from '../types/widget';
 import {
   Activity, Battery, Wifi, Link2, Layers, Sparkles, Gauge, Type,
   Type as TypeIcon, Image as ImageIcon,
   Plus, Trash2, Usb, Bluetooth, Cat, Repeat, Film,
-  AlignLeft, AlignCenter, AlignRight, Cpu
+  AlignLeft, AlignCenter, AlignRight, Cpu, Keyboard,
+  ArrowRight, ArrowLeft, ArrowDown, ArrowUp
 } from 'lucide-react';
 
 import { useAtlasStore } from '../stores/useAtlasStore';
@@ -69,6 +73,7 @@ const WIDGET_ICONS: Record<string, React.ComponentType<{ size?: number; classNam
   cat: Cat,
   repeat: Repeat,
   film: Film,
+  keyboard: Keyboard,
 };
 
 const TIER_METADATA = {
@@ -182,6 +187,28 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   const [testSplitConnected] = useState<boolean>(true);
   const [simulateMissingSymbols] = useState<boolean>(false);
   const [testBongoState, setTestBongoState] = useState<0 | 1 | 2>(0);
+  const [testTypewriterText, setTestTypewriterText] = useState<string>('TYPE...');
+  const [testTypewriterLastChar, setTestTypewriterLastChar] = useState<string>('E');
+  const [testTypewriterLastTimestamp, setTestTypewriterLastTimestamp] = useState<number>(() => Date.now());
+  const [testTypewriterRandomPos, setTestTypewriterRandomPos] = useState<{ x: number; y: number }>({ x: 0.25, y: 0.25 });
+  const [testTypewriterRandomLetters, setTestTypewriterRandomLetters] = useState<TypewriterRandomLetter[]>(() => {
+    const now = Date.now();
+    return [
+      { char: 'T', x: 0.1, y: 0.08, fontSize: 'big', timestamp: now },
+      { char: 'Y', x: 0.4, y: 0.32, fontSize: 'small', timestamp: now },
+      { char: 'P', x: 0.75, y: 0.62, fontSize: 'big', timestamp: now },
+      { char: 'E', x: 0.35, y: 0.88, fontSize: 'small', timestamp: now },
+    ];
+  });
+
+  const [testActiveKeys, setTestActiveKeys] = useState<string[]>([]);
+  const [testLastKey, setTestLastKey] = useState<string>('');
+  const testKeypressStateRef = useRef<KeypressState>({});
+
+  useEffect(() => {
+    testKeypressStateRef.current.activeKeys = testActiveKeys;
+    testKeypressStateRef.current.lastKey = testLastKey;
+  }, [testActiveKeys, testLastKey]);
 
   const effectiveTestLayer = testLayer < effectiveLayerNames.length ? testLayer : 0;
 
@@ -384,8 +411,95 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
         </div>
 
         {/* Preview Controls — uncontained template options */}
-        {activeInstances.length > 0 && (activeWidget.id === 'battery' || activeWidget.id === 'connection' || activeWidget.id === 'bongo' || activeWidget.id === 'layer-banner') && (
+        {activeInstances.length > 0 && (activeWidget.id === 'battery' || activeWidget.id === 'connection' || activeWidget.id === 'bongo' || activeWidget.id === 'layer-banner' || activeWidget.id === 'typewriter' || activeWidget.id === 'keypress') && (
           <div className="mb-6 flex flex-col gap-3">
+            {activeWidget.id === 'typewriter' && (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-text-main whitespace-nowrap">Interactive Typing Test:</span>
+                  {testTypewriterText && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTestTypewriterText('');
+                        setTestTypewriterLastChar('');
+                        setTestTypewriterRandomLetters([]);
+                      }}
+                      className="text-[11px] text-muted hover:text-accent cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={testTypewriterText}
+                  onChange={e => {
+                    const val = e.target.value.toUpperCase();
+                    const prevText = testTypewriterText;
+                    setTestTypewriterText(val);
+                    const now = Date.now();
+                    const randomInst = activeInstances.find(i => (i.config?.typewriterMode || i.config?.mode) === 'random') || activeInstances[0];
+                    const capacity = Math.max(
+                      20,
+                      ...activeInstances.map(i => Math.max(1, i.config?.typewriterBankSize ?? i.config?.typewriterLetterBank ?? 20)),
+                      32
+                    );
+                    const cleaning = randomInst?.config?.typewriterCleaning ?? 0.2;
+
+                    if (val.length === 0) {
+                      setTestTypewriterLastChar('');
+                      setTestTypewriterRandomLetters([]);
+                      setTestTypewriterLastTimestamp(now);
+                    } else if (val.length < prevText.length) {
+                      // Backspace / deletion
+                      const last = val[val.length - 1];
+                      setTestTypewriterLastChar(last);
+                      setTestTypewriterRandomLetters(prev => {
+                        let surviving = prev;
+                        if (cleaning > 0 && testTypewriterLastTimestamp) {
+                          const cleaningMs = Math.round(cleaning * 1000);
+                          const intervals = cleaningMs > 0 ? Math.floor((now - testTypewriterLastTimestamp) / cleaningMs) : 0;
+                          if (intervals > 0) {
+                            surviving = prev.slice(intervals);
+                          }
+                        }
+                        return surviving.slice(0, -1);
+                      });
+                      setTestTypewriterLastTimestamp(now);
+                    } else {
+                      // Keystroke / letter addition: use normalized [0, 1) coordinates so letters span any box dimensions
+                      const last = val[val.length - 1];
+                      setTestTypewriterLastChar(last);
+                      const rx = Math.random();
+                      const ry = Math.random();
+                      setTestTypewriterRandomPos({
+                        x: rx,
+                        y: ry,
+                      });
+                      const twFontSizeCfg = randomInst?.config?.fontSize ?? 'both';
+                      const chosenSize: 'small' | 'big' = twFontSizeCfg === 'both'
+                        ? (Math.random() < 0.5 ? 'small' : 'big')
+                        : (twFontSizeCfg === 'big' ? 'big' : 'small');
+                      setTestTypewriterRandomLetters(prev => {
+                        let surviving = prev;
+                        if (cleaning > 0 && testTypewriterLastTimestamp) {
+                          const cleaningMs = Math.round(cleaning * 1000);
+                          const intervals = cleaningMs > 0 ? Math.floor((now - testTypewriterLastTimestamp) / cleaningMs) : 0;
+                          if (intervals > 0) {
+                            surviving = prev.slice(intervals);
+                          }
+                        }
+                        return [...surviving, { char: last, x: rx, y: ry, fontSize: chosenSize, timestamp: now }].slice(-capacity);
+                      });
+                      setTestTypewriterLastTimestamp(now);
+                    }
+                  }}
+                  placeholder="Type here to test typewriter on display..."
+                  className="input-text-dark text-xs w-full font-mono"
+                />
+              </div>
+            )}
             {activeWidget.id === 'layer-banner' && (
               <div className="flex flex-wrap items-center gap-3">
                 <span className="text-xs font-semibold text-text-main whitespace-nowrap">Preview Layer:</span>
@@ -482,6 +596,95 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                 </div>
               </div>
             )}
+
+            {activeWidget.id === 'keypress' && (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-text-main whitespace-nowrap">Interactive Keypress Simulator:</span>
+                  {(testActiveKeys.length > 0 || testLastKey) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTestActiveKeys([]);
+                        setTestLastKey('');
+                        testKeypressStateRef.current.lastSymbolId = undefined;
+                      }}
+                      className="text-[11px] text-muted hover:text-accent cursor-pointer"
+                    >
+                      Reset State
+                    </button>
+                  )}
+                </div>
+
+                {/* Arrow Keys D-Pad Buttons */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {[
+                    { key: 'ArrowUp', label: '↑ Up' },
+                    { key: 'ArrowDown', label: '↓ Down' },
+                    { key: 'ArrowLeft', label: '← Left' },
+                    { key: 'ArrowRight', label: '→ Right' },
+                  ].map(btn => {
+                    const isPressed = testActiveKeys.includes(btn.key);
+                    return (
+                      <button
+                        key={btn.key}
+                        type="button"
+                        className={`btn-chip ${isPressed ? 'active' : ''}`}
+                        onMouseDown={() => {
+                          setTestActiveKeys(prev => prev.includes(btn.key) ? prev : [...prev, btn.key]);
+                          setTestLastKey(btn.key);
+                        }}
+                        onMouseUp={() => {
+                          setTestActiveKeys(prev => prev.filter(k => k !== btn.key));
+                        }}
+                        onMouseLeave={() => {
+                          setTestActiveKeys(prev => prev.filter(k => k !== btn.key));
+                        }}
+                        onTouchStart={() => {
+                          setTestActiveKeys(prev => prev.includes(btn.key) ? prev : [...prev, btn.key]);
+                          setTestLastKey(btn.key);
+                        }}
+                        onTouchEnd={() => {
+                          setTestActiveKeys(prev => prev.filter(k => k !== btn.key));
+                        }}
+                      >
+                        <span>{btn.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Keyboard focus listener input for physical key press */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={testActiveKeys.length > 0 ? `Holding: ${testActiveKeys.join(', ')}` : (testLastKey ? `Last: ${testLastKey}` : '')}
+                    placeholder="Click here & hold any key to test live..."
+                    onKeyDown={e => {
+                      e.preventDefault();
+                      if (e.repeat) return;
+                      const k = e.key;
+                      setTestActiveKeys(prev => prev.includes(k) ? prev : [...prev, k]);
+                      setTestLastKey(k);
+                    }}
+                    onKeyUp={e => {
+                      e.preventDefault();
+                      setTestActiveKeys(prev => prev.filter(k => k !== e.key));
+                    }}
+                    onBlur={() => {
+                      setTestActiveKeys([]);
+                    }}
+                    className="input-text-dark text-xs flex-1 cursor-pointer"
+                  />
+                  {testLastKey && (
+                    <span className="text-[11px] font-mono text-muted">
+                      Last: <strong className="text-accent">{testLastKey}</strong>
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
         
@@ -497,7 +700,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                   className="widget-instance-label-input flex-1 min-w-0"
                   placeholder="Instance Label..."
                 />
-                {activeWidget.id !== 'wpm-chart' && activeWidget.id !== 'branding' && (
+                {activeWidget.id !== 'wpm-chart' && activeWidget.id !== 'branding' && activeWidget.id !== 'typewriter' && activeWidget.id !== 'keypress' && (
                   <div className="widget-mode-radio-group" role="radiogroup" aria-label="Display Mode">
                     <button
                       type="button"
@@ -520,6 +723,51 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                     >
                       <TypeIcon size={13} />
                       <span>Font</span>
+                    </button>
+                  </div>
+                )}
+                {activeWidget.id === 'typewriter' && (
+                  <div className="widget-mode-radio-group" role="radiogroup" aria-label="Typewriter Mode">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={((inst.config?.typewriterMode || inst.config?.mode) ?? 'inline') === 'inline'}
+                      className={`widget-mode-radio-btn ${((inst.config?.typewriterMode || inst.config?.mode) ?? 'inline') === 'inline' ? 'active' : ''}`}
+                      onClick={() => handleUpdateInstanceConfig(inst.id, { mode: 'inline', typewriterMode: 'inline' })}
+                      title="Inline Text Stream"
+                    >
+                      <TypeIcon size={13} />
+                      <span>Inline</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={((inst.config?.typewriterMode || inst.config?.mode) ?? 'inline') === 'spot'}
+                      className={`widget-mode-radio-btn ${((inst.config?.typewriterMode || inst.config?.mode) ?? 'inline') === 'spot' ? 'active' : ''}`}
+                      onClick={() => handleUpdateInstanceConfig(inst.id, { mode: 'spot', typewriterMode: 'spot' })}
+                      title="Single Letter Spot"
+                    >
+                      <Sparkles size={13} />
+                      <span>Spot</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={((inst.config?.typewriterMode || inst.config?.mode) ?? 'inline') === 'random'}
+                      className={`widget-mode-radio-btn ${((inst.config?.typewriterMode || inst.config?.mode) ?? 'inline') === 'random' ? 'active' : ''}`}
+                      onClick={() => handleUpdateInstanceConfig(inst.id, {
+                        mode: 'random',
+                        typewriterMode: 'random',
+                        ...((inst.config?.typewriterBankSize === undefined && inst.config?.typewriterLetterBank === undefined) ? { typewriterLetterBank: 20, typewriterBankSize: 20 } : {}),
+                        ...(inst.config?.typewriterCleaning === undefined ? { typewriterCleaning: 0.2 } : {}),
+                        ...(inst.config?.typewriterFadeType === undefined ? { typewriterFadeType: 'dither' } : {}),
+                        ...(inst.config?.typewriterFadeTime === undefined ? { typewriterFadeTime: 0.15 } : {}),
+                        ...(inst.config?.typewriterMode !== 'random' ? { fontSize: 'both' } : (inst.config?.fontSize === undefined ? { fontSize: 'both' } : {})),
+                      })}
+                      title="Random Screen Scatter"
+                    >
+                      <Repeat size={13} />
+                      <span>Random</span>
                     </button>
                   </div>
                 )}
@@ -548,6 +796,14 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                       testSplitConnected={testSplitConnected}
                       simulateMissingSymbols={simulateMissingSymbols}
                       testBongoState={testBongoState}
+                      testTypewriterText={testTypewriterText}
+                      testTypewriterLastChar={testTypewriterLastChar}
+                      testTypewriterLastTimestamp={testTypewriterLastTimestamp}
+                      testTypewriterRandomPos={testTypewriterRandomPos}
+                      testTypewriterRandomLetters={testTypewriterRandomLetters}
+                      testActiveKeys={testActiveKeys}
+                      testLastKey={testLastKey}
+                      testKeypressState={testKeypressStateRef.current}
                     />
                   </div>
                   <span className="text-[10px] font-mono text-muted tracking-wider uppercase mt-2 select-none">
@@ -637,6 +893,504 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                     </div>
                   )}
                   
+                  {activeWidget.id === 'typewriter' && (
+                    <div className="flex flex-col gap-3">
+                      <div>
+                        <label className="text-xs text-muted mb-1 block">Typewriter Mode</label>
+                        <div className="button-trio" role="radiogroup" aria-label="Typewriter Mode">
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={((inst.config?.typewriterMode || inst.config?.mode) ?? 'inline') === 'inline'}
+                            className={`btn-toggle ${((inst.config?.typewriterMode || inst.config?.mode) ?? 'inline') === 'inline' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, { mode: 'inline', typewriterMode: 'inline' })}
+                          >
+                            <span>Inline</span>
+                          </button>
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={((inst.config?.typewriterMode || inst.config?.mode) ?? 'inline') === 'spot'}
+                            className={`btn-toggle ${((inst.config?.typewriterMode || inst.config?.mode) ?? 'inline') === 'spot' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, { mode: 'spot', typewriterMode: 'spot' })}
+                          >
+                            <span>Spot</span>
+                          </button>
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={((inst.config?.typewriterMode || inst.config?.mode) ?? 'inline') === 'random'}
+                            className={`btn-toggle ${((inst.config?.typewriterMode || inst.config?.mode) ?? 'inline') === 'random' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, {
+                              mode: 'random',
+                              typewriterMode: 'random',
+                              ...((inst.config?.typewriterBankSize === undefined && inst.config?.typewriterLetterBank === undefined) ? { typewriterLetterBank: 20, typewriterBankSize: 20 } : {}),
+                              ...(inst.config?.typewriterCleaning === undefined ? { typewriterCleaning: 0.2 } : {}),
+                              ...(inst.config?.typewriterFadeType === undefined ? { typewriterFadeType: 'dither' } : {}),
+                              ...(inst.config?.typewriterFadeTime === undefined ? { typewriterFadeTime: 0.15 } : {}),
+                              ...(inst.config?.typewriterMode !== 'random' ? { fontSize: 'both' } : (inst.config?.fontSize === undefined ? { fontSize: 'both' } : {})),
+                            })}
+                          >
+                            <span>Random</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 1. INLINE MODE */}
+                      {((inst.config?.typewriterMode || inst.config?.mode) ?? 'inline') === 'inline' && (
+                        <>
+                          <div>
+                            <label className="text-xs text-muted mb-1 block">Direction</label>
+                            <div className="grid grid-cols-4 gap-1">
+                              {[
+                                { dir: 'we', label: 'WE', icon: ArrowRight, title: 'West to East (Left-to-Right →)' },
+                                { dir: 'ew', label: 'EW', icon: ArrowLeft, title: 'East to West (Right-to-Left ←)' },
+                                { dir: 'ns', label: 'NS', icon: ArrowDown, title: 'North to South (Top-to-Bottom ↓)' },
+                                { dir: 'sn', label: 'SN', icon: ArrowUp, title: 'South to North (Bottom-to-Top ↑)' },
+                              ].map(item => {
+                                const Icon = item.icon;
+                                const isSelected = (inst.config?.typewriterDirection || 'we') === item.dir;
+                                return (
+                                  <button
+                                    key={item.dir}
+                                    type="button"
+                                    title={item.title}
+                                    className={`btn-toggle text-xs py-1 px-1.5 flex items-center justify-center gap-1 ${isSelected ? 'active' : ''}`}
+                                    onClick={() => handleUpdateInstanceConfig(inst.id, { typewriterDirection: item.dir as any })}
+                                  >
+                                    <Icon className="w-3.5 h-3.5 shrink-0" />
+                                    <span>{item.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <span className="text-[10px] text-muted mt-1 block">
+                              {inst.config?.typewriterDirection === 'ew' ? 'East to West (← Right-to-Left typing)' :
+                               inst.config?.typewriterDirection === 'ns' ? 'North to South (↓ Top-to-Bottom column)' :
+                               inst.config?.typewriterDirection === 'sn' ? 'South to North (↑ Bottom-to-Top column)' :
+                               'West to East (→ Left-to-Right typing)'}
+                            </span>
+                          </div>
+
+                          {((inst.config?.typewriterDirection || 'we') === 'we' || inst.config?.typewriterDirection === 'ew') ? (
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="text-xs text-muted">Width</label>
+                                <span className="text-[11px] font-mono text-accent">
+                                  {inst.config?.typewriterWidth ?? 32}px (Height: {inst.config?.fontSize === 'big' ? 10 : 5}px auto)
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <input
+                                  type="range"
+                                  min={8}
+                                  max={32}
+                                  value={inst.config?.typewriterWidth ?? 32}
+                                  onChange={e => handleUpdateInstanceConfig(inst.id, { typewriterWidth: parseInt(e.target.value, 10) || 32 })}
+                                  className="flex-1 accent-accent"
+                                />
+                                <input
+                                  type="number"
+                                  min={4}
+                                  max={32}
+                                  value={inst.config?.typewriterWidth ?? 32}
+                                  onChange={e => handleUpdateInstanceConfig(inst.id, { typewriterWidth: Math.min(32, Math.max(4, parseInt(e.target.value, 10) || 32)) })}
+                                  className="input-text-dark text-xs w-16 text-right font-mono"
+                                />
+                              </div>
+                            </div>
+                          ) : (
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="text-xs text-muted">Height</label>
+                                <span className="text-[11px] font-mono text-accent">
+                                  {inst.config?.typewriterHeight ?? 32}px (Width: {inst.config?.fontSize === 'big' ? 10 : 5}px auto)
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <input
+                                  type="range"
+                                  min={8}
+                                  max={128}
+                                  value={inst.config?.typewriterHeight ?? 32}
+                                  onChange={e => handleUpdateInstanceConfig(inst.id, { typewriterHeight: parseInt(e.target.value, 10) || 32 })}
+                                  className="flex-1 accent-accent"
+                                />
+                                <input
+                                  type="number"
+                                  min={4}
+                                  max={128}
+                                  value={inst.config?.typewriterHeight ?? 32}
+                                  onChange={e => handleUpdateInstanceConfig(inst.id, { typewriterHeight: Math.min(128, Math.max(4, parseInt(e.target.value, 10) || 32)) })}
+                                  className="input-text-dark text-xs w-16 text-right font-mono"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          <div>
+                            <label className="text-xs text-muted mb-1 block">Font Size</label>
+                            <div className="button-pair">
+                              <button
+                                type="button"
+                                className={`btn-toggle ${inst.config?.fontSize !== 'big' ? 'active' : ''}`}
+                                onClick={() => handleUpdateInstanceConfig(inst.id, { fontSize: 'small' })}
+                              >
+                                <span>Small</span>
+                              </button>
+                              <button
+                                type="button"
+                                className={`btn-toggle ${inst.config?.fontSize === 'big' ? 'active' : ''}`}
+                                onClick={() => handleUpdateInstanceConfig(inst.id, { fontSize: 'big' })}
+                              >
+                                <span>Big</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-xs text-muted">Cleaning (Auto-add space on idle)</label>
+                              <span className="text-[11px] font-mono text-accent">
+                                {(inst.config?.typewriterCleaning ?? 0) === 0 ? 'Off' : `${inst.config?.typewriterCleaning}s`}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="range"
+                                min={0}
+                                max={15}
+                                step={1}
+                                value={inst.config?.typewriterCleaning ?? 0}
+                                onChange={e => handleUpdateInstanceConfig(inst.id, { typewriterCleaning: parseInt(e.target.value, 10) || 0 })}
+                                className="flex-1 accent-accent"
+                              />
+                              <input
+                                type="number"
+                                min={0}
+                                max={60}
+                                value={inst.config?.typewriterCleaning ?? 0}
+                                onChange={e => handleUpdateInstanceConfig(inst.id, { typewriterCleaning: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                                className="input-text-dark text-xs w-16 text-right font-mono"
+                              />
+                            </div>
+                            <span className="text-[10px] text-muted mt-1 block">
+                              {(inst.config?.typewriterCleaning ?? 0) === 0
+                                ? 'Off: Idle text remains on screen until new typing arrives.'
+                                : `Auto-adds a space every ${inst.config?.typewriterCleaning}s during idle to clear the screen.`}
+                            </span>
+                          </div>
+                        </>
+                      )}
+
+                      {/* 2. SPOT MODE */}
+                      {((inst.config?.typewriterMode || inst.config?.mode) ?? 'inline') === 'spot' && (
+                        <>
+                          <div>
+                            <label className="text-xs text-muted mb-1 block">Size</label>
+                            <div className="button-pair">
+                              <button
+                                type="button"
+                                className={`btn-toggle ${inst.config?.fontSize !== 'big' ? 'active' : ''}`}
+                                onClick={() => handleUpdateInstanceConfig(inst.id, { fontSize: 'small' })}
+                              >
+                                <span>Small</span>
+                              </button>
+                              <button
+                                type="button"
+                                className={`btn-toggle ${inst.config?.fontSize === 'big' ? 'active' : ''}`}
+                                onClick={() => handleUpdateInstanceConfig(inst.id, { fontSize: 'big' })}
+                              >
+                                <span>Big</span>
+                              </button>
+                            </div>
+                            <span className="text-[10px] text-muted mt-1 block">
+                              Single letter footprint: {inst.config?.fontSize === 'big' ? '10×10px' : '5×5px'}.
+                            </span>
+                          </div>
+
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-xs text-muted">Cleaning (Wipe delay)</label>
+                              <span className="text-[11px] font-mono text-accent">
+                                {(inst.config?.typewriterCleaning ?? 0) === 0 ? 'Off (keep latest)' : `${inst.config?.typewriterCleaning}s`}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="range"
+                                min={0}
+                                max={10}
+                                step={1}
+                                value={inst.config?.typewriterCleaning ?? 0}
+                                onChange={e => handleUpdateInstanceConfig(inst.id, { typewriterCleaning: parseInt(e.target.value, 10) || 0 })}
+                                className="flex-1 accent-accent"
+                              />
+                              <input
+                                type="number"
+                                min={0}
+                                max={60}
+                                value={inst.config?.typewriterCleaning ?? 0}
+                                onChange={e => handleUpdateInstanceConfig(inst.id, { typewriterCleaning: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                                className="input-text-dark text-xs w-16 text-right font-mono"
+                              />
+                            </div>
+                            <span className="text-[10px] text-muted mt-1 block">
+                              {(inst.config?.typewriterCleaning ?? 0) === 0
+                                ? 'Off: Keeps latest letter displayed indefinitely.'
+                                : `Wipes letter after ${inst.config?.typewriterCleaning}s of keyboard inactivity.`}
+                            </span>
+                          </div>
+                        </>
+                      )}
+
+                      {/* 3. RANDOM MODE */}
+                      {((inst.config?.typewriterMode || inst.config?.mode) ?? 'inline') === 'random' && (
+                        <>
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-xs text-muted">Box Width</label>
+                              <span className="text-[11px] font-mono text-accent">{inst.config?.typewriterWidth ?? 32}px</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="range"
+                                min={8}
+                                max={32}
+                                value={inst.config?.typewriterWidth ?? 32}
+                                onChange={e => handleUpdateInstanceConfig(inst.id, { typewriterWidth: parseInt(e.target.value, 10) || 32 })}
+                                className="flex-1 accent-accent"
+                              />
+                              <input
+                                type="number"
+                                min={4}
+                                max={32}
+                                value={inst.config?.typewriterWidth ?? 32}
+                                onChange={e => handleUpdateInstanceConfig(inst.id, { typewriterWidth: Math.min(32, Math.max(4, parseInt(e.target.value, 10) || 32)) })}
+                                className="input-text-dark text-xs w-16 text-right font-mono"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-xs text-muted">Box Height</label>
+                              <span className="text-[11px] font-mono text-accent">{inst.config?.typewriterHeight ?? 32}px</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="range"
+                                min={8}
+                                max={128}
+                                value={inst.config?.typewriterHeight ?? 32}
+                                onChange={e => handleUpdateInstanceConfig(inst.id, { typewriterHeight: parseInt(e.target.value, 10) || 32 })}
+                                className="flex-1 accent-accent"
+                              />
+                              <input
+                                type="number"
+                                min={4}
+                                max={128}
+                                value={inst.config?.typewriterHeight ?? 32}
+                                onChange={e => handleUpdateInstanceConfig(inst.id, { typewriterHeight: Math.min(128, Math.max(4, parseInt(e.target.value, 10) || 32)) })}
+                                className="input-text-dark text-xs w-16 text-right font-mono"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-xs text-muted mb-1 block">Font Size</label>
+                            <div className="button-trio">
+                              <button
+                                type="button"
+                                className={`btn-toggle ${inst.config?.fontSize === 'small' ? 'active' : ''}`}
+                                onClick={() => handleUpdateInstanceConfig(inst.id, { fontSize: 'small' })}
+                              >
+                                <span>Small</span>
+                              </button>
+                              <button
+                                type="button"
+                                className={`btn-toggle ${inst.config?.fontSize === 'big' ? 'active' : ''}`}
+                                onClick={() => handleUpdateInstanceConfig(inst.id, { fontSize: 'big' })}
+                              >
+                                <span>Big</span>
+                              </button>
+                              <button
+                                type="button"
+                                className={`btn-toggle ${(inst.config?.fontSize === 'both' || !inst.config?.fontSize) ? 'active' : ''}`}
+                                onClick={() => handleUpdateInstanceConfig(inst.id, { fontSize: 'both' })}
+                              >
+                                <span>Both</span>
+                              </button>
+                            </div>
+                            <span className="text-[10px] text-muted mt-1 block">
+                              {inst.config?.fontSize === 'small'
+                                ? '5×5px compact font.'
+                                : inst.config?.fontSize === 'big'
+                                  ? '10×10px large font.'
+                                  : 'Randomly mixes 5×5px and 10×10px letters.'}
+                            </span>
+                          </div>
+
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-xs text-muted">Letter Bank</label>
+                              <span className="text-[11px] font-mono text-accent">
+                                {inst.config?.typewriterBankSize ?? inst.config?.typewriterLetterBank ?? 20} letters
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="range"
+                                min={1}
+                                max={32}
+                                step={1}
+                                value={inst.config?.typewriterBankSize ?? inst.config?.typewriterLetterBank ?? 20}
+                                onChange={e => {
+                                  const val = parseInt(e.target.value, 10) || 1;
+                                  handleUpdateInstanceConfig(inst.id, { typewriterLetterBank: val, typewriterBankSize: val });
+                                }}
+                                className="flex-1 accent-accent"
+                              />
+                              <input
+                                type="number"
+                                min={1}
+                                max={50}
+                                value={inst.config?.typewriterBankSize ?? inst.config?.typewriterLetterBank ?? 20}
+                                onChange={e => {
+                                  const val = Math.max(1, parseInt(e.target.value, 10) || 1);
+                                  handleUpdateInstanceConfig(inst.id, { typewriterLetterBank: val, typewriterBankSize: val });
+                                }}
+                                className="input-text-dark text-xs w-16 text-right font-mono"
+                              />
+                            </div>
+                            <span className="text-[10px] text-muted mt-1 block">
+                              How many letters to keep before older ones start disappearing.
+                            </span>
+                          </div>
+
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-xs text-muted">Cleaning (Wipe delay)</label>
+                              <span className="text-[11px] font-mono text-accent">
+                                {(inst.config?.typewriterCleaning ?? 0.2) === 0 ? 'Off' : `${Number((inst.config?.typewriterCleaning ?? 0.2).toFixed(2))}s`}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="range"
+                                min={0}
+                                max={2}
+                                step={0.05}
+                                value={inst.config?.typewriterCleaning ?? 0.2}
+                                onChange={e => {
+                                  const val = Math.max(0, Math.round(parseFloat(e.target.value) * 100) / 100 || 0);
+                                  handleUpdateInstanceConfig(inst.id, { typewriterCleaning: val });
+                                }}
+                                className="flex-1 accent-accent"
+                              />
+                              <input
+                                type="number"
+                                min={0}
+                                max={2}
+                                step={0.05}
+                                value={inst.config?.typewriterCleaning ?? 0.2}
+                                onChange={e => {
+                                  if (e.target.value === '') return;
+                                  const parsed = parseFloat(e.target.value);
+                                  if (isNaN(parsed)) return;
+                                  const val = Math.min(2, Math.max(0, Math.round(parsed * 100) / 100));
+                                  handleUpdateInstanceConfig(inst.id, { typewriterCleaning: val });
+                                }}
+                                onBlur={e => {
+                                  if (e.target.value === '' || isNaN(parseFloat(e.target.value))) {
+                                    handleUpdateInstanceConfig(inst.id, { typewriterCleaning: 0.2 });
+                                  }
+                                }}
+                                className="input-text-dark text-xs w-16 text-right font-mono"
+                              />
+                            </div>
+                            <span className="text-[10px] text-muted mt-1 block">
+                              {(inst.config?.typewriterCleaning ?? 0.2) === 0
+                                ? 'Off: Letters stay on screen until replaced by new keystrokes.'
+                                : `Auto-removes the oldest letter every ${Number((inst.config?.typewriterCleaning ?? 0.2).toFixed(2))}s during idle to empty the bank.`}
+                            </span>
+                          </div>
+
+                          {(inst.config?.typewriterCleaning ?? 0.2) > 0 && (
+                            <>
+                              <div>
+                                <label className="text-xs text-muted mb-1 block">Fade Effect</label>
+                                <select
+                                  aria-label="Fade Effect"
+                                  value={inst.config?.typewriterFadeType ?? 'dither'}
+                                  onChange={e => handleUpdateInstanceConfig(inst.id, { typewriterFadeType: e.target.value as TypewriterFadeType })}
+                                  className="select-dark text-xs w-full"
+                                >
+                                  <option value="instant">Instant</option>
+                                  <option value="dither">Dither (Bayer 1bpp matrix pattern decay)</option>
+                                  <option value="dissolve">Dissolve (random pixel drop)</option>
+                                  <option value="blink">Blink (flashing out)</option>
+                                </select>
+                                <span className="text-[10px] text-muted mt-1 block">
+                                  Visual transition effect when letters are cleaned up during idle.
+                                </span>
+                              </div>
+
+                              <div>
+                                <div className="flex items-center justify-between mb-1">
+                                  <label className="text-xs text-muted">Fade Time</label>
+                                  <span className="text-[11px] font-mono text-accent">
+                                    {`${Number((inst.config?.typewriterFadeTime ?? 0.15).toFixed(2))}s`}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <input
+                                    type="range"
+                                    aria-label="Fade Time Slider"
+                                    min={0}
+                                    max={2.0}
+                                    step={0.05}
+                                    value={inst.config?.typewriterFadeTime ?? 0.15}
+                                    onChange={e => {
+                                      const parsed = parseFloat(e.target.value);
+                                      const val = isNaN(parsed) ? 0 : Math.min(2.0, Math.max(0, Math.round(parsed * 100) / 100));
+                                      handleUpdateInstanceConfig(inst.id, { typewriterFadeTime: val });
+                                    }}
+                                    className="flex-1 accent-accent"
+                                  />
+                                  <input
+                                    type="number"
+                                    aria-label="Fade Time Number"
+                                    min={0}
+                                    max={2.0}
+                                    step={0.05}
+                                    value={inst.config?.typewriterFadeTime ?? 0.15}
+                                    onChange={e => {
+                                      if (e.target.value === '') return;
+                                      const parsed = parseFloat(e.target.value);
+                                      if (isNaN(parsed)) return;
+                                      const val = Math.min(2.0, Math.max(0, Math.round(parsed * 100) / 100));
+                                      handleUpdateInstanceConfig(inst.id, { typewriterFadeTime: val });
+                                    }}
+                                    onBlur={e => {
+                                      if (e.target.value === '' || isNaN(parseFloat(e.target.value))) {
+                                        handleUpdateInstanceConfig(inst.id, { typewriterFadeTime: 0.15 });
+                                      }
+                                    }}
+                                    className="input-text-dark text-xs w-16 text-right font-mono"
+                                  />
+                                </div>
+                                <span className="text-[10px] text-muted mt-1 block">
+                                  Duration the fade transition takes when letters disappear.
+                                </span>
+                              </div>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+
                   {activeWidget.id === 'wpm-chart' && (
                     <div className="flex flex-col gap-2">
                       <label className="text-xs text-muted mb-1 block">Width ({inst.config?.wpmChart?.width ?? 32}px)</label>
@@ -657,7 +1411,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                   )}
                   
                   {/* Symbol Mode Settings */}
-                  {activeWidget.id !== 'wpm-chart' && activeWidget.id !== 'branding' && (inst.config?.mode === 'symbol' || !inst.config?.mode) && (
+                  {activeWidget.id !== 'wpm-chart' && activeWidget.id !== 'branding' && activeWidget.id !== 'typewriter' && activeWidget.id !== 'keypress' && (inst.config?.mode === 'symbol' || !inst.config?.mode) && (
                     <div className="flex flex-col gap-2">
                       {activeWidget.id === 'battery' && (
                         <div>
@@ -940,8 +1694,153 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                     </div>
                   )}
 
+                  {/* Keypress Widget Settings */}
+                  {activeWidget.id === 'keypress' && (
+                    <div className="flex flex-col gap-4">
+                      {/* Idle Symbol */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs font-semibold text-text-main">
+                            Idle Symbol
+                          </label>
+                          <span className="text-[10px] text-muted">
+                            Optional fallback when no key is held
+                          </span>
+                        </div>
+                        <select
+                          value={inst.config?.idleSymbolId || inst.config?.keypressIdleSymbolId || ''}
+                          onChange={e => {
+                            const val = e.target.value || undefined;
+                            handleUpdateInstanceConfig(inst.id, {
+                              idleSymbolId: val,
+                              keypressIdleSymbolId: val,
+                            });
+                          }}
+                          className="select-dark text-xs w-full"
+                        >
+                          <option value="">(None - keep last key pressed symbol)</option>
+                          {symbolSlices.map(s => (
+                            <option key={s.id} value={s.id}>
+                              {s.name || s.id} ({s.width}×{s.height}px)
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-[10px] text-muted mt-1 block">
+                          If idle is not given, the last key pressed symbol stays on until the next symbol.
+                        </span>
+                      </div>
+
+                      {/* Key-Symbol Elements List */}
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="text-xs font-semibold text-text-main">
+                            Key-to-Symbol Mappings ({(inst.config?.keypressElements || []).length})
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const up = symbolSlices.find(s => s.id === 'SYMBOL_ARROW_UP')?.id || 'SYMBOL_ARROW_UP';
+                                const down = symbolSlices.find(s => s.id === 'SYMBOL_ARROW_DOWN')?.id || 'SYMBOL_ARROW_DOWN';
+                                const left = symbolSlices.find(s => s.id === 'SYMBOL_ARROW_LEFT')?.id || 'SYMBOL_ARROW_LEFT';
+                                const right = symbolSlices.find(s => s.id === 'SYMBOL_ARROW_RIGHT')?.id || 'SYMBOL_ARROW_RIGHT';
+                                handleUpdateInstanceConfig(inst.id, {
+                                  keypressElements: [
+                                    { key: 'ArrowUp', symbolId: up },
+                                    { key: 'ArrowDown', symbolId: down },
+                                    { key: 'ArrowLeft', symbolId: left },
+                                    { key: 'ArrowRight', symbolId: right },
+                                  ],
+                                  keypressBindings: [
+                                    { key: 'ArrowUp', symbolId: up },
+                                    { key: 'ArrowDown', symbolId: down },
+                                    { key: 'ArrowLeft', symbolId: left },
+                                    { key: 'ArrowRight', symbolId: right },
+                                  ],
+                                });
+                              }}
+                              className="text-[10px] text-muted hover:text-accent cursor-pointer"
+                              title="Reset mapping to arrow keys"
+                            >
+                              Reset Arrows
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const curr = inst.config?.keypressElements || [];
+                                const defaultSym = symbolSlices[0]?.id || 'SYMBOL_ARROW_UP';
+                                const next = [...curr, { key: '', symbolId: defaultSym }];
+                                handleUpdateInstanceConfig(inst.id, {
+                                  keypressElements: next,
+                                  keypressBindings: next,
+                                });
+                              }}
+                              className="btn-chip active text-xs py-0.5 px-2 cursor-pointer"
+                            >
+                              + Add Element
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          {(inst.config?.keypressElements || []).map((el, idx) => (
+                            <div key={idx} className="flex items-center gap-2 bg-[#0c1017] p-2 rounded border border-border/30">
+                              <div className="w-1/3">
+                                <input
+                                  type="text"
+                                  value={el.key}
+                                  placeholder="Key (e.g. ArrowUp)"
+                                  onChange={e => {
+                                    const next = [...(inst.config?.keypressElements || [])];
+                                    next[idx] = { ...next[idx], key: e.target.value };
+                                    handleUpdateInstanceConfig(inst.id, { keypressElements: next, keypressBindings: next });
+                                  }}
+                                  className="input-text-dark text-xs w-full font-mono"
+                                />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <select
+                                  value={el.symbolId}
+                                  onChange={e => {
+                                    const next = [...(inst.config?.keypressElements || [])];
+                                    next[idx] = { ...next[idx], symbolId: e.target.value };
+                                    handleUpdateInstanceConfig(inst.id, { keypressElements: next, keypressBindings: next });
+                                  }}
+                                  className="select-dark text-xs w-full font-mono"
+                                >
+                                  {symbolSlices.map(s => (
+                                    <option key={s.id} value={s.id}>
+                                      {s.name || s.id} ({s.width}×{s.height})
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = (inst.config?.keypressElements || []).filter((_, i) => i !== idx);
+                                  handleUpdateInstanceConfig(inst.id, { keypressElements: next, keypressBindings: next });
+                                }}
+                                className="text-muted hover:text-red-400 p-1 cursor-pointer"
+                                title="Remove mapping"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          ))}
+
+                          {(inst.config?.keypressElements || []).length === 0 && (
+                            <div className="text-xs text-muted italic p-2 text-center border border-dashed border-border/30 rounded">
+                              No key elements configured. Click "+ Add Element" to map keys to symbols.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Font Mode Settings */}
-                  {activeWidget.id !== 'wpm-chart' && activeWidget.id !== 'branding' && inst.config?.mode === 'font' && (
+                  {activeWidget.id !== 'wpm-chart' && activeWidget.id !== 'branding' && activeWidget.id !== 'typewriter' && activeWidget.id !== 'keypress' && inst.config?.mode === 'font' && (
                     <div className="flex flex-col gap-3">
                       <div>
                         <label className="text-xs text-muted mb-1 block">Font Size</label>
@@ -1191,35 +2090,80 @@ interface InstancePreviewProps {
   testSplitConnected: boolean;
   simulateMissingSymbols: boolean;
   testBongoState?: 0 | 1 | 2;
+  testTypewriterText?: string;
+  testTypewriterLastChar?: string;
+  testTypewriterLastTimestamp?: number;
+  testTypewriterRandomPos?: { x: number; y: number };
+  testTypewriterRandomLetters?: TypewriterRandomLetter[];
+  testActiveKeys?: string[];
+  testLastKey?: string;
+  testKeypressState?: KeypressState;
 }
 
 const InstancePreview: React.FC<InstancePreviewProps> = ({
   widget, instance, symbolsGrid, symbolSlices, fontGrid, fontGlyphs, fontMappings,
   customText, testBattery, testWpm, testOutputMode, testBleProfile, testLayer, layerNames, testSplitConnected, simulateMissingSymbols,
   testBongoState = 0,
+  testTypewriterText,
+  testTypewriterLastChar,
+  testTypewriterLastTimestamp,
+  testTypewriterRandomPos,
+  testTypewriterRandomLetters,
+  testActiveKeys,
+  testLastKey,
+  testKeypressState,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const startTimeRef = useRef<number>(0);
   const [animTimestamp, setAnimTimestamp] = useState<number>(0);
 
   useEffect(() => {
-    if (widget.id !== 'animation' && widget.id !== 'loop') return;
-    const speedMs = Math.max(20, instance.config?.loopSpeedMs ?? 250);
+    if (widget.id !== 'animation' && widget.id !== 'loop' && widget.id !== 'typewriter') return;
+    const speedMs = widget.id === 'typewriter' ? 30 : Math.max(20, instance.config?.loopSpeedMs ?? 250);
     startTimeRef.current = Date.now();
     const timer = setInterval(() => {
-      setAnimTimestamp(Date.now() - startTimeRef.current);
+      const now = Date.now();
+      const elapsed = now - startTimeRef.current;
+      if (widget.id === 'typewriter') {
+        const cleaning = instance.config?.typewriterCleaning ?? 0;
+        if (cleaning > 0) {
+          const fadeSec = instance.config?.typewriterFadeTime ?? 0.15;
+          const bankCount = (testTypewriterRandomLetters && testTypewriterRandomLetters.length > 0) ? testTypewriterRandomLetters.length : 4;
+          const totalCycleMs = (bankCount + 1) * cleaning * 1000 + fadeSec * 1000 + 1000;
+          if (elapsed > totalCycleMs) {
+            startTimeRef.current = now;
+            setAnimTimestamp(0);
+            return;
+          }
+        }
+      }
+      setAnimTimestamp(elapsed);
     }, speedMs);
     return () => clearInterval(timer);
-  }, [widget.id, instance.id, instance.config?.loopSpeedMs, instance.config?.loop, instance.config?.groupId]);
+  }, [
+    widget.id,
+    instance.id,
+    instance.config?.loopSpeedMs,
+    instance.config?.loop,
+    instance.config?.groupId,
+    instance.config?.typewriterCleaning,
+    instance.config?.typewriterLetterBank,
+    instance.config?.typewriterBankSize,
+    instance.config?.typewriterFadeType,
+    instance.config?.typewriterFadeTime,
+    instance.config?.typewriterMode,
+    instance.config?.mode,
+    testTypewriterRandomLetters,
+  ]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const scale = 3;
-    const width = 32;
     const effectiveSlices = simulateMissingSymbols ? [] : symbolSlices;
     const naturalSize = getWidgetNaturalSize(widget, effectiveSlices, instance, fontGlyphs, fontMappings);
+    const width = Math.max(naturalSize.width, 14);
     const height = Math.max(naturalSize.height, widget.defaultHeight, 14);
 
     canvas.width = width * scale;
@@ -1235,6 +2179,37 @@ const InstancePreview: React.FC<InstancePreviewProps> = ({
     
     // Create an instances map for rendering just this instance
     const tempInstances = { [widget.id]: [instance] };
+
+    const isTypewriter = widget.id === 'typewriter';
+    const effectiveBaseTimestamp = (isTypewriter && startTimeRef.current > 0)
+      ? startTimeRef.current
+      : testTypewriterLastTimestamp;
+    const fontSize = instance.config?.fontSize || (isTypewriter && (instance.config?.typewriterMode || instance.config?.mode) === 'random' ? 'both' : 'small');
+    const charW = fontSize === 'big' ? 10 : 5;
+    const charH = fontSize === 'big' ? 10 : 5;
+    const maxOffsetX = Math.max(0, width - charW);
+    const maxOffsetY = Math.max(0, height - charH);
+
+    const effectiveLetters = isTypewriter
+      ? (testTypewriterRandomLetters || []).map(l => {
+          let lx = l.x;
+          let ly = l.y;
+          // If coordinates are legacy integer pixels generated for a 32-high box (e.g. y <= 26) but box is taller,
+          // scale them proportionally so they span the full [0, maxOffsetY]
+          if (maxOffsetY > 32 && typeof ly === 'number' && Number.isInteger(ly) && ly <= 26) {
+            ly = Math.round((ly / 26) * maxOffsetY);
+          }
+          if (maxOffsetX > 32 && typeof lx === 'number' && Number.isInteger(lx) && lx <= 26) {
+            lx = Math.round((lx / 26) * maxOffsetX);
+          }
+          return {
+            ...l,
+            x: lx,
+            y: ly,
+            timestamp: effectiveBaseTimestamp,
+          };
+        })
+      : testTypewriterRandomLetters;
 
     renderWidgetById(widget.id, tempGrid, 0, {
       symbolsGrid,
@@ -1256,6 +2231,20 @@ const InstancePreview: React.FC<InstancePreviewProps> = ({
       animationTimestamp: animTimestamp,
       blockWidth: width,
       blockHeight: height,
+      typewriterText: testTypewriterText,
+      typewriterState: {
+        text: testTypewriterText ?? 'TYPE...',
+        lastChar: testTypewriterLastChar,
+        lastTimestamp: effectiveBaseTimestamp,
+        randomX: testTypewriterRandomPos?.x,
+        randomY: testTypewriterRandomPos?.y,
+        letterBank: effectiveLetters,
+        randomLetters: effectiveLetters,
+        randomBank: effectiveLetters,
+      },
+      activeKeys: testActiveKeys,
+      lastKey: testLastKey,
+      keypressState: testKeypressState,
     });
 
     ctx.fillStyle = '#00d2ff';
@@ -1269,7 +2258,9 @@ const InstancePreview: React.FC<InstancePreviewProps> = ({
   }, [
     widget, instance, symbolsGrid, symbolSlices, fontGrid, fontGlyphs, fontMappings,
     customText, testBattery, testWpm, testOutputMode, testBleProfile, testLayer, layerNames, testSplitConnected, simulateMissingSymbols,
-    testBongoState, animTimestamp
+    testBongoState, animTimestamp, testTypewriterText, testTypewriterLastChar, testTypewriterLastTimestamp, testTypewriterRandomPos, testTypewriterRandomLetters, instance.config?.typewriterLetterBank, instance.config?.typewriterBankSize,
+    instance.config?.typewriterFadeType, instance.config?.typewriterFadeTime,
+    testActiveKeys, testLastKey, testKeypressState
   ]);
 
   return (

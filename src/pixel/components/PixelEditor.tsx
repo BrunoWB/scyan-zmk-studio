@@ -10,7 +10,6 @@ import type { SpriteSlice } from '../../types/zmk';
 import { renderBaseCanvas, renderOverlayCanvas } from '../core/gridRenderer';
 import { ImageImportModal } from './ImageImportModal';
 import { CanvasContextMenu } from './CanvasContextMenu';
-import { findAvailableSpot } from '../core/canvasPacking';
 import { BenchmarkOverlay } from '../benchmarks/BenchmarkOverlay';
 import { usePixelHistory as useBwpxHistory, type HistoryEntry } from '../hooks/usePixelHistory';
 import { usePixelCanvasPointer as useBwpxCanvasPointer } from '../hooks/usePixelCanvasPointer';

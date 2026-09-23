@@ -103,6 +103,10 @@ export const DEFAULT_SYMBOL_SLICES: SpriteSlice[] = [
   { id: 'SYMBOL_BATHING_CAPYBARA_SUB_1', groupId: 'SYMBOL_BATHING_CAPYBARA', groupOrder: 2, name: 'Bathing Capybara F2', x: 26, y: 189, width: 26, height: 24, color: '#a16207' },
   { id: 'SYMBOL_BATHING_CAPYBARA_SUB_2', groupId: 'SYMBOL_BATHING_CAPYBARA', groupOrder: 3, name: 'Bathing Capybara F3', x: 52, y: 189, width: 26, height: 24, color: '#a16207' },
   { id: 'SYMBOL_BATHING_CAPYBARA_SUB_3', groupId: 'SYMBOL_BATHING_CAPYBARA', groupOrder: 4, name: 'Bathing Capybara F4', x: 78, y: 189, width: 26, height: 24, color: '#a16207' },
+  { id: 'SYMBOL_ARROW_UP', groupId: 'SYMBOL_ARROWS', groupOrder: 1, name: 'Arrow Up', x: 0, y: 124, width: 9, height: 9, color: '#38bdf8' },
+  { id: 'SYMBOL_ARROW_DOWN', groupId: 'SYMBOL_ARROWS', groupOrder: 2, name: 'Arrow Down', x: 16, y: 124, width: 9, height: 9, color: '#38bdf8' },
+  { id: 'SYMBOL_ARROW_LEFT', groupId: 'SYMBOL_ARROWS', groupOrder: 3, name: 'Arrow Left', x: 32, y: 124, width: 9, height: 9, color: '#38bdf8' },
+  { id: 'SYMBOL_ARROW_RIGHT', groupId: 'SYMBOL_ARROWS', groupOrder: 4, name: 'Arrow Right', x: 48, y: 124, width: 9, height: 9, color: '#38bdf8' },
 ];
 
 export const DEFAULT_CENTRAL_LAYOUT_BLOCKS: LayoutBlock[] = [

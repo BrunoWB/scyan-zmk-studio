@@ -5,13 +5,36 @@ export type WidgetCategory = 'status' | 'typing' | 'layer' | 'branding' | 'art';
 
 export type SlotSourceType = 'symbol' | 'text';
 
-export type WidgetMode = 'symbol' | 'font';
+export type WidgetMode = 'symbol' | 'font' | 'inline' | 'spot' | 'random';
 
 export type TextAlignment = 'left' | 'center' | 'right';
 
+export type TypewriterMode = 'inline' | 'spot' | 'random';
+export type TypewriterDirection = 'we' | 'ew' | 'ns' | 'sn';
+export type TypewriterFadeType = 'instant' | 'dither' | 'dissolve' | 'blink';
+
+export interface TypewriterRandomLetter {
+  char: string;
+  x: number;
+  y: number;
+  fontSize?: 'small' | 'big';
+  timestamp?: number;
+}
+
+export interface TypewriterState {
+  text?: string;
+  lastChar?: string;
+  lastTimestamp?: number;
+  randomX?: number;
+  randomY?: number;
+  letterBank?: TypewriterRandomLetter[];
+  randomLetters?: TypewriterRandomLetter[];
+  randomBank?: TypewriterRandomLetter[];
+}
+
 export interface WidgetInstanceConfig {
   mode: WidgetMode;
-  fontSize?: 'small' | 'big';     // Font size: 'small' (default) or 'big'
+  fontSize?: 'small' | 'big' | 'both';     // Font size: 'small', 'big', or 'both' (random mode default)
   textAlign?: TextAlignment;       // Text alignment: 'left', 'center' (default), or 'right'
   align?: TextAlignment;           // Alias for textAlign
   groupId?: string;               // For single group selection
@@ -30,6 +53,24 @@ export interface WidgetInstanceConfig {
   bongoDebounceMs?: number;       // Debounce interval in ms (default 100)
   loopSpeedMs?: number;           // Animation frame duration in ms for Animation widget (default 250)
   loop?: boolean;                  // Whether animation loops indefinitely (default true) or stops at the last frame
+  typewriterMode?: TypewriterMode;          // Mode: 'inline', 'spot', or 'random'
+  typewriterDirection?: TypewriterDirection;// Direction for inline: 'we', 'ew', 'ns', or 'sn'
+  typewriterCleaning?: number;              // 0 = off, >0 = cleanup interval / wipe delay in seconds
+  typewriterWidth?: number;                 // User-chosen width for inline horizontal or random
+  typewriterHeight?: number;                // User-chosen height for inline vertical or random
+  typewriterLetterBank?: number;            // Capacity of letter bank for random mode (letters to keep before disappearing)
+  typewriterBankSize?: number;              // Alias for typewriterLetterBank
+  typewriterFadeType?: TypewriterFadeType;  // Fade effect for random cleaning: 'instant' | 'dither' | 'dissolve' | 'blink'
+  typewriterFadeTime?: number;              // Duration of fade transition in seconds (e.g. 0.1 to 2.0s)
+  idleSymbolId?: string;                    // Idle symbol for Keypress widget (shown when no key is pressed)
+  keypressIdleSymbolId?: string;            // Alias for idleSymbolId
+  keypressElements?: KeypressElement[];     // Keypress widget key-to-symbol elements
+  keypressBindings?: KeypressElement[];     // Alias for keypressElements
+}
+
+export interface KeypressElement {
+  key: string;       // e.g. 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'
+  symbolId: string;  // e.g. 'SYMBOL_ARROW_UP'
 }
 
 export interface WidgetSlotDefinition {
@@ -76,6 +117,13 @@ export function resolveInstanceCustomizations(
 }
 export type WidgetCustomizationMap = Record<string, Record<string, WidgetSlotConfig>>;
 
+export interface KeypressState {
+  activeKeys?: string[];
+  lastKey?: string;
+  lastSymbolId?: string;
+  lastSymbolByInstance?: Record<string, string>;
+}
+
 export interface WidgetRenderContext {
   symbolsGrid: BwpxGrid;
   symbolSlices: SpriteSlice[];
@@ -102,6 +150,11 @@ export interface WidgetRenderContext {
   animationTimestamp?: number; // Timestamp in ms for time-based animation widgets (e.g. Loop)
   blockWidth?: number;
   blockHeight?: number;
+  typewriterText?: string;
+  typewriterState?: TypewriterState;
+  activeKeys?: string[];
+  lastKey?: string;
+  keypressState?: KeypressState;
 }
 
 export interface DisplayWidgetDefinition {

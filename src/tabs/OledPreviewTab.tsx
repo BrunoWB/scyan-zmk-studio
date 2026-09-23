@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { BwpxGrid } from '../pixel/core/PixelGrid';
 import type { SpriteSlice, FontGlyph, LayoutBlock, FontCharMapping } from '../types/zmk';
+import type { TypewriterState, KeypressState } from '../types/widget';
 import { Cpu, GripHorizontal, ArrowLeftRight } from 'lucide-react';
 import type { GitHubRepoConfig, GitHubConnectionState } from '../services/githubService';
 import type { PeripheralScreenData } from '../services/cHeaderParser';
@@ -762,6 +763,145 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   const [capsLock, setCapsLock] = useState<boolean>(false);
   const [randomClickerEnabled, setRandomClickerEnabled] = useState<boolean>(true);
   const [clickerSpeed, setClickerSpeed] = useState<number>(0);
+
+  // Typewriter widget interactive typing state
+  const [typewriterText, setTypewriterText] = useState<string>('TYPEWRITER ');
+  const [typewriterState, setTypewriterState] = useState<TypewriterState>(() => {
+    const now = Date.now();
+    return {
+      text: 'TYPEWRITER ',
+      lastChar: 'R',
+      lastTimestamp: now,
+      randomX: 0.25,
+      randomY: 0.25,
+      randomLetters: [
+        { char: 'T', x: 0.1, y: 0.15, fontSize: 'big', timestamp: now },
+        { char: 'Y', x: 0.35, y: 0.45, fontSize: 'small', timestamp: now },
+        { char: 'P', x: 0.6, y: 0.1, fontSize: 'big', timestamp: now },
+        { char: 'E', x: 0.8, y: 0.6, fontSize: 'small', timestamp: now },
+        { char: 'R', x: 0.25, y: 0.85, fontSize: 'big', timestamp: now },
+      ],
+      randomBank: [
+        { char: 'T', x: 0.1, y: 0.15, fontSize: 'big', timestamp: now },
+        { char: 'Y', x: 0.35, y: 0.45, fontSize: 'small', timestamp: now },
+        { char: 'P', x: 0.6, y: 0.1, fontSize: 'big', timestamp: now },
+        { char: 'E', x: 0.8, y: 0.6, fontSize: 'small', timestamp: now },
+        { char: 'R', x: 0.25, y: 0.85, fontSize: 'big', timestamp: now },
+      ],
+      letterBank: [
+        { char: 'T', x: 0.1, y: 0.15, fontSize: 'big', timestamp: now },
+        { char: 'Y', x: 0.35, y: 0.45, fontSize: 'small', timestamp: now },
+        { char: 'P', x: 0.6, y: 0.1, fontSize: 'big', timestamp: now },
+        { char: 'E', x: 0.8, y: 0.6, fontSize: 'small', timestamp: now },
+        { char: 'R', x: 0.25, y: 0.85, fontSize: 'big', timestamp: now },
+      ],
+    };
+  });
+
+  const handleTypewriterInput = useCallback((keyOrChar: string) => {
+    const now = Date.now();
+    const rx = Math.random();
+    const ry = Math.random();
+
+    if (keyOrChar === 'Backspace' || keyOrChar === 'BSPC' || keyOrChar === 'BACKSPACE') {
+      setTypewriterText(prev => {
+        const next = prev.slice(0, -1);
+        setTypewriterState(s => {
+          const activeInst = instances?.['typewriter']?.[0];
+          const cleaning = activeInst?.config?.typewriterCleaning ?? 0;
+          let surviving = s.letterBank || s.randomLetters || s.randomBank || [];
+          if (cleaning > 0 && s.lastTimestamp) {
+            const cleaningMs = Math.round(cleaning * 1000);
+            const idleIntervals = cleaningMs > 0 ? Math.floor((now - s.lastTimestamp) / cleaningMs) : 0;
+            if (idleIntervals > 0) {
+              surviving = surviving.slice(idleIntervals);
+            }
+          }
+          const nextBank = surviving.slice(0, -1);
+          return {
+            ...s,
+            text: next,
+            lastTimestamp: now,
+            letterBank: nextBank,
+            randomLetters: nextBank,
+            randomBank: nextBank,
+          };
+        });
+        return next;
+      });
+      return;
+    }
+
+    let ch: string | null = null;
+    if (keyOrChar === ' ' || keyOrChar === 'Space' || keyOrChar === 'SPC' || keyOrChar === 'SPACE' || keyOrChar === 'Enter' || keyOrChar === 'RET') {
+      ch = ' ';
+    } else if (keyOrChar.length === 1) {
+      ch = keyOrChar.toUpperCase();
+    } else if (keyOrChar.startsWith('&kp ') || keyOrChar.startsWith('&KP ')) {
+      const binding = keyOrChar.slice(4).trim().toUpperCase();
+      if (binding === 'SPACE' || binding === 'SPC') {
+        ch = ' ';
+      } else if (binding === 'BSPC' || binding === 'BACKSPACE') {
+        setTypewriterText(prev => {
+          const next = prev.slice(0, -1);
+          setTypewriterState(s => {
+            const currentBank = s.letterBank || s.randomLetters || s.randomBank || [];
+            const nextBank = currentBank.slice(0, -1);
+            return {
+              ...s,
+              text: next,
+              lastTimestamp: now,
+              letterBank: nextBank,
+              randomLetters: nextBank,
+              randomBank: nextBank,
+            };
+          });
+          return next;
+        });
+        return;
+      } else if (/^N\d$/.test(binding)) {
+        ch = binding[1];
+      } else if (binding.length === 1) {
+        ch = binding;
+      }
+    }
+
+    if (!ch) return;
+
+    const charToAdd = ch;
+    setTypewriterText(prev => {
+      const next = (prev + charToAdd).slice(-60);
+      setTypewriterState(s => {
+        const activeInst = instances?.['typewriter']?.find(i => (i.config?.typewriterMode || i.config?.mode) === 'random') || instances?.['typewriter']?.[0];
+        const bankCap = Math.max(1, activeInst?.config?.typewriterBankSize ?? activeInst?.config?.typewriterLetterBank ?? 20);
+        const cleaning = activeInst?.config?.typewriterCleaning ?? 0.2;
+        let surviving = s.letterBank || s.randomLetters || s.randomBank || [];
+        if (cleaning > 0 && s.lastTimestamp) {
+          const cleaningMs = Math.round(cleaning * 1000);
+          const idleIntervals = cleaningMs > 0 ? Math.floor((now - s.lastTimestamp) / cleaningMs) : 0;
+          if (idleIntervals > 0) {
+            surviving = surviving.slice(idleIntervals);
+          }
+        }
+        const twFontSizeCfg = activeInst?.config?.fontSize ?? 'both';
+        const chosenSize: 'small' | 'big' = twFontSizeCfg === 'both'
+          ? (Math.random() < 0.5 ? 'small' : 'big')
+          : (twFontSizeCfg === 'big' ? 'big' : 'small');
+        const nextLetters = [...surviving, { char: charToAdd, x: rx, y: ry, fontSize: chosenSize, timestamp: now }].slice(-bankCap);
+        return {
+          text: next,
+          lastChar: charToAdd,
+          lastTimestamp: now,
+          randomX: rx,
+          randomY: ry,
+          letterBank: nextLetters,
+          randomLetters: nextLetters,
+          randomBank: nextLetters,
+        };
+      });
+      return next;
+    });
+  }, [instances]);
   // Configured Bongo Cat tap duration & debounce cooldown (matching firmware CONFIG_SCYAN_BONGO_TAP_MS)
   const activeBongoInstance = instances?.['bongo']?.[0];
   const bongoTapMs = activeBongoInstance?.config?.bongoTapMs ?? 60;
@@ -798,6 +938,16 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
       }
     };
   }, []);
+
+  // Keypress widget state tracking
+  const [activeKeys, setActiveKeys] = useState<string[]>([]);
+  const [lastKey, setLastKey] = useState<string>('');
+  const keypressStateRef = useRef<KeypressState>({});
+
+  useEffect(() => {
+    keypressStateRef.current.activeKeys = activeKeys;
+    keypressStateRef.current.lastKey = lastKey;
+  }, [activeKeys, lastKey]);
 
   // Time-progressing WPM history ticker (continuous 1Hz sampling using ref to avoid reset on keypress/decay)
   const wpmRef = useRef(wpm);
@@ -961,8 +1111,46 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     }
   }, []);
 
+  // Helper to extract a character representation from a key coordinate or label
+  const getCharFromCoord = useCallback((coord: string): string | null => {
+    let raw: string | undefined;
+    if (coord.startsWith('L_')) {
+      const parts = coord.split('_');
+      raw = currentLeftMatrix[Number(parts[1])]?. [Number(parts[2])];
+    } else if (coord.startsWith('R_')) {
+      const parts = coord.split('_');
+      raw = currentRightMatrix[Number(parts[1])]?. [Number(parts[2])];
+    } else if (coord.startsWith('LT_')) {
+      raw = currentLeftThumbs[Number(coord.split('_')[1])];
+    } else if (coord.startsWith('RT_')) {
+      raw = currentRightThumbs[Number(coord.split('_')[1])];
+    }
+    if (!raw) return null;
+    const clean = raw.trim().toUpperCase();
+    if (clean === 'SPC' || clean === 'SPACE') return ' ';
+    if (clean === 'RET' || clean === 'ENTER') return ' ';
+    if (clean === 'BSPC' || clean === 'BACKSPACE') return 'Backspace';
+    if (clean === 'UP' || clean === '▲' || clean === '&KP UP') return 'ArrowUp';
+    if (clean === 'DOWN' || clean === '▼' || clean === '&KP DOWN') return 'ArrowDown';
+    if (clean === 'LEFT' || clean === '◀' || clean === '&KP LEFT') return 'ArrowLeft';
+    if (clean === 'RIGHT' || clean === '▶' || clean === '&KP RIGHT') return 'ArrowRight';
+    if (clean.length === 1) return clean;
+    if (clean.startsWith('&KP ')) {
+      const k = clean.slice(4).trim();
+      if (k === 'SPACE' || k === 'SPC') return ' ';
+      if (k === 'BSPC' || k === 'BACKSPACE') return 'Backspace';
+      if (k === 'UP' || k === 'ARROWUP') return 'ArrowUp';
+      if (k === 'DOWN' || k === 'ARROWDOWN') return 'ArrowDown';
+      if (k === 'LEFT' || k === 'ARROWLEFT') return 'ArrowLeft';
+      if (k === 'RIGHT' || k === 'ARROWRIGHT') return 'ArrowRight';
+      if (/^N\d$/.test(k)) return k[1];
+      if (k.length === 1) return k;
+    }
+    return clean.slice(0, 1);
+  }, [currentLeftMatrix, currentRightMatrix, currentLeftThumbs, currentRightThumbs]);
+
   // Trigger keycap visual press
-  const triggerKeyPress = useCallback((identifiers: string | string[]) => {
+  const triggerKeyPress = useCallback((identifiers: string | string[], source?: 'keyboard' | 'virtual') => {
     const list = Array.isArray(identifiers) ? identifiers : [identifiers];
     const keysToAdd = list.filter(k => Boolean(k && k.trim()));
     if (keysToAdd.length === 0) return;
@@ -986,14 +1174,32 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
       triggerBongoTap(true);
     }
 
+    // When clicked virtually on-screen or triggered by random clicker, route to typewriter & keypress
+    if (source !== 'keyboard') {
+      const firstCoord = keysToAdd[0];
+      const char = getCharFromCoord(firstCoord);
+      if (char) {
+        handleTypewriterInput(char);
+        setActiveKeys(prev => (prev.includes(char) ? prev : [...prev, char]));
+        setLastKey(char);
+      }
+    }
+
     setTimeout(() => {
       setPressedKeys(prev => {
         const next = new Set(prev);
         keysToAdd.forEach(k => next.delete(k));
         return next;
       });
+      if (source !== 'keyboard') {
+        const firstCoord = keysToAdd[0];
+        const char = getCharFromCoord(firstCoord);
+        if (char) {
+          setActiveKeys(prev => prev.filter(k => k !== char));
+        }
+      }
     }, 140);
-  }, [recordKeystroke, triggerBongoTap]);
+  }, [recordKeystroke, triggerBongoTap, getCharFromCoord, handleTypewriterInput]);
 
   // Random key clicker: simulates typing speeds from 0 (stalled) to 60 WPM
   useEffect(() => {
@@ -1092,7 +1298,20 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
         setCapsLock(prev => !prev);
       }
 
+      // Track active keys for Keypress widget
+      const keyId = e.key;
+      setActiveKeys(prev => (prev.includes(keyId) ? prev : [...prev, keyId]));
+      setLastKey(keyId);
+
       recordKeystroke();
+
+      if (e.key === 'Backspace') {
+        handleTypewriterInput('Backspace');
+      } else if (e.key === ' ' || e.code === 'Space') {
+        handleTypewriterInput(' ');
+      } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        handleTypewriterInput(e.key);
+      }
 
       const matchingCoords = getMatchingKeyCoords(
         { key: e.key, code: e.code },
@@ -1107,7 +1326,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
       );
 
       if (matchingCoords.length > 0) {
-        triggerKeyPress(matchingCoords);
+        triggerKeyPress(matchingCoords, 'keyboard');
       } else {
         // Fallback for keys not bound in current keymap layer:
         // Use physical scan codes to determine left vs right half
@@ -1122,12 +1341,36 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
       }
     };
 
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        document.querySelector('.modal-overlay') ||
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      setActiveKeys(prev => prev.filter(k => k !== e.key && k !== e.code));
+    };
+
+    const handleBlur = () => {
+      setActiveKeys([]);
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+    };
   }, [
     triggerKeyPress,
     recordKeystroke,
     triggerBongoTap,
+    handleTypewriterInput,
     currentLeftMatrix,
     currentRightMatrix,
     currentLeftThumbs,
@@ -1167,7 +1410,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
   const hasAnimationBlock = useMemo(() => {
     const isAnim = (b: LayoutBlock) => {
       const t = (b.widgetType || b.id).toLowerCase();
-      return t.includes('animation') || t.includes('loop');
+      return t.includes('animation') || t.includes('loop') || t.includes('typewriter');
     };
     return leftDisplayBlocks.some(isAnim) || rightDisplayBlocks.some(isAnim);
   }, [leftDisplayBlocks, rightDisplayBlocks]);
@@ -1180,7 +1423,7 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     animStartTimeRef.current = Date.now();
     const interval = setInterval(() => {
       setAnimTimestamp(Date.now() - animStartTimeRef.current);
-    }, 50);
+    }, 30);
     return () => clearInterval(interval);
   }, [hasAnimationBlock]);
 
@@ -1263,6 +1506,11 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     bongoState,
     animationTimestamp: animTimestamp,
     isIdle,
+    typewriterText,
+    typewriterState,
+    activeKeys,
+    lastKey,
+    keypressState: keypressStateRef.current,
   }), [
     symbolsGrid,
     symbolSlices,
@@ -1284,6 +1532,10 @@ export const OledPreviewTab: React.FC<OledPreviewTabProps> = ({
     bongoState,
     animTimestamp,
     isIdle,
+    typewriterText,
+    typewriterState,
+    activeKeys,
+    lastKey,
   ]);
 
   return (

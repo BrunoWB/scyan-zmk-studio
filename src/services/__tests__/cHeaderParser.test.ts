@@ -856,6 +856,467 @@ static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
     expect(cCode).toMatch(/\.symbol_ids\s*=\s*\{\s*SYMBOL_USB,\s*SYMBOL_BLUETOOTH_P1/);
     expect(cCode).toContain('.symbol_id = SYMBOL_USB');
   });
+
+  describe('Typewriter Widget Serialization & Round-Trip', () => {
+    it('generates C code encoding WIDGET_TYPE_TYPEWRITER with mode, param1 (direction), param2 (cleaning), and param3 (fontSize)', () => {
+      const testGrid = new BwpxGrid(32, 32);
+      const metadata: HeaderMetadata = {
+        version: 1,
+        centralBlocks: [
+          {
+            id: 'block-typewriter-1',
+            widgetType: 'typewriter',
+            instanceId: 'typewriter-inline-1',
+            name: 'Typewriter',
+            x: 0,
+            y: 50,
+            width: 32,
+            height: 5,
+            enabled: true,
+            side: 'central',
+          }
+        ],
+        widgetInstances: {
+          typewriter: [
+            {
+              id: 'typewriter-inline-1',
+              widgetTypeId: 'typewriter',
+              label: 'Typewriter Stream',
+              config: {
+                mode: 'inline',
+                typewriterMode: 'inline',
+                typewriterDirection: 'ew',
+                typewriterCleaning: 5,
+                typewriterWidth: 32,
+                fontSize: 'small',
+              },
+              slots: {},
+            }
+          ]
+        }
+      };
+
+      const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+      expect(cCode).toContain('WIDGET_TYPE_TYPEWRITER');
+      // mode: 0 (inline), param1: 1 (ew), param2: 5 (cleaning), param3: 0 (small)
+      expect(cCode).toMatch(/WIDGET_TYPE_TYPEWRITER.*\.mode\s*=\s*0.*\.param1\s*=\s*1.*\.param2\s*=\s*5.*\.param3\s*=\s*0/);
+
+      // Verify round-trip parsing with metadata
+      const parsed = parseCHeader(cCode);
+      expect(parsed.metadata?.centralBlocks?.[0]?.widgetType).toBe('typewriter');
+      const inst = parsed.metadata?.widgetInstances?.typewriter?.[0];
+      expect(inst).toBeDefined();
+      expect(inst?.config?.typewriterMode).toBe('inline');
+      expect(inst?.config?.typewriterDirection).toBe('ew');
+      expect(inst?.config?.typewriterCleaning).toBe(5);
+    });
+
+    it('falls back gracefully to synthetic typewriter instance when parsing raw C header without metadata', () => {
+      const rawCHeader = `
+enum display_widget_type {
+    WIDGET_TYPE_NONE = 0,
+    WIDGET_TYPE_OUTPUT_STATUS,
+    WIDGET_TYPE_BATTERY,
+    WIDGET_TYPE_LAYER,
+    WIDGET_TYPE_WPM,
+    WIDGET_TYPE_WPM_CHART,
+    WIDGET_TYPE_BRANDING,
+    WIDGET_TYPE_SPLIT,
+    WIDGET_TYPE_SCREENSAVER,
+    WIDGET_TYPE_CAPS_LOCK,
+    WIDGET_TYPE_BONGO,
+    WIDGET_TYPE_LOOP,
+    WIDGET_TYPE_TYPEWRITER,
+};
+
+static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[] = {
+    { .type = WIDGET_TYPE_TYPEWRITER, .x = 2, .y = 40, .width = 28, .height = 10, .enabled = true, .mode = 1, .param1 = 0, .param2 = 3, .param3 = 1, .symbol_count = 0, .symbol_ids = { 0 }, .text_count = 0, .text_entries = { NULL }, .custom_text = NULL, .symbol_id = 0 },
+};
+`;
+      const parsed = parseCHeader(rawCHeader);
+      expect(parsed.metadata?.leftBlocks?.length).toBe(1);
+      expect(parsed.metadata?.leftBlocks?.[0].widgetType).toBe('typewriter');
+      expect(parsed.metadata?.leftBlocks?.[0].width).toBe(28);
+      expect(parsed.metadata?.leftBlocks?.[0].height).toBe(10);
+
+      // Verify synthetic instance from raw C block: mode 1 -> spot, param2 3 -> cleaning 3s, param3 1 -> big
+      const inst = parsed.metadata?.widgetInstances?.typewriter?.[0];
+      expect(inst).toBeDefined();
+      expect(inst?.config?.typewriterMode).toBe('spot');
+      expect(inst?.config?.typewriterCleaning).toBe(3);
+      expect(inst?.config?.fontSize).toBe('big');
+    });
+
+    it('serializes and parses random mode with letter bank in param1 and round-trips via metadata', () => {
+      const testGrid = new BwpxGrid(32, 32);
+      const metadata: HeaderMetadata = {
+        version: 1,
+        centralBlocks: [
+          {
+            id: 'block-typewriter-rnd',
+            widgetType: 'typewriter',
+            instanceId: 'typewriter-rnd-1',
+            name: 'Typewriter Random',
+            x: 0,
+            y: 40,
+            width: 32,
+            height: 32,
+            enabled: true,
+            side: 'central',
+          }
+        ],
+        widgetInstances: {
+          typewriter: [
+            {
+              id: 'typewriter-rnd-1',
+              widgetTypeId: 'typewriter',
+              label: 'Typewriter Random Bank',
+              config: {
+                mode: 'random',
+                typewriterMode: 'random',
+                typewriterLetterBank: 7,
+                typewriterCleaning: 4,
+                typewriterWidth: 32,
+                typewriterHeight: 32,
+                fontSize: 'small',
+              },
+              slots: {},
+            }
+          ]
+        }
+      };
+
+      const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+      expect(cCode).toContain('WIDGET_TYPE_TYPEWRITER');
+      // mode: 2 (random), param1: 7 (letter bank), param2: 4 (cleaning), param3: 0 (small)
+      expect(cCode).toMatch(/WIDGET_TYPE_TYPEWRITER.*\.mode\s*=\s*2.*\.param1\s*=\s*7.*\.param2\s*=\s*4.*\.param3\s*=\s*0/);
+
+      // Verify round-trip parsing with metadata
+      const parsed = parseCHeader(cCode);
+      const inst = parsed.metadata?.widgetInstances?.typewriter?.[0];
+      expect(inst).toBeDefined();
+      expect(inst?.config?.typewriterMode).toBe('random');
+      expect(inst?.config?.typewriterLetterBank).toBe(7);
+      expect(inst?.config?.typewriterCleaning).toBe(4);
+
+      // Verify raw C fallback parsing decodes mode: 2, param1: 7 as random mode with letter bank 7
+      const rawCHeader = `
+enum display_widget_type {
+    WIDGET_TYPE_NONE = 0,
+    WIDGET_TYPE_OUTPUT_STATUS,
+    WIDGET_TYPE_BATTERY,
+    WIDGET_TYPE_LAYER,
+    WIDGET_TYPE_WPM,
+    WIDGET_TYPE_WPM_CHART,
+    WIDGET_TYPE_BRANDING,
+    WIDGET_TYPE_SPLIT,
+    WIDGET_TYPE_SCREENSAVER,
+    WIDGET_TYPE_CAPS_LOCK,
+    WIDGET_TYPE_BONGO,
+    WIDGET_TYPE_LOOP,
+    WIDGET_TYPE_TYPEWRITER,
+};
+
+static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[] = {
+    { .type = WIDGET_TYPE_TYPEWRITER, .x = 0, .y = 40, .width = 32, .height = 32, .enabled = true, .mode = 2, .param1 = 7, .param2 = 4, .param3 = 0, .symbol_count = 0, .symbol_ids = { 0 }, .text_count = 0, .text_entries = { NULL }, .custom_text = NULL, .symbol_id = 0 },
+};
+`;
+      const rawParsed = parseCHeader(rawCHeader);
+      const rawInst = rawParsed.metadata?.widgetInstances?.typewriter?.[0];
+      expect(rawInst).toBeDefined();
+      expect(rawInst?.config?.typewriterMode).toBe('random');
+      expect(rawInst?.config?.typewriterLetterBank).toBe(7);
+      expect(rawInst?.config?.typewriterBankSize).toBe(7);
+      expect(rawInst?.config?.typewriterCleaning).toBe(4);
+    });
+
+    it('serializes and parses random mode with decimal cleaning and typewriterBankSize', () => {
+      const testGrid = new BwpxGrid(32, 32);
+      const metadata: HeaderMetadata = {
+        version: 1,
+        centralBlocks: [
+          {
+            id: 'block-typewriter-rnd-dec',
+            widgetType: 'typewriter',
+            instanceId: 'typewriter-rnd-dec-1',
+            name: 'Typewriter Random Dec',
+            x: 0,
+            y: 40,
+            width: 32,
+            height: 32,
+            enabled: true,
+            side: 'central',
+          }
+        ],
+        widgetInstances: {
+          typewriter: [
+            {
+              id: 'typewriter-rnd-dec-1',
+              widgetTypeId: 'typewriter',
+              label: 'Typewriter Random Dec Cleaning',
+              config: {
+                mode: 'random',
+                typewriterMode: 'random',
+                typewriterBankSize: 8,
+                typewriterCleaning: 0.35,
+                typewriterWidth: 32,
+                typewriterHeight: 32,
+                fontSize: 'small',
+              },
+              slots: {},
+            }
+          ]
+        }
+      };
+
+      const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+      expect(cCode).toContain('WIDGET_TYPE_TYPEWRITER');
+      // mode: 2, param1: 8 (bank size), param2: 0.35 (cleaning)
+      expect(cCode).toMatch(/WIDGET_TYPE_TYPEWRITER.*\.mode\s*=\s*2.*\.param1\s*=\s*8.*\.param2\s*=\s*0\.35/);
+
+      // Verify round-trip parsing with metadata preserves decimal cleaning
+      const parsed = parseCHeader(cCode);
+      const inst = parsed.metadata?.widgetInstances?.typewriter?.[0];
+      expect(inst).toBeDefined();
+      expect(inst?.config?.typewriterMode).toBe('random');
+      expect(inst?.config?.typewriterBankSize).toBe(8);
+      expect(inst?.config?.typewriterCleaning).toBe(0.35);
+
+      // Verify raw C fallback parsing with decimal cleaning
+      const rawCHeader = `
+enum display_widget_type {
+    WIDGET_TYPE_TYPEWRITER = 12,
+};
+static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[] = {
+    { .type = WIDGET_TYPE_TYPEWRITER, .x = 0, .y = 40, .width = 32, .height = 32, .enabled = true, .mode = 2, .param1 = 6, .param2 = 0.5, .param3 = 0, .symbol_count = 0, .symbol_ids = { 0 }, .text_count = 0, .text_entries = { NULL }, .custom_text = NULL, .symbol_id = 0 },
+};
+`;
+      const rawParsed = parseCHeader(rawCHeader);
+      const rawInst = rawParsed.metadata?.widgetInstances?.typewriter?.[0];
+      expect(rawInst).toBeDefined();
+      expect(rawInst?.config?.typewriterMode).toBe('random');
+      expect(rawInst?.config?.typewriterBankSize).toBe(6);
+      expect(rawInst?.config?.typewriterLetterBank).toBe(6);
+      expect(rawInst?.config?.typewriterCleaning).toBe(0.5);
+    });
+
+    it('serializes and parses random mode with fontSize: "both" (param3: 2) and default parameters', () => {
+      const testGrid = new BwpxGrid(32, 32);
+      const metadata: HeaderMetadata = {
+        version: 1,
+        centralBlocks: [
+          {
+            id: 'block-typewriter-both',
+            widgetType: 'typewriter',
+            instanceId: 'typewriter-both-1',
+            name: 'Typewriter Both',
+            x: 0,
+            y: 0,
+            width: 32,
+            height: 32,
+            enabled: true,
+          }
+        ],
+        widgetInstances: {
+          typewriter: [
+            {
+              id: 'typewriter-both-1',
+              widgetTypeId: 'typewriter',
+              label: 'Random Both',
+              config: {
+                mode: 'random',
+                typewriterMode: 'random',
+                typewriterWidth: 32,
+                typewriterHeight: 32,
+                fontSize: 'both',
+                typewriterCleaning: 0.2,
+              },
+              slots: {},
+            }
+          ]
+        }
+      };
+
+      const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+      expect(cCode).toContain('WIDGET_TYPE_TYPEWRITER');
+      // Default random mode: param1: 20 (letter bank default), param2: 0.2 (cleaning default), param3: 2 (both)
+      expect(cCode).toMatch(/WIDGET_TYPE_TYPEWRITER.*\.mode\s*=\s*2.*\.param1\s*=\s*20.*\.param2\s*=\s*0\.2.*\.param3\s*=\s*2/);
+
+      // Verify round-trip parsing with metadata
+      const parsed = parseCHeader(cCode);
+      const inst = parsed.metadata?.widgetInstances?.typewriter?.[0];
+      expect(inst).toBeDefined();
+      expect(inst?.config?.fontSize).toBe('both');
+
+      // Verify raw C fallback parsing with param3: 2 decodes to fontSize: 'both'
+      const rawCHeader = `
+enum display_widget_type {
+    WIDGET_TYPE_TYPEWRITER = 12,
+};
+static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[] = {
+    { .type = WIDGET_TYPE_TYPEWRITER, .x = 0, .y = 0, .width = 32, .height = 32, .enabled = true, .mode = 2, .param1 = 20, .param2 = 0.2, .param3 = 2, .symbol_count = 0, .symbol_ids = { 0 }, .text_count = 0, .text_entries = { NULL }, .custom_text = NULL, .symbol_id = 0 },
+};
+`;
+      const rawParsed = parseCHeader(rawCHeader);
+      const rawInst = rawParsed.metadata?.widgetInstances?.typewriter?.[0];
+      expect(rawInst).toBeDefined();
+      expect(rawInst?.config?.typewriterMode).toBe('random');
+      expect(rawInst?.config?.fontSize).toBe('both');
+      expect(rawInst?.config?.typewriterLetterBank).toBe(20);
+      expect(rawInst?.config?.typewriterCleaning).toBe(0.2);
+    });
+
+    it('preserves typewriterFadeType and typewriterFadeTime through round-trip metadata and supplies defaults on raw C parse', () => {
+      const testGrid = new BwpxGrid(32, 32);
+      const metadata: HeaderMetadata = {
+        version: 1,
+        centralBlocks: [
+          {
+            id: 'block-typewriter-fade',
+            widgetType: 'typewriter',
+            instanceId: 'typewriter-fade-1',
+            name: 'Typewriter Fade',
+            x: 0,
+            y: 0,
+            width: 32,
+            height: 32,
+            enabled: true,
+          }
+        ],
+        widgetInstances: {
+          typewriter: [
+            {
+              id: 'typewriter-fade-1',
+              widgetTypeId: 'typewriter',
+              label: 'Typewriter Dither Fade',
+              config: {
+                mode: 'random',
+                typewriterMode: 'random',
+                typewriterLetterBank: 10,
+                typewriterCleaning: 1.5,
+                typewriterFadeType: 'dither',
+                typewriterFadeTime: 0.75,
+                typewriterWidth: 32,
+                typewriterHeight: 32,
+              },
+              slots: {},
+            }
+          ]
+        }
+      };
+
+      const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+      expect(cCode).toContain('WIDGET_TYPE_TYPEWRITER');
+
+      // Round-trip parse metadata
+      const parsed = parseCHeader(cCode);
+      const inst = parsed.metadata?.widgetInstances?.typewriter?.[0];
+      expect(inst).toBeDefined();
+      expect(inst?.config?.typewriterFadeType).toBe('dither');
+      expect(inst?.config?.typewriterFadeTime).toBe(0.75);
+      expect(inst?.config?.typewriterCleaning).toBe(1.5);
+
+      // Raw C fallback parsing sets default fadeType: 'instant' and fadeTime: 0.5
+      const rawCHeader = `
+enum display_widget_type {
+    WIDGET_TYPE_TYPEWRITER = 12,
+};
+static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[] = {
+    { .type = WIDGET_TYPE_TYPEWRITER, .x = 0, .y = 0, .width = 32, .height = 32, .enabled = true, .mode = 2, .param1 = 5, .param2 = 2, .param3 = 0, .symbol_count = 0, .symbol_ids = { 0 }, .text_count = 0, .text_entries = { NULL }, .custom_text = NULL, .symbol_id = 0 },
+};
+`;
+      const rawParsed = parseCHeader(rawCHeader);
+      const rawInst = rawParsed.metadata?.widgetInstances?.typewriter?.[0];
+      expect(rawInst).toBeDefined();
+      expect(rawInst?.config?.typewriterFadeType).toBe('instant');
+      expect(rawInst?.config?.typewriterFadeTime).toBe(0.5);
+    });
+
+    it('serializes and round-trips keypress widget with elements and idle symbol', () => {
+      const testGrid = new BwpxGrid(32, 32);
+      const testSlices: SpriteSlice[] = [
+        { id: 'SYMBOL_ARROW_UP', name: 'Up', groupId: 'ARROWS', groupOrder: 1, x: 0, y: 0, width: 8, height: 8, color: '#fff' },
+        { id: 'SYMBOL_ARROW_DOWN', name: 'Down', groupId: 'ARROWS', groupOrder: 2, x: 8, y: 0, width: 8, height: 8, color: '#fff' },
+        { id: 'SYMBOL_IDLE', name: 'Idle', groupId: 'MISC', groupOrder: 1, x: 16, y: 0, width: 8, height: 8, color: '#fff' },
+      ];
+
+      const metadata: HeaderMetadata = {
+        version: 2,
+        centralBlocks: [
+          {
+            id: 'block-keypress-1',
+            widgetType: 'keypress',
+            instanceId: 'keypress-arrows-1',
+            name: 'Keypress Arrow Block',
+            x: 0,
+            y: 0,
+            width: 16,
+            height: 16,
+            enabled: true,
+            side: 'central',
+          },
+        ],
+        widgetInstances: {
+          keypress: [
+            {
+              id: 'keypress-arrows-1',
+              widgetTypeId: 'keypress',
+              label: 'Arrow Keys',
+              config: {
+                mode: 'symbol',
+                idleSymbolId: 'SYMBOL_IDLE',
+                keypressElements: [
+                  { key: 'ArrowUp', symbolId: 'SYMBOL_ARROW_UP' },
+                  { key: 'ArrowDown', symbolId: 'SYMBOL_ARROW_DOWN' },
+                ],
+              },
+              slots: {},
+            },
+          ],
+        },
+      };
+
+      const cCode = generateCHeader(testGrid, testSlices, testGrid, [], metadata);
+      expect(cCode).toContain('WIDGET_TYPE_KEYPRESS');
+      expect(cCode).toContain('SYMBOL_ARROW_UP');
+      expect(cCode).toContain('ArrowUp');
+
+      const parsed = parseCHeader(cCode);
+      expect(parsed.metadata?.centralBlocks?.[0]?.widgetType).toBe('keypress');
+      const inst = parsed.metadata?.widgetInstances?.keypress?.[0];
+      expect(inst).toBeDefined();
+      expect(inst?.config?.idleSymbolId).toBe('SYMBOL_IDLE');
+      expect(inst?.config?.keypressElements).toHaveLength(2);
+      expect(inst?.config?.keypressElements?.[0]).toEqual({ key: 'ArrowUp', symbolId: 'SYMBOL_ARROW_UP' });
+      expect(inst?.config?.keypressElements?.[1]).toEqual({ key: 'ArrowDown', symbolId: 'SYMBOL_ARROW_DOWN' });
+    });
+
+    it('falls back gracefully to synthetic keypress instance when parsing raw C header without metadata', () => {
+      const rawCHeader = `
+enum display_widget_type {
+    WIDGET_TYPE_KEYPRESS = 13,
+};
+enum symbol_id {
+    SYMBOL_ARROW_UP = 0,
+    SYMBOL_ARROW_DOWN = 1,
+    SYMBOL_IDLE_SYM = 2,
+};
+static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[] = {
+    { .type = WIDGET_TYPE_KEYPRESS, .x = 4, .y = 20, .width = 16, .height = 16, .enabled = true, .mode = 1, .param1 = 0, .param2 = 0, .param3 = 0, .symbol_count = 2, .symbol_ids = { SYMBOL_ARROW_UP, SYMBOL_ARROW_DOWN }, .text_count = 2, .text_entries = { "ArrowUp", "ArrowDown" }, .custom_text = NULL, .symbol_id = SYMBOL_IDLE_SYM },
+};
+`;
+      const parsed = parseCHeader(rawCHeader);
+      expect(parsed.metadata?.leftBlocks?.[0].widgetType).toBe('keypress');
+      const inst = parsed.metadata?.widgetInstances?.keypress?.[0];
+      expect(inst).toBeDefined();
+      expect(inst?.config?.idleSymbolId).toBe('SYMBOL_IDLE_SYM');
+      expect(inst?.config?.keypressElements).toHaveLength(2);
+      expect(inst?.config?.keypressElements?.[0].key).toBe('ArrowUp');
+      expect(inst?.config?.keypressElements?.[0].symbolId).toBe('SYMBOL_ARROW_UP');
+      expect(inst?.config?.keypressElements?.[1].key).toBe('ArrowDown');
+      expect(inst?.config?.keypressElements?.[1].symbolId).toBe('SYMBOL_ARROW_DOWN');
+    });
+  });
 });
 
 

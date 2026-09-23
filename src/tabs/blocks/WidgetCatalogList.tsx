@@ -10,6 +10,7 @@ import {
 import type {
   DisplayWidgetDefinition,
   WidgetCategory,
+  TypewriterState,
 } from '../../types/widget';
 import { Search, Cpu } from 'lucide-react';
 
@@ -58,9 +59,9 @@ export const WidgetMiniPreview: React.FC<{
   const [animTimestamp, setAnimTimestamp] = useState<number>(0);
 
   useEffect(() => {
-    if (widget.id !== 'animation' && widget.id !== 'loop') return;
+    if (widget.id !== 'animation' && widget.id !== 'loop' && widget.id !== 'typewriter') return;
     const activeInst = resolveWidgetInstance(instances, widget.id);
-    const speedMs = Math.max(20, activeInst?.config?.loopSpeedMs ?? 250);
+    const speedMs = widget.id === 'typewriter' ? 30 : Math.max(20, activeInst?.config?.loopSpeedMs ?? 250);
     startTimeRef.current = Date.now();
     const timer = setInterval(() => {
       setAnimTimestamp(Date.now() - startTimeRef.current);
@@ -91,6 +92,30 @@ export const WidgetMiniPreview: React.FC<{
     const activeInstance = resolveWidgetInstance(instances, widget.id);
     const activeInstanceId = activeInstance?.id;
 
+    const isTypewriter = widget.id === 'typewriter';
+    const twCleaning = activeInstance?.config?.typewriterCleaning ?? 0;
+    const twFadeSec = activeInstance?.config?.typewriterFadeTime ?? 0.15;
+    const twCycleMs = twCleaning > 0 ? (5 * twCleaning * 1000 + twFadeSec * 1000 + 1000) : 4000;
+    const previewStartTime = animTimestamp > 0 ? (Date.now() - (animTimestamp % twCycleMs)) : Date.now();
+
+    const twState: TypewriterState | undefined = isTypewriter ? {
+      text: 'TYPE',
+      lastChar: 'E',
+      lastTimestamp: previewStartTime,
+      letterBank: [
+        { char: 'T', x: 2, y: 2, fontSize: 'big', timestamp: previewStartTime },
+        { char: 'Y', x: 10, y: 4, fontSize: 'small', timestamp: previewStartTime },
+        { char: 'P', x: 18, y: 12, fontSize: 'big', timestamp: previewStartTime },
+        { char: 'E', x: 8, y: 20, fontSize: 'small', timestamp: previewStartTime },
+      ],
+      randomLetters: [
+        { char: 'T', x: 2, y: 2, fontSize: 'big', timestamp: previewStartTime },
+        { char: 'Y', x: 10, y: 4, fontSize: 'small', timestamp: previewStartTime },
+        { char: 'P', x: 18, y: 12, fontSize: 'big', timestamp: previewStartTime },
+        { char: 'E', x: 8, y: 20, fontSize: 'small', timestamp: previewStartTime },
+      ],
+    } : undefined;
+
     widget.render(tempGrid, startX, 0, {
       symbolsGrid,
       symbolSlices,
@@ -107,6 +132,8 @@ export const WidgetMiniPreview: React.FC<{
       instances,
       activeInstanceId,
       animationTimestamp: animTimestamp,
+      typewriterText: isTypewriter ? 'TYPE' : undefined,
+      typewriterState: twState,
     });
 
     ctx.fillStyle = '#00d2ff';
