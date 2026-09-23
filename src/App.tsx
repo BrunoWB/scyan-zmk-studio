@@ -3,6 +3,8 @@ import { getShieldUnitsForShield } from './data/shieldsData';
 import { trackEvent } from './services/analytics';
 import { HeaderBar } from './components/HeaderBar';
 import { MobileUnsupportedView } from './components/MobileUnsupportedView';
+import { MaintenanceView } from './components/MaintenanceView';
+import { isMaintenanceActive } from './config/maintenance';
 import { useIsMobile } from './hooks/useIsMobile';
 import { OledPreviewTab } from './tabs/OledPreviewTab';
 import { SymbolsAtlasTab } from './tabs/SymbolsAtlasTab';
@@ -93,6 +95,17 @@ export function App() {
   const removeToast = useUiStore((s) => s.removeToast);
   const customText = useUiStore((s) => s.customText);
   const [isLoadTestConfigOpen, setIsLoadTestConfigOpen] = useState(false);
+
+  // Maintenance mode state
+  const [isMaintenanceDismissed, setIsMaintenanceDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return sessionStorage.getItem('scyan_maintenance_dismissed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const showMaintenance = isMaintenanceActive() && !isMaintenanceDismissed;
 
   // Responsive mobile warning state
   const isMobile = useIsMobile();
@@ -511,8 +524,22 @@ export function App() {
         onClose={() => setIsLoadTestConfigOpen(false)}
       />
 
+      {/* Maintenance Notice with Animated ZMK Display */}
+      {showMaintenance && (
+        <MaintenanceView
+          onDismiss={() => {
+            setIsMaintenanceDismissed(true);
+            try {
+              sessionStorage.setItem('scyan_maintenance_dismissed', 'true');
+            } catch {
+              // ignore storage errors
+            }
+          }}
+        />
+      )}
+
       {/* Mobile Unsupported Notice with Animated ZMK Display */}
-      {isMobile && !isMobileDismissed && (
+      {isMobile && !isMobileDismissed && !showMaintenance && (
         <MobileUnsupportedView onDismiss={() => setIsMobileDismissed(true)} />
       )}
     </div>
