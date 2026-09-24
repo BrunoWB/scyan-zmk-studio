@@ -1,0 +1,66 @@
+name: Deploy v1 to GitHub Pages
+
+on:
+  push:
+    branches: [v1]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v1-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (v1 base path)
+        run: npm run build
+        env:
+          VITE_BASE_PATH: /v1/scyan-zmk-studio/
+          VITE_MODULE_REVISION: v1
+
+      - name: Ensure .nojekyll present
+        run: touch dist/.nojekyll
+
+      - name: Clone brunowb.github.io (full, not shallow)
+        run: |
+          git clone \
+            "https://x-access-token:${{ secrets.GH_PAT_PAGES }}@github.com/BrunoWB/brunowb.github.io.git" \
+            /tmp/user-site
+
+      - name: Wipe and replace v1 subfolder
+        run: |
+          cd /tmp/user-site
+          # Remove entire v1/scyan-zmk-studio subtree from git index AND disk
+          git rm -rf v1/scyan-zmk-studio/ --ignore-unmatch
+          mkdir -p v1/scyan-zmk-studio
+          cp -r $GITHUB_WORKSPACE/dist/. v1/scyan-zmk-studio/
+          # Force-add everything including assets/
+          git add -f v1/scyan-zmk-studio/
+
+      - name: Commit and push
+        run: |
+          cd /tmp/user-site
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "=== Staged files ==="
+          git diff --cached --name-only | head -20
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "chore(v1): deploy scyan-zmk-studio ${{ github.sha }}"
+          git push origin main

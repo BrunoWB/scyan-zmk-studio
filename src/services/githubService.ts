@@ -1201,7 +1201,7 @@ export function injectScyanIntoWest(content: string): string {
         doc.createNode({
           name: 'scyan-zmk-module',
           remote: 'brunowb',
-          revision: 'main',
+          revision: 'v1',
         })
       );
     }

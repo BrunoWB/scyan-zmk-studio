@@ -44,11 +44,11 @@ function nightlyFaviconPlugin(): Plugin {
   }
 }
 
-const isNightly = !!process.env.VITE_BASE_PATH
+const isNightly = process.env.VITE_BASE_PATH?.includes('nightly') || process.env.VITE_MODULE_REVISION === 'nightly'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: process.env.VITE_BASE_PATH ?? './',
+  base: process.env.VITE_BASE_PATH ?? '/v1/scyan-zmk-studio/',
   plugins: [tailwindcss(), react(), devFaviconPlugin(), ...(isNightly ? [nightlyFaviconPlugin()] : [])],
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version || '1.1.0'),

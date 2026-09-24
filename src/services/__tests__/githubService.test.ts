@@ -347,7 +347,7 @@ describe('githubService Kconfig timeout synchronization', () => {
       const res = injectScyanIntoWest(west);
       expect(res).toContain('name: scyan-zmk-module');
       expect(res).toContain('remote: brunowb');
-      expect(res).toContain('revision: main');
+      expect(res).toContain('revision: v1');
       expect(res).toContain('name: brunowb');
       expect(res).toContain('url-base: https://github.com/BrunoWB');
       expect(res).toContain('# Primary remote');
