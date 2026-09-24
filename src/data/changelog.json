@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "2.0.2",
+        "date": "2026-09-24",
+        "commitHash": "c87ae25",
+        "changes": [
+          "docs(widgets): rename section to Static Images without descriptors"
+        ]
+      },
+      {
         "patch": "2.0.1",
         "date": "2026-09-24",
         "commitHash": "49116bd",
