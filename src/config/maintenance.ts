@@ -17,7 +17,7 @@ export interface MaintenanceConfig {
 }
 
 export const MAINTENANCE_CONFIG: MaintenanceConfig = {
-  enabled: true,
+  enabled: false,
   title: 'Under Maintenance',
   subtitle:
     'We are actively refactoring and upgrading the underlying scyan-zmk-module firmware architecture. Production studio is temporarily in maintenance while these firmware changes are rolling out.',

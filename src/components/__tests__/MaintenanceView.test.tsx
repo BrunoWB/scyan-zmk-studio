@@ -54,7 +54,7 @@ describe('isMaintenanceActive logic', () => {
 
   afterEach(() => {
     delete (globalThis as any).window;
-    MAINTENANCE_CONFIG.enabled = true;
+    MAINTENANCE_CONFIG.enabled = false;
   });
 
   it('returns true when maintenance is enabled on standard root', () => {
