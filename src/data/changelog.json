@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "1.1.17",
+        "date": "2026-09-24",
+        "commitHash": "bc0d277",
+        "changes": [
+          "chore(maintenance): disable maintenance mode now that module main is restored"
+        ]
+      },
+      {
         "patch": "1.1.16",
         "date": "2026-09-23",
         "commitHash": "4eb23ce",
