@@ -38,6 +38,10 @@ describe('detectKeyboardTopology & Deterministic Detection Pipeline', () => {
       expect(isAccessoryShield('settings_reset')).toBe(true);
       expect(isAccessoryShield('settings-reset')).toBe(true);
       expect(isAccessoryShield('oled')).toBe(true);
+      expect(isAccessoryShield('scyan_screen')).toBe(true);
+      expect(isAccessoryShield('scyan_screen_1')).toBe(true);
+      expect(isAccessoryShield('scyan_screen_2')).toBe(true);
+      expect(isAccessoryShield('scyan-screen-1')).toBe(true);
 
       // Base shields are not accessories
       expect(isAccessoryShield('corne_left')).toBe(false);
@@ -61,6 +65,24 @@ include:
       expect(topo.displayAssignments['corne_right']).toBe('display-2');
       expect(topo.displays['display-1']).toBeDefined();
       expect(topo.displays['display-2']).toBeDefined();
+    });
+
+    it('filters out scyan_screen tokens from compound shields and detects exactly 2 halves', () => {
+      const buildYaml = `---
+include:
+  - board: nice_nano_v2
+    shield: corne_left scyan_screen_1
+    snippet: studio-rpc-usb-uart
+    cmake-args: -DCONFIG_ZMK_STUDIO=y
+  - board: nice_nano_v2
+    shield: corne_right scyan_screen_2
+`;
+      const topo = detectKeyboardTopology({ buildYamlContent: buildYaml });
+      expect(topo.type).toBe('split-pair');
+      expect(topo.units).toHaveLength(2);
+      expect(topo.units.map(u => u.id)).toEqual(['corne_left', 'corne_right']);
+      expect(topo.displayAssignments['corne_left']).toBe('display-1');
+      expect(topo.displayAssignments['corne_right']).toBe('display-2');
     });
   });
 

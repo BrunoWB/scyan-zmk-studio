@@ -908,7 +908,9 @@ export function isAccessoryShield(token: string): boolean {
     norm.startsWith('nice-oled') ||
     norm === 'oled' ||
     norm.includes('adapter') ||
-    norm.includes('encoder')
+    norm.includes('encoder') ||
+    norm.startsWith('scyan_screen') ||
+    norm.startsWith('scyan-screen')
   );
 }
 
