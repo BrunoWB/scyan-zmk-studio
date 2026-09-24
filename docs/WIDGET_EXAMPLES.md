@@ -14,7 +14,7 @@ All screen recordings below are authentic screencasts captured directly from the
 - [4. Typewriter & Keypress Stream (`typewriter-widgets`)](#4-typewriter--keypress-stream-typewriter-widgets)
 - [5. Battery & Power Status (`charge-widgets`)](#5-battery--power-status-charge-widgets)
 - [6. Connection & Connectivity (`connection-widget`)](#6-connection--connectivity-connection-widget)
-- [7. Screensavers & Graphic Art (`static-images`)](#7-screensavers--graphic-art-static-images)
+- [7. Static Images (`static-images`)](#7-static-images-static-images)
 - [8. Devicetree Node Reference](#8-devicetree-node-reference)
 
 ---
@@ -26,10 +26,10 @@ All screen recordings below are authentic screencasts captured directly from the
 | [![Speed Widgets](assets/widgets/speed-widgets.gif)](assets/widgets/speed-widgets.webm)<br>([WebM Video](assets/widgets/speed-widgets.webm) · [MP4 Video](assets/widgets/speed-widgets.mp4)) | [![Animation Widget](assets/widgets/animation-widget.gif)](assets/widgets/animation-widget.webm)<br>([WebM Video](assets/widgets/animation-widget.webm) · [MP4 Video](assets/widgets/animation-widget.mp4)) | [![Typewriter Widgets](assets/widgets/typewriter-widgets.gif)](assets/widgets/typewriter-widgets.webm)<br>([WebM Video](assets/widgets/typewriter-widgets.webm) · [MP4 Video](assets/widgets/typewriter-widgets.mp4)) |
 | *Real-time speedometer, chart & tiers* | *Looping walker duck animation* | *Stream, spot, random scatter & keypress* |
 
-| Battery & Charging | Output & Connectivity | Screensavers & Pixel Art |
+| Battery & Charging | Output & Connectivity | Static Images |
 | :---: | :---: | :---: |
 | [![Charge Widgets](assets/widgets/charge-widgets.gif)](assets/widgets/charge-widgets.webm)<br>([WebM Video](assets/widgets/charge-widgets.webm) · [MP4 Video](assets/widgets/charge-widgets.mp4)) | [![Connection Widget](assets/widgets/connection-widget.gif)](assets/widgets/connection-widget.webm)<br>([WebM Video](assets/widgets/connection-widget.webm) · [MP4 Video](assets/widgets/connection-widget.mp4)) | [![Static Images](assets/widgets/static-images.png)](assets/widgets/static-images.png)<br>([High-Res PNG](assets/widgets/static-images.png)) |
-| *Dynamic battery meter & charge states* | *USB & Bluetooth profile connection* | *Pixel skull & geometric screensavers* |
+| *Dynamic battery meter & charge states* | *USB & Bluetooth profile connection* | |
 
 ---
 
@@ -83,13 +83,11 @@ Wireless profiles, host interconnectivity, and lock indicators.
 
 ---
 
-## 7. Screensavers & Graphic Art (`static-images`)
+## 7. Static Images (`static-images`)
 
-Idle screensavers and keymap layer banners activated after inactivity timeouts ($30$s idle, $60$s screen-off).
-
-| Static Displays Screencast | Featured Art & Specifications |
-| :---: | :--- |
-| ![Static Images](assets/widgets/static-images.png)<br>([High-Res PNG](assets/widgets/static-images.png)) | **1. Pixel Skull Screensaver (`widget-screensaver`)**<br>• High-contrast 1bpp skull sprite (`SYMBOL_SKULL_LAYER_0`).<br><br>**2. Geometric Art Screensaver (`widget-screensaver`)**<br>• Geometric pattern screensaver (`SYMBOL_IMPORT_TEST_9202`).<br><br>**3. Graphic Layer Emblems (`widget-layer`)**<br>• Dynamic badges cycling layer states (Wolf Left, Wolf Right, Wolf Mad).<br><br>**4. Custom Branding Banner (`widget-branding`)**<br>• User brand text rendered with 1bpp proportional font typography. |
+| Static Images |
+| :---: |
+| ![Static Images](assets/widgets/static-images.png)<br>([High-Res PNG](assets/widgets/static-images.png)) |
 
 ---
 

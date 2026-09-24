@@ -29,10 +29,10 @@ The studio features an interactive library of reactive 1bpp OLED widgets that co
 | ![Speed Widgets](docs/assets/widgets/speed-widgets.gif) | ![Animation Widget](docs/assets/widgets/animation-widget.gif) | ![Typewriter Widgets](docs/assets/widgets/typewriter-widgets.gif) |
 | *Real-time speedometer, chart & tiers* | *Looping walker duck animation* | *Stream, spot, random scatter & keypress* |
 
-| Battery & Charging | Output & Connectivity | Screensavers & Pixel Art |
+| Battery & Charging | Output & Connectivity | Static Images |
 | :---: | :---: | :---: |
 | ![Charge Widgets](docs/assets/widgets/charge-widgets.gif) | ![Connection Widget](docs/assets/widgets/connection-widget.gif) | ![Static Images](docs/assets/widgets/static-images.png) |
-| *Dynamic battery meter & charge states* | *USB & Bluetooth profile connection* | *Pixel skull & geometric screensavers* |
+| *Dynamic battery meter & charge states* | *USB & Bluetooth profile connection* | |
 
 👉 **[Explore all widget screencasts, videos, and Devicetree specifications in the Widget Examples Guide](docs/WIDGET_EXAMPLES.md)**
 
