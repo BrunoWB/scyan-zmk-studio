@@ -20,6 +20,24 @@ The generated header includes embedded metadata comments, so you can load your `
 
 ---
 
+## Widget Examples
+
+The studio features an interactive library of reactive 1bpp OLED widgets that compile directly into native Zephyr Devicetree layouts. Below are live screencasts demonstrating widget behaviors:
+
+| Typing Speed & WPM | Mascots & Animations | Typewriter & Keystrokes |
+| :---: | :---: | :---: |
+| ![Speed Widgets](docs/assets/widgets/speed-widgets.gif) | ![Animation Widget](docs/assets/widgets/animation-widget.gif) | ![Typewriter Widgets](docs/assets/widgets/typewriter-widgets.gif) |
+| *Real-time speedometer, chart & tiers* | *Looping walker duck animation* | *Stream, spot, random scatter & keypress* |
+
+| Battery & Charging | Output & Connectivity | Screensavers & Pixel Art |
+| :---: | :---: | :---: |
+| ![Charge Widgets](docs/assets/widgets/charge-widgets.gif) | ![Connection Widget](docs/assets/widgets/connection-widget.gif) | ![Static Images](docs/assets/widgets/static-images.png) |
+| *Dynamic battery meter & charge states* | *USB & Bluetooth profile connection* | *Pixel skull & geometric screensavers* |
+
+👉 **[Explore all widget screencasts, videos, and Devicetree specifications in the Widget Examples Guide](docs/WIDGET_EXAMPLES.md)**
+
+---
+
 ## How it fits together
 
 ```

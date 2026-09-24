@@ -12,6 +12,8 @@ export const VALID_TABS = [
   'ui-elements-hero',
   'shields',
   'topology',
+  'dev-preview',
+  'widgets-dev',
 ] as const;
 
 export type TabType = typeof VALID_TABS[number];
@@ -36,6 +38,9 @@ export const getTabFromHash = (): TabType => {
   if (import.meta.env.DEV && (path === 'topology' || path === 'topology-sandbox')) {
     return 'topology';
   }
+  if (import.meta.env.DEV && (path === 'dev-preview' || path === 'widgets-dev' || path === 'dev')) {
+    return 'dev-preview';
+  }
   const hash = window.location.hash.replace(/^#/, '').toLowerCase().trim();
   if (
     (hash === 'reference' ||
@@ -44,7 +49,10 @@ export const getTabFromHash = (): TabType => {
       hash === 'topology' ||
       hash === 'topology-sandbox' ||
       hash === 'ui-elements' ||
-      hash === 'ui-elements-hero') &&
+      hash === 'ui-elements-hero' ||
+      hash === 'dev-preview' ||
+      hash === 'widgets-dev' ||
+      hash === 'dev') &&
     !import.meta.env.DEV
   ) {
     return 'preview';
@@ -57,6 +65,9 @@ export const getTabFromHash = (): TabType => {
   }
   if (import.meta.env.DEV && (hash === 'topology' || hash === 'topology-sandbox')) {
     return 'topology';
+  }
+  if (import.meta.env.DEV && (hash === 'dev-preview' || hash === 'widgets-dev' || hash === 'dev')) {
+    return 'dev-preview';
   }
   if (VALID_TABS.includes(hash as TabType)) {
     return hash as TabType;

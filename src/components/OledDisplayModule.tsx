@@ -22,11 +22,13 @@ export interface OledDisplayModuleProps {
   currentLayer?: number;
   layerNames?: string[];
   wpm?: number;
+  wpmHistory?: number[];
   splitConnected?: boolean;
   capsLock?: boolean;
   customText?: string;
   instances?: WidgetInstanceMap;
   customizations?: WidgetCustomizationMap;
+  bongoState?: 0 | 1 | 2;
   typewriterText?: string;
   typewriterState?: import('../types/widget').TypewriterState;
   activeKeys?: string[];
@@ -63,11 +65,13 @@ export const OledDisplayModule: React.FC<OledDisplayModuleProps> = ({
   currentLayer = 0,
   layerNames = ['DEFAULT', 'LOWER', 'RAISE', 'NAV', 'NUM'],
   wpm = 42,
+  wpmHistory,
   splitConnected = true,
   capsLock = false,
   customText = 'SCYAN',
   instances,
   customizations,
+  bongoState,
   typewriterText,
   typewriterState,
   activeKeys,
@@ -139,7 +143,7 @@ export const OledDisplayModule: React.FC<OledDisplayModuleProps> = ({
       currentLayer,
       layerNames,
       wpm,
-      wpmHistory: [
+      wpmHistory: wpmHistory || [
         Math.max(0, wpm - 12),
         Math.max(0, wpm - 6),
         Math.max(0, wpm - 2),
@@ -153,7 +157,7 @@ export const OledDisplayModule: React.FC<OledDisplayModuleProps> = ({
       side: renderSide,
       isIdle,
       customizations,
-      bongoState: wpm > 0 ? 1 : 0,
+      bongoState: bongoState ?? (wpm > 0 ? 1 : 0),
       animationTimestamp: animTimestamp,
       typewriterText,
       typewriterState,

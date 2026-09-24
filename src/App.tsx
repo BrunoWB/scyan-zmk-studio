@@ -15,6 +15,7 @@ import ElementReferencePage from './reference/ElementReferencePage';
 import CommandPalette from './reference/components/layout/CommandPalette';
 import { ShieldsTab } from './tabs/ShieldsTab';
 import { TopologySandboxTab } from './tabs/TopologySandboxTab';
+import { WidgetsDevTab } from './tabs/WidgetsDevTab';
 import {
   MonitorPlay,
   Shapes,
@@ -29,12 +30,13 @@ import {
   Cpu,
   Network,
   FlaskConical,
+  LayoutGrid,
 } from 'lucide-react';
 import { LoadTestConfigModal } from './components/LoadTestConfigModal';
 import { useAtlasStore } from './stores/useAtlasStore';
 import { useLayoutStore } from './stores/useLayoutStore';
 import { useGitHubStore } from './stores/useGitHubStore';
-import { useUiStore, type TabType, type ToastMessage } from './stores/useUiStore';
+import { useUiStore, getTabFromHash, type TabType, type ToastMessage } from './stores/useUiStore';
 import {
   initializeWorkspace,
   syncRepoAssets,
@@ -45,41 +47,6 @@ import {
   restoreDefaults,
 } from './stores/workspaceActions';
 import './App.css';
-
-const VALID_TABS = ['preview', 'symbols', 'font', 'widgets', 'layout', 'blocks', 'reference', 'ui-elements', 'ui-elements-hero', 'shields', 'topology'] as const;
-
-const getTabFromHash = (): TabType => {
-  const path = window.location.pathname.replace(/^\//, '').toLowerCase().trim();
-  if (import.meta.env.DEV && (path === 'ui-elements' || path === 'elements' || path === 'reference' || path === 'hero' || path === 'heroui')) {
-    return 'reference';
-  }
-  if (import.meta.env.DEV && (path === 'shields' || path === 'shield')) {
-    return 'shields';
-  }
-  if (import.meta.env.DEV && (path === 'topology' || path === 'topology-sandbox')) {
-    return 'topology';
-  }
-  const hash = window.location.hash.replace(/^#/, '').toLowerCase().trim();
-  if ((hash === 'reference' || hash === 'shields' || hash === 'shield' || hash === 'topology' || hash === 'topology-sandbox' || hash === 'ui-elements' || hash === 'ui-elements-hero') && !import.meta.env.DEV) {
-    return 'preview';
-  }
-  if (hash === 'blocks') {
-    return 'layout';
-  }
-  if (import.meta.env.DEV && (hash === 'shields' || hash === 'shield')) {
-    return 'shields';
-  }
-  if (import.meta.env.DEV && (hash === 'topology' || hash === 'topology-sandbox')) {
-    return 'topology';
-  }
-  if (VALID_TABS.includes(hash as any)) {
-    return hash as TabType;
-  }
-  if (import.meta.env.DEV && (hash === 'ui-elements-hero' || hash === 'hero' || hash === 'heroui' || hash === 'elements' || hash === 'ui-elements')) {
-    return 'reference';
-  }
-  return 'preview';
-};
 
 export function App() {
   // Navigation & UI state from useUiStore
@@ -355,6 +322,20 @@ export function App() {
               <span>Topology</span>
             </button>
 
+            {/* Dev Tab 4: Widgets Dev Preview */}
+            <button
+              onClick={() => handleTabClick('dev-preview')}
+              className={`text-xs font-mono px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
+                activeTab === 'dev-preview' || activeTab === 'widgets-dev'
+                  ? 'bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/40 font-semibold shadow-[0_0_8px_rgba(0,240,255,0.2)]'
+                  : 'text-[#94a3b8] hover:text-white hover:bg-[#131722] border border-transparent'
+              }`}
+              title="Multi-OLED 128x32 Dev Preview for all Widget Instances (Dev-only)"
+            >
+              <LayoutGrid className="size-3.5 text-[#00f0ff]" />
+              <span>Widgets Dev</span>
+            </button>
+
             {/* Dev Tool: Load Test Config */}
             <button
               onClick={() => setIsLoadTestConfigOpen(true)}
@@ -453,6 +434,19 @@ export function App() {
                 onSwapDisplays={swapDisplays}
                 onMakeMaster={makeMaster}
                 onNavigateToPreview={() => handleTabClick('preview')}
+              />
+            )}
+
+            {import.meta.env.DEV && (activeTab === 'dev-preview' || activeTab === 'widgets-dev') && (
+              <WidgetsDevTab
+                symbolsGrid={symbolsGrid}
+                symbolSlices={symbolSlices}
+                fontGrid={fontGrid}
+                fontGlyphs={fontGlyphs}
+                fontMappings={fontMappings}
+                instances={widgetInstances}
+                customText={customText}
+                onNavigateToWidgets={() => handleTabClick('widgets')}
               />
             )}
           </>

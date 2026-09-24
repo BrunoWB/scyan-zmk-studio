@@ -140,6 +140,7 @@ Persistent architectural reference for the Scyan ZMK Ecosystem: Visual 2-Atlas d
   - Nightly Studio installs/updates `west.yml` with `revision: nightly`.
   - Production Studio installs/updates `west.yml` with `revision: main` (or tagged release).
 - **Corne Simulator (`OledPreviewTab`)**: High-fidelity client-side emulation of the MCU display engine.
+- **Visual Gallery & Hardware Examples**: Complete visual catalog and looping OLED previews in [`WIDGET_EXAMPLES.md`](WIDGET_EXAMPLES.md).
 
 ### `scyan-zmk-module` (Firmware Runtime Layer)
 - **Engine Core (`engine.c`)**:
