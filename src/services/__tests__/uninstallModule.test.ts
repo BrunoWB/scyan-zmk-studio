@@ -173,6 +173,60 @@ describe('Module Uninstallation & Header Cleanup', () => {
         ])
       );
     });
+
+    it('deletes config/scyan_symbols.dtsi alongside scyan_layouts.dtsi when present', async () => {
+      mockGitGetRef.mockResolvedValueOnce({
+        data: { object: { sha: 'commit_sha_123' } },
+      });
+
+      mockReposGetContent.mockImplementation(async ({ path }: { path: string }) => {
+        if (path === 'config/scyan_assets.h') {
+          return { data: { content: btoa('// assets') } };
+        }
+        if (path === 'config/scyan_layouts.dtsi') {
+          return { data: { content: btoa('// layouts') } };
+        }
+        if (path === 'config/scyan_symbols.dtsi') {
+          return { data: { content: btoa('#define SYMBOL_USB 0\n') } };
+        }
+        const err: any = new Error('Not found');
+        err.status = 404;
+        throw err;
+      });
+
+      mockGraphql
+        .mockResolvedValueOnce({
+          repository: {
+            ref: {
+              target: {
+                oid: 'head_before_uninstall',
+              },
+            },
+          },
+        })
+        .mockResolvedValueOnce({
+          createCommitOnBranch: {
+            commit: {
+              oid: 'sha_uninstalled_sym',
+              url: 'https://github.com/BrunoWB/zmk-config/commit/sha_uninstalled_sym',
+            },
+          },
+        });
+
+      const result = await uninstallScyanStudioFromRepo(testConfig);
+      expect(result.commitSha).toBe('sha_uninstalled_sym');
+
+      const mutationCall = mockGraphql.mock.calls[1];
+      const fileChanges = mutationCall[1].input.fileChanges;
+
+      expect(fileChanges.deletions).toEqual(
+        expect.arrayContaining([
+          { path: 'config/scyan_assets.h' },
+          { path: 'config/scyan_layouts.dtsi' },
+          { path: 'config/scyan_symbols.dtsi' },
+        ])
+      );
+    });
   });
 
   describe('uninstallScyanStudio action', () => {
@@ -277,6 +331,82 @@ describe('Module Uninstallation & Header Cleanup', () => {
           (globalThis as any).localStorage = originalLocalStorage;
         }
       }
+    });
+  });
+
+  describe('removeScyanFromOverlay', () => {
+    it('returns empty string for a pure Scyan overlay', async () => {
+      const { removeScyanFromOverlay } = await import('../githubService');
+      const pureOverlay = [
+        '#include "scyan_layouts.dtsi"',
+        '',
+        '/ {',
+        '    chosen {',
+        '        scyan,display-layout = <&display_1_active>;',
+        '    };',
+        '};',
+      ].join('\n');
+
+      expect(removeScyanFromOverlay(pureOverlay)).toBe('');
+    });
+
+    it('preserves other user nodes when stripping Scyan configurations', async () => {
+      const { removeScyanFromOverlay } = await import('../githubService');
+      const mixedOverlay = [
+        '#include "scyan_layouts.dtsi"',
+        '',
+        '/ {',
+        '    chosen {',
+        '        zmk,matrix-transform = &default_transform;',
+        '        scyan,display-layout = <&display_1_active>;',
+        '    };',
+        '};',
+      ].join('\n');
+
+      const cleaned = removeScyanFromOverlay(mixedOverlay);
+      expect(cleaned).not.toContain('scyan_layouts.dtsi');
+      expect(cleaned).not.toContain('scyan,display-layout');
+      expect(cleaned).toContain('zmk,matrix-transform = &default_transform;');
+    });
+
+    it('returns empty string for a pure Scyan overlay with delimited markers', async () => {
+      const { removeScyanFromOverlay, formatScyanOverlayBlock } = await import('../githubService');
+      const pureMarkerOverlay = formatScyanOverlayBlock('display_1_active') + '\n';
+      expect(removeScyanFromOverlay(pureMarkerOverlay)).toBe('');
+    });
+
+    it('preserves other user nodes when stripping delimited SCYAN-STUDIO marker block', async () => {
+      const { removeScyanFromOverlay, formatScyanOverlayBlock } = await import('../githubService');
+      const mixedMarkerOverlay = [
+        '/ {',
+        '    chosen {',
+        '        zmk,matrix-transform = &default_transform;',
+        '    };',
+        '};',
+        '',
+        formatScyanOverlayBlock('display_1_active'),
+      ].join('\n');
+
+      const cleaned = removeScyanFromOverlay(mixedMarkerOverlay);
+      expect(cleaned).not.toContain('SCYAN-STUDIO');
+      expect(cleaned).not.toContain('scyan_layouts.dtsi');
+      expect(cleaned).not.toContain('scyan,display-layout');
+      expect(cleaned).toContain('zmk,matrix-transform = &default_transform;');
+    });
+
+    it('returns empty string when stripping overlay with inline comments and CRLF', async () => {
+      const { removeScyanFromOverlay } = await import('../githubService');
+      const pureWithComments = [
+        '#include "scyan_layouts.dtsi" /* layouts */',
+        '',
+        '/ {',
+        '    chosen {',
+        '        scyan,display-layout = &display_1_active; /* layout */',
+        '    };',
+        '};',
+      ].join('\r\n');
+
+      expect(removeScyanFromOverlay(pureWithComments)).toBe('');
     });
   });
 });

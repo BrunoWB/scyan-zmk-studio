@@ -1,5 +1,30 @@
 [
   {
+    "version": "2.0.0",
+    "type": "major",
+    "title": "Native Zephyr Devicetree Architecture, Interactive Typewriter & Dynamic Multi-Screen Engine",
+    "description": "Complete architectural evolution migrating display layouts from legacy C array structs to native Zephyr Devicetree nodes (scyan,layouts, scyan,display-layout, scyan,widget-*), introduces custom shield management with dynamic N-screen generation, isolated delimited shield overlay injection, interactive Typewriter and Keypress widgets, extended Loop animations, and hardened symbol macro sanitization.",
+    "date": "2026-09-24",
+    "highlights": [
+      "Native Zephyr Devicetree compilation generating scyan_layouts.dtsi and scyan_symbols.dtsi",
+      "Delimited marker block shield overlay injection (/* === SCYAN-STUDIO:BEGIN ... === */) with automatic multi-screen slot resolution",
+      "Interactive Typewriter widget with Spot, Inline, and Random layout modes with automated idle cleaning",
+      "Keypress widget tracking real-time key engagement with idle fallback symbols",
+      "Loop animation widget with extended frame counts (>16 frames) encoded via param3 and groupOrder auto-sorting",
+      "Sanitized macro symbols and compile-time DTS preprocessor include guards"
+    ],
+    "patches": [
+      {
+        "patch": "2.0.0",
+        "date": "2026-09-24",
+        "commitHash": "523ecec",
+        "changes": [
+          "feat!: release v2.0.0 with native Zephyr Devicetree architecture"
+        ]
+      }
+    ]
+  },
+  {
     "version": "1.1.0",
     "type": "minor",
     "title": "Multi-Display Topologies, AST YAML Engine & Modular Store Architecture",

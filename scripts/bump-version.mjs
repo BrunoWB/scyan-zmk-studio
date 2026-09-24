@@ -32,14 +32,14 @@ const today = new Date().toISOString().split('T')[0];
 console.log(`Analyzing latest commit: [${lastCommitHash}] "${lastCommitMsg}"`);
 
 // Skip if this is already a release commit or contains [skip ci]
-if (lastCommitMsg.includes('[skip ci]') || lastCommitMsg.startsWith('chore(release):')) {
+if (lastCommitMsg.includes('[skip ci]') || lastCommitMsg.startsWith('chore(release):') || lastCommitMsg.startsWith('feat(release):') || lastCommitMsg.startsWith('feat!:')) {
   console.log('Commit contains [skip ci] or is a release commit. Skipping version bump.');
   process.exit(0);
 }
 
 // 2. Read package.json and calculate next patch version
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
-const currentVersion = packageJson.version || '1.1.0';
+const currentVersion = packageJson.version || '2.0.0';
 const versionParts = currentVersion.split('.').map(Number);
 
 if (versionParts.length !== 3 || versionParts.some(isNaN)) {

@@ -3,6 +3,11 @@ import {
   updateKconfigSetting,
   resolveConfUpdates,
   resolveConfTimeoutUpdates,
+  injectOrUpdateOverlay,
+  formatScyanOverlayBlock,
+  cleanLegacyScyanOverlay,
+  SCYAN_STUDIO_MARKER_BEGIN,
+  SCYAN_STUDIO_MARKER_END,
   injectScyanIntoWest,
   removeScyanFromWest,
   removeScyanFromConf,
@@ -157,7 +162,7 @@ describe('githubService Kconfig timeout synchronization', () => {
       expect(updates[0].content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=45000');
     });
 
-    it('handles base conf with asymmetric timeout by updating base and creating right conf', () => {
+    it('handles base conf with asymmetric timeout without creating phantom right conf', () => {
       const confFiles = [
         {
           path: 'config/corne.conf',
@@ -166,15 +171,243 @@ describe('githubService Kconfig timeout synchronization', () => {
       ];
 
       const updates = resolveConfUpdates(confFiles, {
-        screenOffTimeoutSec: 60,
+        screenOffTimeoutSec: 45,
         rightScreenOffTimeoutSec: 25,
         symmetricSettings: false,
       });
 
-      expect(updates.some(u => u.path === 'config/corne_right.conf')).toBe(true);
-      const rightConf = updates.find(u => u.path === 'config/corne_right.conf');
-      expect(rightConf?.content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=25000');
+      expect(updates.some(u => u.path === 'config/corne_right.conf')).toBe(false);
+      expect(updates).toHaveLength(1);
+      expect(updates[0].path).toBe('config/corne.conf');
+      expect(updates[0].content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=45000');
     });
+
+  describe('injectOrUpdateOverlay', () => {
+    it('creates a brand new overlay with delimited markers from empty content', () => {
+      const result = injectOrUpdateOverlay('', 'display_1_active');
+      expect(result).toBe(formatScyanOverlayBlock('display_1_active') + '\n');
+      expect(result).toContain(SCYAN_STUDIO_MARKER_BEGIN);
+      expect(result).toContain('#include "scyan_layouts.dtsi"');
+      expect(result).toContain('scyan,display-layout = &display_1_active;');
+      expect(result).toContain(SCYAN_STUDIO_MARKER_END);
+      expect(result.startsWith(SCYAN_STUDIO_MARKER_BEGIN)).toBe(true);
+      expect(result.endsWith(SCYAN_STUDIO_MARKER_END + '\n')).toBe(true);
+    });
+
+    it('appends markers to an existing overlay containing other nodes without altering those nodes', () => {
+      const existingOverlay = [
+        '#include <dt-bindings/zmk/matrix_transform.h>',
+        '',
+        '/ {',
+        '    chosen {',
+        '        zmk,kscan = &kscan0;',
+        '    };',
+        '};',
+        '',
+        '&pro_micro_i2c {',
+        '    status = "okay";',
+        '    oled: ssd1306@3c {',
+        '        compatible = "solomon,ssd1306fb";',
+        '        reg = <0x3c>;',
+        '        width = <128>;',
+        '        height = <32>;',
+        '    };',
+        '};',
+      ].join('\n');
+
+      const result = injectOrUpdateOverlay(existingOverlay, 'display_1_active');
+
+      // The original user nodes must be preserved at the top verbatim
+      expect(result.startsWith(existingOverlay.trim())).toBe(true);
+      // The delimited Scyan block must be appended at the bottom
+      expect(result).toContain(SCYAN_STUDIO_MARKER_BEGIN);
+      expect(result).toContain('#include "scyan_layouts.dtsi"');
+      expect(result).toContain('scyan,display-layout = &display_1_active;');
+      expect(result).toContain(SCYAN_STUDIO_MARKER_END);
+      // Confirm all original user nodes are intact
+      expect(result).toContain('zmk,kscan = &kscan0;');
+      expect(result).toContain('&pro_micro_i2c');
+      expect(result).toContain('oled: ssd1306@3c');
+    });
+
+    it('updates an existing overlay that already has markers in-place without altering code outside markers', () => {
+      const existingContent = [
+        '#include <dt-bindings/zmk/matrix_transform.h>',
+        '',
+        '/ {',
+        '    chosen {',
+        '        zmk,kscan = &kscan0;',
+        '    };',
+        '};',
+        '',
+        SCYAN_STUDIO_MARKER_BEGIN,
+        '#include "scyan_layouts.dtsi"',
+        '',
+        '/ {',
+        '    chosen {',
+        '        scyan,display-layout = &display_1_active;',
+        '    };',
+        '};',
+        SCYAN_STUDIO_MARKER_END,
+        '',
+        '&spi0 {',
+        '    status = "okay";',
+        '};',
+      ].join('\n');
+
+      const result = injectOrUpdateOverlay(existingContent, 'display_2_active');
+
+      // Header before marker must be identical
+      const prefixBeforeMarker = existingContent.slice(0, existingContent.indexOf(SCYAN_STUDIO_MARKER_BEGIN));
+      expect(result.startsWith(prefixBeforeMarker)).toBe(true);
+
+      // Trailing code after marker must be identical
+      const suffixAfterMarker = existingContent.slice(existingContent.indexOf(SCYAN_STUDIO_MARKER_END) + SCYAN_STUDIO_MARKER_END.length);
+      expect(result.endsWith(suffixAfterMarker)).toBe(true);
+
+      // Layout binding must be cleanly updated
+      expect(result).toContain('scyan,display-layout = &display_2_active;');
+      expect(result).not.toContain('display_1_active');
+
+      // Verify no duplicates
+      const beginMatches = result.match(new RegExp(SCYAN_STUDIO_MARKER_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'));
+      expect(beginMatches).toHaveLength(1);
+    });
+
+    it('upgrades a pure legacy un-delimited overlay into delimited markers', () => {
+      const legacyPure = [
+        '#include "scyan_layouts.dtsi"',
+        '',
+        '/ {',
+        '    chosen {',
+        '        scyan,display-layout = <&display_1_active>;',
+        '    };',
+        '};',
+      ].join('\n');
+
+      const result = injectOrUpdateOverlay(legacyPure, 'display_2_active');
+
+      expect(result).toBe(formatScyanOverlayBlock('display_2_active') + '\n');
+      expect(result).toContain(SCYAN_STUDIO_MARKER_BEGIN);
+      expect(result).toContain('scyan,display-layout = &display_2_active;');
+      expect(result).not.toContain('&display_1_active');
+      expect(result.match(/scyan,display-layout/g)).toHaveLength(1);
+      expect(result.match(/#include "scyan_layouts\.dtsi"/g)).toHaveLength(1);
+    });
+
+    it('upgrades a mixed legacy un-delimited overlay and cleans up conflicting directives', () => {
+      const legacyMixed = [
+        '#include <dt-bindings/zmk/matrix_transform.h>',
+        '#include "scyan_layouts.dtsi"',
+        '',
+        '/ {',
+        '    chosen {',
+        '        zmk,kscan = &kscan0;',
+        '        scyan,display-layout = <&display_1_active>;',
+        '    };',
+        '    &spi0 {',
+        '        status = "okay";',
+        '    };',
+        '};',
+      ].join('\n');
+
+      const result = injectOrUpdateOverlay(legacyMixed, 'display_2_active');
+
+      // User configurations must be preserved
+      expect(result).toContain('#include <dt-bindings/zmk/matrix_transform.h>');
+      expect(result).toContain('zmk,kscan = &kscan0;');
+      expect(result).toContain('&spi0');
+
+      // Scyan must now be isolated in the delimited marker block
+      expect(result).toContain(SCYAN_STUDIO_MARKER_BEGIN);
+      expect(result).toContain(SCYAN_STUDIO_MARKER_END);
+      expect(result).toContain('scyan,display-layout = &display_2_active;');
+
+      // Old directives must be removed without duplication
+      expect(result).not.toContain('&display_1_active');
+      expect(result.match(/#include "scyan_layouts\.dtsi"/g)).toHaveLength(1);
+      expect(result.match(/scyan,display-layout/g)).toHaveLength(1);
+    });
+
+    it('handles layoutRef syntax variations (&name, name, <&name>) uniformly', () => {
+      const r1 = injectOrUpdateOverlay('', 'display_1_active');
+      const r2 = injectOrUpdateOverlay('', '&display_1_active');
+      const r3 = injectOrUpdateOverlay('', '<&display_1_active>');
+
+      expect(r1).toContain('scyan,display-layout = &display_1_active;');
+      expect(r2).toContain('scyan,display-layout = &display_1_active;');
+      expect(r3).toContain('scyan,display-layout = &display_1_active;');
+      expect(r1).toBe(r2);
+      expect(r1).toBe(r3);
+    });
+
+    it('cleanLegacyScyanOverlay removes empty chosen and root blocks when only Scyan directives were present', () => {
+      const legacyPure = [
+        '#include "scyan_layouts.dtsi"',
+        '',
+        '/ {',
+        '    chosen {',
+        '        scyan,display-layout = <&display_1_active>;',
+        '    };',
+        '};',
+      ].join('\n');
+
+      expect(cleanLegacyScyanOverlay(legacyPure)).toBe('');
+    });
+
+    it('handles trailing comments and CRLF line endings in legacy Scyan cleanup', () => {
+      const legacyWithCommentsAndCrlf = [
+        '#include <dt-bindings/zmk/matrix_transform.h>',
+        '#include "scyan_layouts.dtsi" /* Scyan layouts include */',
+        '',
+        '/ {',
+        '    chosen {',
+        '        zmk,kscan = &kscan0;',
+        '        scyan,display-layout = &display_1_active; /* active display layout */',
+        '    };',
+        '};',
+      ].join('\r\n');
+
+      const result = injectOrUpdateOverlay(legacyWithCommentsAndCrlf, 'display_2_active');
+      expect(result).not.toContain('/* active display layout */');
+      expect(result).not.toContain('/* Scyan layouts include */');
+      expect(result).toContain('zmk,kscan = &kscan0;');
+      expect(result).toContain(SCYAN_STUDIO_MARKER_BEGIN);
+      expect(result).toContain('scyan,display-layout = &display_2_active;');
+    });
+
+    it('cleans up legacy standalone /chosen { scyan,display-layout = ...; }; nodes', () => {
+      const legacyStandaloneChosen = [
+        '#include "scyan_layouts.dtsi"',
+        '',
+        '/chosen {',
+        '    scyan,display-layout = &display_1_active;',
+        '};',
+      ].join('\n');
+
+      const result = injectOrUpdateOverlay(legacyStandaloneChosen, 'display_2_active');
+      expect(result).toBe(formatScyanOverlayBlock('display_2_active') + '\n');
+    });
+
+    it('does not greedily match beyond the marker closing delimiter when inline comments follow', () => {
+      const content = [
+        SCYAN_STUDIO_MARKER_BEGIN + ' /* inline comment after begin */',
+        '#include "scyan_layouts.dtsi"',
+        '',
+        '/ {',
+        '    chosen {',
+        '        scyan,display-layout = &display_1_active;',
+        '    };',
+        '};',
+        SCYAN_STUDIO_MARKER_END + ' /* inline comment after end */',
+      ].join('\n');
+
+      const result = injectOrUpdateOverlay(content, 'display_2_active');
+      expect(result).toContain(SCYAN_STUDIO_MARKER_BEGIN);
+      expect(result).toContain('scyan,display-layout = &display_2_active;');
+      expect(result).toContain(SCYAN_STUDIO_MARKER_END);
+    });
+  });
 
     it('directly maps shields with mounted displays to their display screenOffTimeoutSec', () => {
       const confFiles = [
@@ -372,6 +605,33 @@ describe('githubService Kconfig timeout synchronization', () => {
       const moduleMatches = res.match(/name:\s*scyan-zmk-module/g) || [];
       expect(brunowbMatches.length).toBe(1);
       expect(moduleMatches.length).toBe(1);
+    });
+
+    it('injects custom targetRevision such as nightly when specified', () => {
+      const emptyRes = injectScyanIntoWest('', 'nightly');
+      expect(emptyRes).toContain('revision: nightly');
+
+      const existingWest = [
+        'manifest:',
+        '  projects:',
+        '    - name: zmk',
+        '      remote: zmkfirmware',
+      ].join('\n');
+      const res = injectScyanIntoWest(existingWest, 'nightly');
+      expect(res).toContain('revision: nightly');
+    });
+
+    it('updates existing module revision if targetRevision is provided', () => {
+      const westWithMain = [
+        'manifest:',
+        '  projects:',
+        '    - name: scyan-zmk-module',
+        '      remote: brunowb',
+        '      revision: main',
+      ].join('\n');
+      const res = injectScyanIntoWest(westWithMain, 'nightly');
+      expect(res).toContain('revision: nightly');
+      expect(res).not.toContain('revision: main');
     });
   });
 

@@ -1,6 +1,18 @@
 import { Octokit } from '@octokit/rest';
 import YAML from 'yaml';
-import { getShieldDefinition } from '../data/shieldsData';
+import { parseCHeader, generateDevicetreeLayouts, generateDevicetreeSymbols, type HeaderMetadata } from './cHeaderParser';
+import {
+  addScyanShieldToBuildYaml,
+  removeScyanShieldFromBuildYaml,
+} from './buildYamlService';
+import {
+  generateShieldFiles,
+  generateZephyrModule,
+  SCYAN_SHIELD_DIR,
+  SCYAN_SHIELD_FILE_PATHS,
+  LEGACY_SHIELD_FILE_PATHS,
+  ZEPHYR_MODULE_PATH,
+} from './shieldService';
 
 export interface GitHubRepoConfig {
   owner: string;
@@ -1088,11 +1100,131 @@ export async function installScyanStudioToRepo(
 
   // 4. Collect file updates
   const filesToCommit: GitFileAddition[] = [];
+  const deletions: GitFileDeletion[] = [];
 
   filesToCommit.push({
     path: 'config/scyan_assets.h',
     content: defaultHeaderContent,
   });
+
+  const octokit = getOctokit(config.token);
+  const branch = config.branch || 'main';
+
+  try {
+    const parsed = parseCHeader(defaultHeaderContent);
+    const layoutsDtsi = generateDevicetreeLayouts(
+      parsed.metadata || ({} as any),
+      parsed.symbolSlices || [],
+      parsed.fontMappings || parsed.fontGlyphs || []
+    );
+    const symbolsDtsi = generateDevicetreeSymbols(parsed.symbolSlices || []);
+
+    const isRightCentral =
+      Boolean((parsed.metadata as any)?.rightIsCentral) ||
+      parsed.metadata?.shields?.find(s => s.isMaster)?.side === 'right';
+
+    const shieldFiles = generateShieldFiles({
+      layoutsDtsiContent: layoutsDtsi,
+      symbolsDtsiContent: symbolsDtsi,
+      rightIsCentral: isRightCentral,
+      displayAssignments: parsed.metadata?.displayAssignments,
+      metadata: parsed.metadata,
+    });
+    for (const sf of shieldFiles) {
+      filesToCommit.push(sf);
+    }
+  } catch (err) {
+    console.warn('Could not generate custom shield files for install:', err);
+  }
+
+  // Ensure zephyr/module.yml exists
+  let existingZephyrModule: string | undefined = undefined;
+  try {
+    const zModRes = await octokit.repos.getContent({
+      owner: config.owner,
+      repo: config.repo,
+      path: ZEPHYR_MODULE_PATH,
+      ref: branch,
+    });
+    if ('content' in zModRes.data && typeof zModRes.data.content === 'string') {
+      existingZephyrModule = atob(zModRes.data.content.replace(/\s/g, ''));
+    }
+  } catch {}
+  filesToCommit.push({
+    path: ZEPHYR_MODULE_PATH,
+    content: generateZephyrModule(existingZephyrModule),
+  });
+
+  // Update build.yaml if present
+  let buildYamlContent = prereqs.buildYamlContent;
+  if (buildYamlContent === undefined) {
+    try {
+      const bRes = await octokit.repos.getContent({
+        owner: config.owner,
+        repo: config.repo,
+        path: 'build.yaml',
+        ref: branch,
+      });
+      if ('content' in bRes.data && typeof bRes.data.content === 'string') {
+        buildYamlContent = atob(bRes.data.content.replace(/\s/g, ''));
+      }
+    } catch {}
+  }
+  if (buildYamlContent !== undefined) {
+    let parsedMeta: any = undefined;
+    try {
+      parsedMeta = parseCHeader(defaultHeaderContent)?.metadata;
+    } catch {}
+    const isRightCentral =
+      Boolean(parsedMeta?.rightIsCentral) ||
+      parsedMeta?.shields?.find((s: any) => s.isMaster)?.side === 'right';
+    const updatedBuildYaml = addScyanShieldToBuildYaml(buildYamlContent, {
+      rightIsCentral: isRightCentral,
+      displayAssignments: parsedMeta?.displayAssignments,
+    });
+    if (updatedBuildYaml !== buildYamlContent) {
+      filesToCommit.push({
+        path: 'build.yaml',
+        content: updatedBuildYaml,
+      });
+    }
+  }
+
+  // Clean up legacy marker blocks from existing user overlay files (never inject into them)
+  try {
+    const overlays = await fetchRepoOverlayFiles(config);
+    for (const ov of overlays) {
+      if (
+        ov.content.includes('scyan_layouts.dtsi') ||
+        ov.content.includes('scyan,display-layout') ||
+        ov.content.includes('SCYAN-STUDIO:BEGIN')
+      ) {
+        const cleaned = removeScyanFromOverlay(ov.content);
+        if (!cleaned) {
+          deletions.push({ path: ov.path });
+        } else if (cleaned !== ov.content.trim()) {
+          filesToCommit.push({ path: ov.path, content: cleaned + '\n' });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Could not clean up legacy overlays for install:', err);
+  }
+
+  // Delete legacy config/scyan_layouts.dtsi, config/scyan_symbols.dtsi, and legacy shield overlays if present
+  for (const legacyPath of ['config/scyan_layouts.dtsi', 'config/scyan_symbols.dtsi', ...LEGACY_SHIELD_FILE_PATHS]) {
+    try {
+      const res = await octokit.repos.getContent({
+        owner: config.owner,
+        repo: config.repo,
+        path: legacyPath,
+        ref: branch,
+      });
+      if ('content' in res.data) {
+        deletions.push({ path: legacyPath });
+      }
+    } catch {}
+  }
 
   if (!prereqs.hasWestModule) {
     filesToCommit.push({
@@ -1113,6 +1245,7 @@ export async function installScyanStudioToRepo(
     config,
     message: `${STUDIO_COMMIT_PREFIX}Install: module & starter assets`,
     additions: filesToCommit,
+    deletions,
   });
 
   return {
@@ -1122,10 +1255,25 @@ export async function installScyanStudioToRepo(
 }
 
 /**
+ * Gets the default scyan-zmk-module revision based on the active build channel (nightly vs main).
+ */
+export function getDefaultModuleRevision(): string {
+  if (typeof __MODULE_DEFAULT_REVISION__ !== 'undefined' && __MODULE_DEFAULT_REVISION__) {
+    return __MODULE_DEFAULT_REVISION__;
+  }
+  if (typeof window !== 'undefined' && window.location.pathname.includes('/nightly/')) {
+    return 'nightly';
+  }
+  return 'main';
+}
+
+/**
  * Injects scyan-zmk-module and the brunowb remote into west.yml using YAML AST.
  * Preserves comments, formatting, and indentation.
  */
-export function injectScyanIntoWest(content: string): string {
+export function injectScyanIntoWest(content: string, targetRevision?: string): string {
+  const revision = targetRevision || getDefaultModuleRevision();
+
   if (!content || !content.trim()) {
     return [
       'manifest:',
@@ -1142,7 +1290,7 @@ export function injectScyanIntoWest(content: string): string {
       '      import: app/west.yml',
       '    - name: scyan-zmk-module',
       '      remote: brunowb',
-      '      revision: main',
+      `      revision: ${revision}`,
       '  self:',
       '    path: config',
       '',
@@ -1188,22 +1336,28 @@ export function injectScyanIntoWest(content: string): string {
       projects = manifest.get('projects');
     }
 
-    const hasModule =
+    const existingModule =
       projects?.items &&
       Array.isArray(projects.items) &&
-      projects.items.some((item: any) => {
+      projects.items.find((item: any) => {
         const name = item?.get ? item.get('name') : item?.name;
         return name === 'scyan-zmk-module';
       });
 
-    if (!hasModule) {
+    if (!existingModule) {
       projects.add(
         doc.createNode({
           name: 'scyan-zmk-module',
           remote: 'brunowb',
-          revision: 'main',
+          revision,
         })
       );
+    } else if (targetRevision) {
+      if (existingModule.set) {
+        existingModule.set('revision', targetRevision);
+      } else {
+        existingModule.revision = targetRevision;
+      }
     }
 
     return doc.toString();
@@ -1410,6 +1564,127 @@ export async function uninstallScyanStudioFromRepo(
     deletions.push({ path: p });
   }
 
+  for (const lp of ['config/scyan_layouts.dtsi', 'scyan_layouts.dtsi']) {
+    try {
+      const res = await octokit.repos.getContent({
+        owner: config.owner,
+        repo: config.repo,
+        path: lp,
+        ref: refToUse,
+      });
+      if ('content' in res.data) {
+        deletions.push({ path: lp });
+      }
+    } catch {}
+  }
+
+  for (const sp of ['config/scyan_symbols.dtsi', 'scyan_symbols.dtsi']) {
+    try {
+      const res = await octokit.repos.getContent({
+        owner: config.owner,
+        repo: config.repo,
+        path: sp,
+        ref: refToUse,
+      });
+      if ('content' in res.data) {
+        deletions.push({ path: sp });
+      }
+    } catch {}
+  }
+
+  // 5. Clean up .overlay files (remove scyan_layouts.dtsi and scyan,display-layout, or delete if empty)
+  try {
+    const overlays = await fetchRepoOverlayFiles(config);
+    for (const ov of overlays) {
+      if (
+        ov.content.includes('scyan_layouts.dtsi') ||
+        ov.content.includes('scyan,display-layout') ||
+        ov.content.includes('SCYAN-STUDIO:BEGIN')
+      ) {
+        const cleaned = removeScyanFromOverlay(ov.content);
+        if (!cleaned) {
+          deletions.push({ path: ov.path });
+        } else if (cleaned !== ov.content.trim()) {
+          additions.push({ path: ov.path, content: cleaned + '\n' });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Could not inspect overlays during uninstall:', err);
+  }
+
+  // 6. Remove custom shield files in boards/shields/scyan_screen/
+  try {
+    const dirRes = await octokit.repos.getContent({
+      owner: config.owner,
+      repo: config.repo,
+      path: SCYAN_SHIELD_DIR,
+      ref: refToUse,
+    });
+    if (Array.isArray(dirRes.data)) {
+      for (const item of dirRes.data) {
+        if (item.type === 'file') {
+          deletions.push({ path: item.path });
+        }
+      }
+    }
+  } catch {
+    for (const sp of [...SCYAN_SHIELD_FILE_PATHS, ...LEGACY_SHIELD_FILE_PATHS]) {
+      try {
+        const res = await octokit.repos.getContent({
+          owner: config.owner,
+          repo: config.repo,
+          path: sp,
+          ref: refToUse,
+        });
+        if ('content' in res.data) {
+          deletions.push({ path: sp });
+        }
+      } catch {}
+    }
+  }
+
+  // 7. Clean build.yaml
+  try {
+    const buildRes = await octokit.repos.getContent({
+      owner: config.owner,
+      repo: config.repo,
+      path: 'build.yaml',
+      ref: refToUse,
+    });
+    if ('content' in buildRes.data && typeof buildRes.data.content === 'string') {
+      const existingBuildYaml = atob(buildRes.data.content.replace(/\s/g, ''));
+      const cleanedBuildYaml = removeScyanShieldFromBuildYaml(existingBuildYaml);
+      if (cleanedBuildYaml !== existingBuildYaml) {
+        additions.push({ path: 'build.yaml', content: cleanedBuildYaml });
+      }
+    }
+  } catch {}
+
+  // 8. Clean zephyr/module.yml if it only contains board_root: .
+  try {
+    const zModRes = await octokit.repos.getContent({
+      owner: config.owner,
+      repo: config.repo,
+      path: ZEPHYR_MODULE_PATH,
+      ref: refToUse,
+    });
+    if ('content' in zModRes.data && typeof zModRes.data.content === 'string') {
+      const zModContent = atob(zModRes.data.content.replace(/\s/g, ''));
+      const parsedMod = YAML.parse(zModContent);
+      const keys = Object.keys(parsedMod || {});
+      if (keys.length === 1 && keys[0] === 'build') {
+        const buildKeys = Object.keys(parsedMod.build || {});
+        if (buildKeys.length === 1 && buildKeys[0] === 'settings') {
+          const settingsKeys = Object.keys(parsedMod.build.settings || {});
+          if (settingsKeys.length === 1 && settingsKeys[0] === 'board_root') {
+            deletions.push({ path: ZEPHYR_MODULE_PATH });
+          }
+        }
+      }
+    }
+  } catch {}
+
   if (additions.length === 0 && deletions.length === 0) {
     throw new Error('No Scyan Studio assets or configurations found to uninstall.');
   }
@@ -1495,38 +1770,6 @@ export function resolveConfTimeoutUpdates(
 
   const activeConfFiles = confFiles.filter((f) => !isConfWithoutDisplay(f.path));
 
-  const hasSplitName = activeConfFiles.some((f) => {
-    const l = f.path.toLowerCase();
-    return (
-      l.includes('_central') ||
-      l.includes('-central') ||
-      l.includes('_left') ||
-      l.includes('-left') ||
-      l.includes('_peripheral') ||
-      l.includes('-peripheral') ||
-      l.includes('_right') ||
-      l.includes('-right')
-    );
-  });
-
-  const baseShield =
-    activeConfFiles.length > 0
-      ? activeConfFiles[0].path
-          .replace(/^.*[/\\]/, '')
-          .replace(/\.conf$/, '')
-          .replace(/_(left|right)$/, '')
-          .toLowerCase()
-          .replace(/_/g, '-')
-      : '';
-  const shieldDef = baseShield ? getShieldDefinition(baseShield) : null;
-  const isKnownSplitShield =
-    shieldDef?.layoutGeometry?.type === 'split-pair' ||
-    shieldDef?.category === 'split-pair';
-
-  const isSplit =
-    options?.isSplit !== undefined
-      ? options.isSplit
-      : hasSplitName || isKnownSplitShield || activeConfFiles.length > 1;
 
   const centralTimeoutMs = timeouts.screenOffTimeoutSec * 1000;
   const peripheralTimeoutSec = timeouts.peripheralScreenOffTimeoutSec ?? timeouts.rightScreenOffTimeoutSec;
@@ -1631,28 +1874,11 @@ export function resolveConfTimeoutUpdates(
       }
     }
   } else if (baseConfs.length > 0) {
-    if (timeouts.symmetricSettings || !isSplit) {
-      // Single/unified configuration or unibody keyboard
-      for (const bc of baseConfs) {
-        const res = updateKconfigSetting(bc.content, 'CONFIG_ZMK_IDLE_TIMEOUT', leftTimeoutMs);
-        if (res.changed) {
-          updates.push({ path: bc.path, content: res.updated });
-        }
-      }
-    } else {
-      // Asymmetric settings requested for split keyboard but only base conf exists.
-      // 1. Update base conf with left (central) timeout
-      const primaryBase = baseConfs[0];
-      const baseRes = updateKconfigSetting(primaryBase.content, 'CONFIG_ZMK_IDLE_TIMEOUT', leftTimeoutMs);
-      if (baseRes.changed) {
-        updates.push({ path: primaryBase.path, content: baseRes.updated });
-      }
-      // 2. Create right conf (e.g. config/corne.conf -> config/corne_right.conf) to apply right peripheral timeout
-      const extMatch = primaryBase.path.match(/^(.*)\.conf$/);
-      if (extMatch && isSplit) {
-        const rightPath = `${extMatch[1]}_right.conf`;
-        const rightRes = updateKconfigSetting('', 'CONFIG_ZMK_IDLE_TIMEOUT', rightTimeoutMs);
-        updates.push({ path: rightPath, content: rightRes.updated });
+    // Single/unified configuration or unibody keyboard
+    for (const bc of baseConfs) {
+      const res = updateKconfigSetting(bc.content, 'CONFIG_ZMK_IDLE_TIMEOUT', leftTimeoutMs);
+      if (res.changed) {
+        updates.push({ path: bc.path, content: res.updated });
       }
     }
   }
@@ -1661,6 +1887,240 @@ export function resolveConfTimeoutUpdates(
 }
 
 export const resolveConfUpdates = resolveConfTimeoutUpdates;
+
+export const SCYAN_STUDIO_MARKER_BEGIN = '/* === SCYAN-STUDIO:BEGIN (DO NOT EDIT) === */';
+export const SCYAN_STUDIO_MARKER_END = '/* === SCYAN-STUDIO:END === */';
+export const SCYAN_STUDIO_BLOCK_REGEX = /\/\*[ \t]*===[ \t]*SCYAN-STUDIO:BEGIN[^\n]*?\*\/[\s\S]*?\/\*[ \t]*===[ \t]*SCYAN-STUDIO:END[^\n]*?\*\//;
+
+/**
+ * Formats the isolated, delimited Devicetree overlay block for Scyan Studio.
+ */
+export function formatScyanOverlayBlock(layoutRef: string): string {
+  const nodeName = (layoutRef || 'display_1_active')
+    .replace(/[<>;]/g, '')
+    .replace(/^&+/, '')
+    .trim() || 'display_1_active';
+
+  return [
+    SCYAN_STUDIO_MARKER_BEGIN,
+    '#include "scyan_layouts.dtsi"',
+    '',
+    '/ {',
+    '    chosen {',
+    `        scyan,display-layout = &${nodeName};`,
+    '    };',
+    '};',
+    SCYAN_STUDIO_MARKER_END,
+  ].join('\n');
+}
+
+/**
+ * Cleans up legacy un-delimited Scyan injections (e.g. from commit b2d2943 where #include
+ * and scyan,display-layout were spliced into existing nodes). Leaves non-Scyan nodes untouched.
+ */
+export function cleanLegacyScyanOverlay(content: string): string {
+  let cleaned = content;
+
+  // 1. Remove legacy #include "scyan_layouts.dtsi" or <scyan_layouts.dtsi> (including trailing comments)
+  cleaned = cleaned.replace(/^[ \t]*#include\s+["<]scyan_layouts\.dtsi[">][^\r\n]*\r?\n?/gm, '');
+
+  // 2. Remove legacy scyan,display-layout property line (including trailing // or /* */ comments)
+  cleaned = cleaned.replace(/^[ \t]*scyan,display-layout\s*=[^\r\n]*\r?\n?/gm, '');
+
+  // 3. Remove any stray or orphaned SCYAN-STUDIO marker comment lines
+  cleaned = cleaned.replace(/^[ \t]*\/\*[ \t]*===[ \t]*SCYAN-STUDIO:(?:BEGIN|END)[^\r\n]*\r?\n?/gm, '');
+
+  // 4. Remove empty chosen blocks (e.g. `chosen { };`, `/chosen { };`, `&chosen { };`)
+  cleaned = cleaned.replace(/(?:^|\r?\n)[ \t]*(?:\/chosen|\/chosen\/|&chosen|chosen|&\{\/chosen\})\s*\{[ \t\r\n]*\}[ \t]*;?[ \t]*(?=\r?\n|$)/g, '\n');
+
+  // 5. Remove empty root `/ { ... };` blocks if they only contained the removed chosen block
+  cleaned = cleaned.replace(/(?:^|\r?\n)[ \t]*\/\s*\{[ \t\r\n]*\}[ \t]*;?[ \t]*(?=\r?\n|$)/g, '\n');
+
+  // 6. Collapse excessive blank lines
+  cleaned = cleaned.replace(/(?:\r?\n[ \t]*){3,}/g, '\n\n');
+
+  return cleaned.trim();
+}
+
+/**
+ * Injects or updates the chosen layout reference inside a shield .overlay file using
+ * an isolated delimited marker block.
+ *
+ * Pattern:
+ * /* === SCYAN-STUDIO:BEGIN (DO NOT EDIT) === *\/
+ * #include "scyan_layouts.dtsi"
+ *
+ * / {
+ *     chosen {
+ *         scyan,display-layout = &<layout_node_name>;
+ *     };
+ * };
+ * /* === SCYAN-STUDIO:END === *\/
+ */
+export function injectOrUpdateOverlay(content: string, layoutRef: string): string {
+  const block = formatScyanOverlayBlock(layoutRef);
+
+  // 1. If overlay already has the SCYAN-STUDIO marker block, cleanly replace only the block
+  if (SCYAN_STUDIO_BLOCK_REGEX.test(content)) {
+    let replaced = false;
+    return content.replace(new RegExp(SCYAN_STUDIO_BLOCK_REGEX.source, 'g'), () => {
+      if (!replaced) {
+        replaced = true;
+        return block;
+      }
+      return '';
+    });
+  }
+
+  // 2. If overlay has legacy un-delimited Scyan injections, cleanly upgrade them
+  let baseContent = content;
+  const hasLegacyScyan =
+    /#include\s+["<]scyan_layouts\.dtsi[">]/.test(baseContent) ||
+    /scyan,display-layout\s*=/.test(baseContent);
+
+  if (hasLegacyScyan) {
+    baseContent = cleanLegacyScyanOverlay(baseContent);
+  }
+
+  // 3. If overlay has no other content, return just the block with trailing newline
+  const trimmedBase = baseContent.trim();
+  if (!trimmedBase) {
+    return `${block}\n`;
+  }
+
+  // 4. Otherwise, append the delimited block to the existing content
+  return `${trimmedBase}\n\n${block}\n`;
+}
+
+/**
+ * Strips Scyan Studio layout include, marker blocks, and chosen layout property from an overlay file.
+ * Returns empty string if the overlay only contained Scyan-specific configurations.
+ */
+export function removeScyanFromOverlay(content: string): string {
+  let cleaned = content;
+
+  // 1. Remove SCYAN-STUDIO marker block if present
+  cleaned = cleaned.replace(new RegExp(SCYAN_STUDIO_BLOCK_REGEX.source, 'g'), '');
+
+  // 2. Clean up legacy Scyan directives and empty blocks
+  cleaned = cleanLegacyScyanOverlay(cleaned);
+
+  return cleaned.trim();
+}
+
+/**
+ * Probes the repository for .overlay files, typically in config/ or root.
+ */
+export async function fetchRepoOverlayFiles(
+  config: GitHubRepoConfig
+): Promise<{ path: string; content: string }[]> {
+  if (!config.token || !config.owner || !config.repo) {
+    return [];
+  }
+  const octokit = getOctokit(config.token);
+  const branch = config.branch || 'main';
+
+  const overlayFiles: { path: string; content: string }[] = [];
+  const candidateDirs = ['config', ''];
+
+  for (const dir of candidateDirs) {
+    try {
+      const res = await octokit.repos.getContent({
+        owner: config.owner,
+        repo: config.repo,
+        path: dir,
+        ref: branch,
+      });
+      if (Array.isArray(res.data)) {
+        const items = res.data.filter(
+          item => item.type === 'file' && item.name.endsWith('.overlay')
+        );
+        for (const item of items) {
+          try {
+            const fileRes = await octokit.repos.getContent({
+              owner: config.owner,
+              repo: config.repo,
+              path: item.path,
+              ref: branch,
+            });
+            if ('content' in fileRes.data && typeof fileRes.data.content === 'string') {
+              const decoded = atob(fileRes.data.content.replace(/\s/g, ''));
+              overlayFiles.push({ path: item.path, content: decoded });
+            }
+          } catch {}
+        }
+        if (overlayFiles.length > 0) {
+          break;
+        }
+      }
+    } catch {}
+  }
+
+  return overlayFiles;
+}
+
+/**
+ * Discovers existing repository overlay files or generates initial overlay files
+ * (<shield>.overlay, <shield>_left.overlay, <shield>_right.overlay) with proper layout bindings.
+ */
+export async function resolveOverlayUpdates(
+  config: GitHubRepoConfig,
+  metadata?: HeaderMetadata,
+  options?: Partial<CommitStudioSaveOptions>
+): Promise<{ path: string; content: string }[]> {
+  const overlayUpdates: { path: string; content: string }[] = [];
+  const existingOverlays = await fetchRepoOverlayFiles(config);
+  const assignments = options?.displayAssignments || metadata?.displayAssignments;
+
+  if (assignments && Object.keys(assignments).length > 0) {
+    for (const [shieldId, dispId] of Object.entries(assignments)) {
+      if (!dispId) continue;
+      const dispIdStr = String(dispId);
+      const slotNum = dispIdStr.match(/\d+/)?.[0] || (dispIdStr === 'central' || dispIdStr === 'left' ? '1' : dispIdStr === 'peripheral' || dispIdStr === 'right' ? '2' : dispIdStr.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+      const layoutRef = `display_${slotNum}_active`;
+      const normShield = shieldId.toLowerCase().replace(/_/g, '-');
+      const matchingOverlay = existingOverlays.find((o) => {
+        const base = o.path.replace(/^.*[/\\]/, '').replace(/\.overlay$/, '').toLowerCase().replace(/_/g, '-');
+        return base === normShield || base.endsWith(`-${normShield}`) || normShield.endsWith(`-${base}`);
+      });
+
+      const targetPath = matchingOverlay ? matchingOverlay.path : `config/${shieldId}.overlay`;
+      const baseContent = matchingOverlay ? matchingOverlay.content : '';
+      const updated = injectOrUpdateOverlay(baseContent, layoutRef);
+      overlayUpdates.push({ path: targetPath, content: updated });
+    }
+  } else {
+    // Fallback: check existing overlays or default split/unibody shield
+    const shieldId = options?.shieldId || metadata?.shieldId || 'corne';
+    const isSplit = options?.isSplit !== undefined ? options.isSplit : true;
+
+    if (existingOverlays.length > 0) {
+      for (const eo of existingOverlays) {
+        const lower = eo.path.toLowerCase();
+        const isRight = lower.includes('_right') || lower.includes('-right') || lower.includes('peripheral');
+        const slotNum = (isRight && !options?.rightIsCentral) || (!isRight && options?.rightIsCentral) ? '2' : '1';
+        const updated = injectOrUpdateOverlay(eo.content, `display_${slotNum}_active`);
+        overlayUpdates.push({ path: eo.path, content: updated });
+      }
+    } else if (isSplit) {
+      overlayUpdates.push({
+        path: `config/${shieldId}_left.overlay`,
+        content: injectOrUpdateOverlay('', options?.rightIsCentral ? 'display_2_active' : 'display_1_active'),
+      });
+      overlayUpdates.push({
+        path: `config/${shieldId}_right.overlay`,
+        content: injectOrUpdateOverlay('', options?.rightIsCentral ? 'display_1_active' : 'display_2_active'),
+      });
+    } else {
+      overlayUpdates.push({
+        path: `config/${shieldId}.overlay`,
+        content: injectOrUpdateOverlay('', 'display_1_active'),
+      });
+    }
+  }
+
+  return overlayUpdates;
+}
 
 /**
  * Probes the repository for .conf files, typically in config/ or root.
@@ -1723,8 +2183,15 @@ export interface CommitStudioSaveResult {
   filesCommitted: string[];
 }
 
+export interface CommitStudioSaveOptions extends ResolveConfUpdatesOptions {
+  shieldId?: string;
+  layoutsDtsiContent?: string;
+  symbolsDtsiContent?: string;
+  overlays?: { path: string; content: string }[];
+}
+
 /**
- * Atomically commits display assets and any updated Kconfig .conf files using Git Trees API.
+ * Atomically commits display assets, layouts.dtsi, shield overlays, and base .conf files using Git Trees API.
  */
 export async function commitStudioSaveToRepo(
   config: GitHubRepoConfig,
@@ -1732,7 +2199,7 @@ export async function commitStudioSaveToRepo(
   headerContent: string,
   timeouts: TimeoutConfig,
   commitMessage = `${STUDIO_COMMIT_PREFIX}Update: spritesheets & screen layouts`,
-  options?: ResolveConfUpdatesOptions
+  options?: CommitStudioSaveOptions
 ): Promise<CommitStudioSaveResult> {
   if (!config.token || !config.owner || !config.repo) {
     throw new Error('GitHub Personal Access Token is required to commit changes.');
@@ -1740,27 +2207,153 @@ export async function commitStudioSaveToRepo(
 
   const formattedMessage = formatStudioCommitMessage(commitMessage);
 
-  // 1. Discover .conf files and calculate required Kconfig updates
+  // 1. Generate or retrieve Devicetree layouts (.dtsi) and symbols (.dtsi)
+  let layoutsDtsiContent = options?.layoutsDtsiContent;
+  let symbolsDtsiContent = options?.symbolsDtsiContent;
+  let parsedMetadata: any = undefined;
+  if (layoutsDtsiContent === undefined || symbolsDtsiContent === undefined) {
+    try {
+      const parsed = parseCHeader(headerContent);
+      parsedMetadata = parsed.metadata;
+      if (layoutsDtsiContent === undefined) {
+        layoutsDtsiContent = generateDevicetreeLayouts(
+          parsed.metadata || ({} as any),
+          parsed.symbolSlices,
+          parsed.fontMappings || parsed.fontGlyphs
+        );
+      }
+      if (symbolsDtsiContent === undefined) {
+        symbolsDtsiContent = generateDevicetreeSymbols(parsed.symbolSlices || []);
+      }
+    } catch (err) {
+      console.warn('Could not auto-generate scyan_layouts.dtsi or scyan_symbols.dtsi:', err);
+    }
+  }
+
+  const isRightCentral =
+    options?.rightIsCentral ??
+    (Boolean((parsedMetadata as any)?.rightIsCentral) ||
+      parsedMetadata?.shields?.find((s: any) => s.isMaster)?.side === 'right');
+
+  // 2. Generate custom shield files in boards/shields/scyan_screen/
+  const shieldFiles = generateShieldFiles({
+    layoutsDtsiContent: layoutsDtsiContent || '',
+    symbolsDtsiContent: symbolsDtsiContent || '',
+    rightIsCentral: isRightCentral,
+    displayAssignments: options?.displayAssignments || parsedMetadata?.displayAssignments,
+    metadata: parsedMetadata,
+  });
+
+  const octokit = getOctokit(config.token);
+  const branch = config.branch || 'main';
+  const additions: GitFileAddition[] = [];
+  const deletions: GitFileDeletion[] = [];
+
+  // Add header and shield files
+  additions.push({ path: headerPath, content: headerContent });
+  for (const sf of shieldFiles) {
+    additions.push(sf);
+  }
+
+  // 3. Ensure zephyr/module.yml exists with board_root: .
+  let existingZephyrModule: string | undefined = undefined;
+  try {
+    const zModRes = await octokit.repos.getContent({
+      owner: config.owner,
+      repo: config.repo,
+      path: ZEPHYR_MODULE_PATH,
+      ref: branch,
+    });
+    if ('content' in zModRes.data && typeof zModRes.data.content === 'string') {
+      existingZephyrModule = atob(zModRes.data.content.replace(/\s/g, ''));
+    }
+  } catch {}
+  additions.push({
+    path: ZEPHYR_MODULE_PATH,
+    content: generateZephyrModule(existingZephyrModule),
+  });
+
+  // 4. Update build.yaml with Scyan shield tokens if present
+  try {
+    const buildRes = await octokit.repos.getContent({
+      owner: config.owner,
+      repo: config.repo,
+      path: 'build.yaml',
+      ref: branch,
+    });
+    if ('content' in buildRes.data && typeof buildRes.data.content === 'string') {
+      const existingBuildYaml = atob(buildRes.data.content.replace(/\s/g, ''));
+      const updatedBuildYaml = addScyanShieldToBuildYaml(existingBuildYaml, {
+        rightIsCentral: isRightCentral,
+        displayAssignments: options?.displayAssignments || parsedMetadata?.displayAssignments,
+      });
+      if (updatedBuildYaml !== existingBuildYaml) {
+        additions.push({ path: 'build.yaml', content: updatedBuildYaml });
+      }
+    }
+  } catch {}
+
+  // 5. Clean up legacy marker blocks in user config/*.overlay files
+  if (options?.overlays && options.overlays.length > 0) {
+    for (const ov of options.overlays) {
+      additions.push(ov);
+    }
+  } else {
+    try {
+      const overlays = await fetchRepoOverlayFiles(config);
+      for (const ov of overlays) {
+        if (
+          ov.content.includes('scyan_layouts.dtsi') ||
+          ov.content.includes('scyan,display-layout') ||
+          ov.content.includes('SCYAN-STUDIO:BEGIN')
+        ) {
+          const cleaned = removeScyanFromOverlay(ov.content);
+          if (!cleaned) {
+            deletions.push({ path: ov.path });
+          } else if (cleaned !== ov.content.trim()) {
+            additions.push({ path: ov.path, content: cleaned + '\n' });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Could not inspect overlays during save:', err);
+    }
+  }
+
+  // 6. Delete legacy config/scyan_layouts.dtsi, config/scyan_symbols.dtsi, and legacy shield overlays if present
+  for (const legacyPath of ['config/scyan_layouts.dtsi', 'config/scyan_symbols.dtsi', ...LEGACY_SHIELD_FILE_PATHS]) {
+    try {
+      const res = await octokit.repos.getContent({
+        owner: config.owner,
+        repo: config.repo,
+        path: legacyPath,
+        ref: branch,
+      });
+      if ('content' in res.data) {
+        deletions.push({ path: legacyPath });
+      }
+    } catch {}
+  }
+
+  // 7. Discover .conf files and calculate required Kconfig updates
   let confUpdates: { path: string; content: string }[] = [];
   try {
     const existingConfs = await fetchRepoConfFiles(config);
     confUpdates = resolveConfTimeoutUpdates(existingConfs, timeouts, options);
+    for (const cu of confUpdates) {
+      additions.push(cu);
+    }
   } catch (err) {
     console.warn('Could not inspect .conf files for Kconfig timeout synchronization:', err);
   }
 
-  // 2. Collect all files to commit
-  const additions: GitFileAddition[] = [
-    { path: headerPath, content: headerContent },
-    ...confUpdates,
-  ];
-
-  // 3. Perform atomic commit via GraphQL createCommitOnBranch (with Git Trees REST fallback)
+  // 8. Perform atomic commit via GraphQL createCommitOnBranch (with Git Trees REST fallback)
   try {
     const commitRes = await commitChangesWithFallback({
       config,
       message: commitMessage,
       additions,
+      deletions,
     });
 
     return {

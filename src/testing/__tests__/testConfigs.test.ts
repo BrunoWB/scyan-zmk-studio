@@ -3,7 +3,7 @@ import { TEST_KEYBOARD_CONFIGS } from '../testConfigs';
 import { loadTestConfigIntoStudio } from '../loadTestConfig';
 import { detectShieldUnitsFromRepo } from '../../data/shieldsData';
 import { resolveConfUpdates } from '../../services/githubService';
-import { generateCHeader, parseCHeader } from '../../services/cHeaderParser';
+import { generateCHeader, parseCHeader, generateDevicetreeLayouts } from '../../services/cHeaderParser';
 import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import { useLayoutStore } from '../../stores/useLayoutStore';
 import { useGitHubStore } from '../../stores/useGitHubStore';
@@ -134,22 +134,25 @@ describe('Keyboard Topology Test System & Fixtures', () => {
       expect(updates[0].content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=45000');
     });
 
-    it('generates clean single-screen C header where LAYOUT_PERIPHERAL count is 0', () => {
+    it('generates clean single-screen C header and Devicetree layout without peripheral blocks', () => {
       const dummyGrid = new BwpxGrid(32, 128);
-      const header = generateCHeader(dummyGrid, [], dummyGrid, [], {
-        version: 1,
+      const metadata = {
+        version: 1 as const,
         shieldId: 'myunibody',
-        enabledScreens: ['central'],
+        enabledScreens: ['central'] as ('central' | 'peripheral')[],
         centralBlocks: [
-          { id: 'b1', widgetType: 'layer-banner', name: 'Layer', x: 0, y: 0, width: 32, height: 16, enabled: true, side: 'central' },
+          { id: 'b1', widgetType: 'layer-banner', name: 'Layer', x: 0, y: 0, width: 32, height: 16, enabled: true, side: 'central' as const },
         ],
         peripheralBlocks: [],
         idlePeripheralBlocks: [],
-      });
+      };
+      const header = generateCHeader(dummyGrid, [], dummyGrid, [], metadata);
+      const dts = generateDevicetreeLayouts(metadata, []);
 
-      expect(header).toContain('LAYOUT_CENTRAL_ACTIVE_COUNT 1');
-      expect(header).toContain('LAYOUT_PERIPHERAL_ACTIVE_COUNT 0');
-      expect(header).toContain('#define LAYOUT_RIGHT_ACTIVE_COUNT   LAYOUT_PERIPHERAL_ACTIVE_COUNT');
+      expect(dts).toContain('display_1_active:');
+      expect(dts).toContain('compatible = "scyan,widget-layer";');
+      expect(header).not.toContain('LAYOUT_CENTRAL_ACTIVE_COUNT');
+      expect(header).not.toContain('LAYOUT_PERIPHERAL_ACTIVE_COUNT');
 
       const parsed = parseCHeader(header);
       expect(parsed.metadata?.enabledScreens).toEqual(['central']);
@@ -299,7 +302,7 @@ describe('Keyboard Topology Test System & Fixtures', () => {
       expect(updates[0].content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=45000');
     });
 
-    it('creates _right.conf for known split shield (corne) with asymmetric timeouts when options omitted', () => {
+    it('does not create _right.conf for known split shield (corne) with asymmetric timeouts when options omitted', () => {
       const confFiles = [{ path: 'config/corne.conf', content: 'CONFIG_ZMK_IDLE_TIMEOUT=30000\n' }];
       const timeouts = {
         screenOffTimeoutSec: 45,
@@ -307,7 +310,7 @@ describe('Keyboard Topology Test System & Fixtures', () => {
         symmetricSettings: false,
       };
       const updates = resolveConfUpdates(confFiles, timeouts);
-      expect(updates.some((u) => u.path === 'config/corne_right.conf')).toBe(true);
+      expect(updates.some((u) => u.path === 'config/corne_right.conf')).toBe(false);
     });
 
     it('escapes backslash characters in C header glyph comments to prevent gcc -Wcomment errors', () => {

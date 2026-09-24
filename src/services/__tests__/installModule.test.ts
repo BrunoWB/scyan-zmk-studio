@@ -168,4 +168,91 @@ describe('installScyanStudioToRepo (screen-agnostic installation)', () => {
     expect(confContent).not.toContain('CONFIG_SSD1306');
     expect(confContent).toContain('CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM=y');
   });
+
+  it('generates custom shield files and does not mutate user overlay without legacy blocks', async () => {
+    mockGitGetRef.mockResolvedValueOnce({
+      data: { object: { sha: 'commit_sha_123' } },
+    });
+
+    mockReposGetContent.mockImplementation(async ({ path }: { path: string }) => {
+      if (path === 'config/west.yml') {
+        return {
+          data: {
+            content: btoa('manifest:\n  projects:\n    - name: zmk\n'),
+          },
+        };
+      }
+      if (path === 'config') {
+        return {
+          data: [
+            { name: 'corne.conf', path: 'config/corne.conf', type: 'file' },
+            { name: 'corne_left.overlay', path: 'config/corne_left.overlay', type: 'file' },
+          ],
+        };
+      }
+      if (path === 'config/corne.conf') {
+        return { data: { content: btoa('CONFIG_ZMK_DISPLAY=y\n') } };
+      }
+      if (path === 'config/corne_left.overlay') {
+        return { data: { content: btoa('&pro_micro_i2c { status = "okay"; };\n') } };
+      }
+      if (path === 'boards/shields/scyan_screen/scyan_screen_left.overlay') {
+        return { data: { content: btoa('/* legacy */') } };
+      }
+      const err: any = new Error('Not found');
+      err.status = 404;
+      throw err;
+    });
+
+    mockGraphql
+      .mockResolvedValueOnce({
+        repository: {
+          ref: {
+            target: {
+              oid: 'head_before_install',
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        createCommitOnBranch: {
+          commit: {
+            oid: 'sha_installed_789',
+            url: 'https://github.com/BrunoWB/zmk-config/commit/sha_installed_789',
+          },
+        },
+      });
+
+    const result = await installScyanStudioToRepo(testConfig, '/* default header */');
+    expect(result.commitSha).toBe('sha_installed_789');
+
+    const mutationCall = mockGraphql.mock.calls[1];
+    const additions = mutationCall[1].input.fileChanges.additions;
+
+    // Verify user overlay is NOT mutated
+    const userOverlayAddition = additions.find((a: any) => a.path === 'config/corne_left.overlay');
+    expect(userOverlayAddition).toBeUndefined();
+
+    // Verify custom shield overlays are generated
+    const shieldOverlayAddition = additions.find((a: any) => a.path === 'boards/shields/scyan_screen/scyan_screen_1.overlay');
+    expect(shieldOverlayAddition).toBeDefined();
+
+    const overlayContent = atob(shieldOverlayAddition.contents);
+    expect(overlayContent).toContain('#include "scyan_layouts.dtsi"');
+    expect(overlayContent).toContain('scyan,display-layout = &display_1_active;');
+
+    expect(additions.find((a: any) => a.path === 'boards/shields/scyan_screen/scyan_screen_left.overlay')).toBeUndefined();
+
+    const deletions = mutationCall[1].input.fileChanges.deletions;
+    expect(deletions).toEqual(
+      expect.arrayContaining([
+        { path: 'boards/shields/scyan_screen/scyan_screen_left.overlay' },
+      ])
+    );
+
+    // Verify zephyr/module.yml is generated
+    const zephyrModAddition = additions.find((a: any) => a.path === 'zephyr/module.yml');
+    expect(zephyrModAddition).toBeDefined();
+    expect(atob(zephyrModAddition.contents)).toContain('board_root: .');
+  });
 });

@@ -33,6 +33,7 @@ jobs:
         run: npm run build
         env:
           VITE_BASE_PATH: /nightly/scyan-zmk-studio/
+          VITE_MODULE_REVISION: nightly
 
       - name: Ensure .nojekyll present
         run: touch dist/.nojekyll

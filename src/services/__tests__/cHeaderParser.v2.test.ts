@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { parseCHeader, generateCHeader, getDefaultAssets, type HeaderMetadata } from '../cHeaderParser';
+import { parseCHeader, generateCHeader, generateDevicetreeLayouts, getDefaultAssets, type HeaderMetadata } from '../cHeaderParser';
 import type { DisplayScreen } from '../../types/zmk';
 
 describe('cHeaderParser Version 2 Slotted Displays Architecture', () => {
-  it('emits slotted LAYOUT_DISPLAY_X_* blocks, clean firmware macros, and Version 2 metadata', () => {
+  it('emits Devicetree layout containers and Version 2 metadata', () => {
     const assets = getDefaultAssets();
     const screen1: DisplayScreen = {
       id: 'display-1',
@@ -56,32 +56,25 @@ describe('cHeaderParser Version 2 Slotted Displays Architecture', () => {
     };
 
     const cCode = generateCHeader(assets.symbolsGrid, assets.symbolSlices, assets.fontGrid, assets.fontMappings, metadata);
+    const dts = generateDevicetreeLayouts(metadata, assets.symbolSlices);
 
-    // 1. Verify Slotted Arrays
-    expect(cCode).toContain('#define HAS_DISPLAY_1 1');
-    expect(cCode).toContain('LAYOUT_DISPLAY_1_ACTIVE_BLOCKS');
-    expect(cCode).toContain('LAYOUT_DISPLAY_1_ACTIVE_COUNT 2');
-    expect(cCode).toContain('LAYOUT_DISPLAY_1_IDLE_BLOCKS');
-    expect(cCode).toContain('LAYOUT_DISPLAY_1_IDLE_COUNT 1');
+    // 1. Verify Devicetree Layouts
+    expect(dts).toContain('display_1_active: layout_display_1_active {');
+    expect(dts).toContain('compatible = "scyan,display-layout";');
+    expect(dts).toContain('compatible = "scyan,widget-layer";');
+    expect(dts).toContain('compatible = "scyan,widget-battery";');
+    expect(dts).toContain('display_1_idle: layout_display_1_idle {');
+    expect(dts).toContain('compatible = "scyan,widget-screensaver";');
 
-    expect(cCode).toContain('#define HAS_DISPLAY_2 1');
-    expect(cCode).toContain('LAYOUT_DISPLAY_2_ACTIVE_BLOCKS');
-    expect(cCode).toContain('LAYOUT_DISPLAY_2_ACTIVE_COUNT 1');
-    expect(cCode).toContain('LAYOUT_DISPLAY_2_IDLE_BLOCKS');
-    expect(cCode).toContain('LAYOUT_DISPLAY_2_IDLE_COUNT 1');
+    expect(dts).toContain('display_2_active: layout_display_2_active {');
+    expect(dts).toContain('compatible = "scyan,widget-split";');
+    expect(dts).toContain('display_2_idle: layout_display_2_idle {');
 
-    // 2. Verify Firmware Slot Aliases
-    expect(cCode).toContain('#define SCYAN_ACTIVE_BLOCKS LAYOUT_DISPLAY_1_ACTIVE_BLOCKS');
-    expect(cCode).toContain('#if defined(CONFIG_SCYAN_DISPLAY_SLOT_2)');
-    expect(cCode).toContain('#define SCYAN_ACTIVE_BLOCKS LAYOUT_DISPLAY_2_ACTIVE_BLOCKS');
+    // 2. Verify C Header does NOT contain obsolete static layout arrays
+    expect(cCode).not.toContain('LAYOUT_DISPLAY_1_ACTIVE_BLOCKS');
+    expect(cCode).not.toContain('CONFIG_SCYAN_DISPLAY_SLOT');
 
-    // 3. Verify Backward-Compatible Aliases
-    expect(cCode).toContain('#define LAYOUT_CENTRAL_ACTIVE_BLOCKS LAYOUT_DISPLAY_1_ACTIVE_BLOCKS');
-    expect(cCode).toContain('#define LAYOUT_PERIPHERAL_ACTIVE_BLOCKS LAYOUT_DISPLAY_2_ACTIVE_BLOCKS');
-    expect(cCode).toContain('#define LAYOUT_LEFT_ACTIVE_BLOCKS   LAYOUT_CENTRAL_ACTIVE_BLOCKS');
-    expect(cCode).toContain('#define LAYOUT_RIGHT_ACTIVE_BLOCKS  LAYOUT_PERIPHERAL_ACTIVE_BLOCKS');
-
-    // 4. Verify 100% Round-Trip Metadata Parsing
+    // 3. Verify 100% Round-Trip Metadata Parsing
     const parsed = parseCHeader(cCode);
     expect(parsed.metadata).toBeDefined();
     expect(parsed.metadata?.version).toBe(2);
@@ -151,13 +144,14 @@ describe('cHeaderParser Version 2 Slotted Displays Architecture', () => {
     };
 
     const cCode = generateCHeader(assets.symbolsGrid, assets.symbolSlices, assets.fontGrid, assets.fontMappings, metadata);
+    const dts = generateDevicetreeLayouts(metadata, assets.symbolSlices);
 
-    expect(cCode).toContain('#define HAS_DISPLAY_1 1');
-    expect(cCode).toContain('#define HAS_DISPLAY_2 1');
-    expect(cCode).toContain('#define HAS_DISPLAY_3 1');
-    expect(cCode).toContain('LAYOUT_DISPLAY_3_ACTIVE_BLOCKS');
-    expect(cCode).toContain('LAYOUT_DISPLAY_3_ACTIVE_COUNT 1');
-    expect(cCode).toContain('#define LAYOUT_PERIPHERAL_2_ACTIVE_BLOCKS LAYOUT_DISPLAY_3_ACTIVE_BLOCKS');
+    expect(dts).toContain('display_1_active: layout_display_1_active {');
+    expect(dts).toContain('display_2_active: layout_display_2_active {');
+    expect(dts).toContain('display_3_active: layout_display_3_active {');
+    expect(dts).toContain('compatible = "scyan,widget-wpm";');
+
+    expect(cCode).not.toContain('LAYOUT_DISPLAY_3_ACTIVE_BLOCKS');
 
     const parsed = parseCHeader(cCode);
     expect(parsed.metadata?.version).toBe(2);
@@ -301,13 +295,16 @@ static const struct display_layout_block LAYOUT_DISPLAY_3_IDLE_BLOCKS[1] = {
     };
 
     const cCode = generateCHeader(assets.symbolsGrid, assets.symbolSlices, assets.fontGrid, assets.fontMappings, metadata);
+    const dts = generateDevicetreeLayouts(metadata, assets.symbolSlices);
 
-    expect(cCode).toContain('#define HAS_DISPLAY_4 1');
-    expect(cCode).toContain('LAYOUT_DISPLAY_4_ACTIVE_BLOCKS');
-    expect(cCode).toContain('#if defined(CONFIG_SCYAN_DISPLAY_SLOT_2)');
-    expect(cCode).toContain('#elif defined(CONFIG_SCYAN_DISPLAY_SLOT_3)');
-    expect(cCode).toContain('#elif defined(CONFIG_SCYAN_DISPLAY_SLOT_4)');
-    expect(cCode).toContain('#define SCYAN_ACTIVE_BLOCKS LAYOUT_DISPLAY_4_ACTIVE_BLOCKS');
+    expect(dts).toContain('display_1_active: layout_display_1_active {');
+    expect(dts).toContain('display_2_active: layout_display_2_active {');
+    expect(dts).toContain('display_3_active: layout_display_3_active {');
+    expect(dts).toContain('display_4_active: layout_display_4_active {');
+    expect(dts).toContain('compatible = "scyan,widget-bongo";');
+
+    expect(cCode).not.toContain('LAYOUT_DISPLAY_4_ACTIVE_BLOCKS');
+    expect(cCode).not.toContain('CONFIG_SCYAN_DISPLAY_SLOT');
 
     const parsed = parseCHeader(cCode);
     expect(Object.keys(parsed.metadata?.displays || {})).toHaveLength(4);

@@ -4,6 +4,7 @@ import {
   commitChangesAtomicViaGraphQL,
   commitChangesViaGitTrees,
   commitChangesWithFallback,
+  commitStudioSaveToRepo,
 } from '../githubService';
 import type { GitHubRepoConfig } from '../githubService';
 
@@ -13,11 +14,15 @@ const mockGitGetCommit = vi.fn();
 const mockGitCreateTree = vi.fn();
 const mockGitCreateCommit = vi.fn();
 const mockGitUpdateRef = vi.fn();
+const mockReposGetContent = vi.fn();
 
 vi.mock('@octokit/rest', () => {
   return {
     Octokit: class {
       graphql = (...args: any[]) => mockGraphql(...args);
+      repos = {
+        getContent: (...args: any[]) => mockReposGetContent(...args),
+      };
       git = {
         getRef: (...args: any[]) => mockGitGetRef(...args),
         getCommit: (...args: any[]) => mockGitGetCommit(...args),
@@ -365,6 +370,92 @@ describe('Issue #9: GitHub GraphQL createCommitOnBranch operations', () => {
       expect(result.commitSha).toBe('fallback_commit_sha');
       expect(mockGitCreateTree).toHaveBeenCalled();
       expect(mockGitUpdateRef).toHaveBeenCalled();
+    });
+  });
+
+  describe('commitStudioSaveToRepo atomic symbols generation', () => {
+    it('atomically commits scyan_symbols.dtsi alongside scyan_assets.h and scyan_layouts.dtsi', async () => {
+      mockReposGetContent.mockResolvedValue({ data: [] });
+      mockGraphql
+        .mockResolvedValueOnce({
+          repository: { ref: { target: { oid: 'sha_head_save' } } },
+        })
+        .mockResolvedValueOnce({
+          createCommitOnBranch: {
+            commit: {
+              oid: 'sha_committed_save',
+              url: 'https://github.com/save',
+            },
+          },
+        });
+
+      const headerContent = `
+/* Symbol identifiers */
+#define SYMBOL_USB 0
+#define SYMBOL_BATTERY 1
+#define SYMBOL_COUNT 2
+
+/* ZMK_DISPLAY_STUDIO_METADATA {"version":2,"displays":{"display_1":{"blocks":[]}}} */
+`;
+
+      const result = await commitStudioSaveToRepo(
+        testConfig,
+        'config/scyan_assets.h',
+        headerContent,
+        { screenOffTimeoutSec: 30, symmetricSettings: true },
+        'Update assets',
+        { overlays: [] }
+      );
+
+      expect(result.commitSha).toBe('sha_committed_save');
+      expect(result.filesCommitted).toContain('config/scyan_assets.h');
+      expect(result.filesCommitted).toContain('boards/shields/scyan_screen/scyan_layouts.dtsi');
+      expect(result.filesCommitted).toContain('boards/shields/scyan_screen/scyan_symbols.dtsi');
+
+      // Check mutation additions
+      const mutationCall = mockGraphql.mock.calls[1];
+      const additions = mutationCall[1].input.fileChanges.additions;
+      const symbolsFile = additions.find((a: any) => a.path === 'boards/shields/scyan_screen/scyan_symbols.dtsi');
+      expect(symbolsFile).toBeDefined();
+      const decodedSymbols = Buffer.from(symbolsFile.contents, 'base64').toString('utf8');
+      expect(decodedSymbols).toContain('#define SYMBOL_USB 0');
+      expect(decodedSymbols).toContain('#define SYMBOL_BLUETOOTH 1');
+      expect(decodedSymbols).toContain('#define SYMBOL_BATTERY_FRAME 2');
+    });
+
+    it('commits scyan_symbols.dtsi even when symbolsDtsiContent is empty string', async () => {
+      mockReposGetContent.mockResolvedValue({ data: [] });
+      mockGraphql
+        .mockResolvedValueOnce({
+          repository: { ref: { target: { oid: 'sha_head_empty' } } },
+        })
+        .mockResolvedValueOnce({
+          createCommitOnBranch: {
+            commit: {
+              oid: 'sha_committed_empty',
+              url: 'https://github.com/save_empty',
+            },
+          },
+        });
+
+      const headerContent = `/* ZMK_DISPLAY_STUDIO_METADATA {"version":2,"displays":{"display_1":{"blocks":[]}}} */`;
+
+      const result = await commitStudioSaveToRepo(
+        testConfig,
+        'config/scyan_assets.h',
+        headerContent,
+        { screenOffTimeoutSec: 30, symmetricSettings: true },
+        'Update assets empty symbols',
+        { symbolsDtsiContent: '', overlays: [] }
+      );
+
+      expect(result.filesCommitted).toContain('boards/shields/scyan_screen/scyan_symbols.dtsi');
+
+      const mutationCall = mockGraphql.mock.calls[1];
+      const additions = mutationCall[1].input.fileChanges.additions;
+      const symbolsFile = additions.find((a: any) => a.path === 'boards/shields/scyan_screen/scyan_symbols.dtsi');
+      expect(symbolsFile).toBeDefined();
+      expect(symbolsFile.contents).toBe('');
     });
   });
 });

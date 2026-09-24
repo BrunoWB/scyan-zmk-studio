@@ -1,4 +1,13 @@
-import { parseCHeader, generateCHeader, getDefaultAssets, type HeaderMetadata } from '../cHeaderParser';
+import {
+  parseCHeader,
+  generateCHeader,
+  generateDevicetreeLayouts,
+  generateDevicetreeSymbols,
+  sanitizeSymbolId,
+  formatBlockToDevicetree,
+  getDefaultAssets,
+  type HeaderMetadata,
+} from '../cHeaderParser';
 import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import type { SpriteSlice } from '../../types/zmk';
 import { describe, it, expect } from 'vitest';
@@ -48,10 +57,11 @@ describe('cHeaderParser', () => {
     };
 
     const cHeader = generateCHeader(testGrid, symbolSlices, testGrid, [], metadata);
+    const dts = generateDevicetreeLayouts(metadata, symbolSlices);
     expect(cHeader).toContain('/* ZMK_DISPLAY_STUDIO_METADATA');
-    expect(cHeader).toContain('#define HAS_CUSTOM_LAYOUT_BLOCKS 1');
-    expect(cHeader).toContain('LAYOUT_LEFT_ACTIVE_BLOCKS');
-    expect(cHeader).toContain('WIDGET_TYPE_BATTERY');
+    expect(cHeader).not.toContain('LAYOUT_LEFT_ACTIVE_BLOCKS');
+    expect(dts).toContain('compatible = "scyan,widget-battery";');
+    expect(dts).toContain('compatible = "scyan,widget-screensaver";');
     expect(cHeader).toContain('#define DISPLAY_VIRTUAL_WIDTH  68');
     expect(cHeader).toContain('#define DISPLAY_VIRTUAL_HEIGHT 160');
 
@@ -99,15 +109,43 @@ describe('cHeaderParser', () => {
     };
 
     const cCode = generateCHeader(symbolsGrid, symbolSlices, fontGrid, [], metadata);
-    expect(cCode).toContain('WIDGET_TYPE_LOOP');
+    const dts = generateDevicetreeLayouts(metadata, symbolSlices);
+    expect(dts).toContain('compatible = "scyan,widget-loop";');
+    expect(cCode).toContain('#define SYMBOL_USB 0');
     const tmpPath = path.join(os.tmpdir(), 'test_generated_assets.h');
     fs.writeFileSync(tmpPath, cCode);
 
     try {
       execSync(`gcc -fsyntax-only "${tmpPath}"`);
+      execSync(`gcc -E -P -x assembler-with-cpp -nostdinc -D__DTS__ -D_ASMLANGUAGE "${tmpPath}"`);
     } finally {
       if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
     }
+  });
+
+  it('should wrap stdint/stdbool/stddef includes in preprocessor guards for Devicetree preprocessing compatibility', () => {
+    const testGrid = new BwpxGrid(16, 16);
+    const cHeader = generateCHeader(testGrid, [], testGrid, []);
+
+    expect(cHeader).toMatch(/#if !defined\(_ASMLANGUAGE\) && !defined\(__DTS__\)\r?\n#include <stdint\.h>\r?\n#include <stdbool\.h>\r?\n#include <stddef\.h>\r?\n#endif/);
+  });
+
+  it('should generate unique devicetree node labels across multiple layouts and displays', () => {
+    const metadata = {
+      version: 1 as const,
+      screenDimensions: { width: 32, height: 128 },
+      leftBlocks: [
+        { id: 'b1', widgetType: 'screensaver', name: 'Mascot 1', x: 0, y: 0, width: 32, height: 32, enabled: true, side: 'left' as const }
+      ],
+      rightBlocks: [
+        { id: 'b2', widgetType: 'screensaver', name: 'Mascot 2', x: 0, y: 0, width: 32, height: 32, enabled: true, side: 'right' as const }
+      ],
+      idleLeftBlocks: [],
+      idleRightBlocks: [],
+    };
+    const dts = generateDevicetreeLayouts(metadata, []);
+    expect(dts).toContain('display_1_active_widget_screensaver_0: widget_0 {');
+    expect(dts).toContain('display_2_active_widget_screensaver_0: widget_0 {');
   });
 
   it('should parse C layout block arrays even when JSON metadata comment is completely stripped', () => {
@@ -211,10 +249,10 @@ static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
     };
 
     const cCode = generateCHeader(symbolsGrid, symbolSlices, fontGrid, [], metadata);
-    expect(cCode).toContain('.symbol_count = 3');
-    expect(cCode).toContain('.symbol_ids = { SYMBOL_BATTERY_0, SYMBOL_BATTERY_1, SYMBOL_BATTERY_2 }');
-    expect(cCode).toContain('.text_count = 3');
-    expect(cCode).toContain('.text_entries = { "0%", "50%", "100%" }');
+    const dts = generateDevicetreeLayouts(metadata, symbolSlices);
+    expect(dts).toContain('symbols = <SYMBOL_BATTERY_0 SYMBOL_BATTERY_1 SYMBOL_BATTERY_2>;');
+    expect(dts).toContain('text-entries = "0%", "50%", "100%";');
+    expect(cCode).not.toContain('LAYOUT_LEFT_ACTIVE_BLOCKS');
     expect(cCode).not.toContain('SYMBOL_BRACKET_LAYER(idx)');
     expect(cCode).not.toContain('SYMBOL_SKULL_LAYER(idx)');
 
@@ -232,11 +270,11 @@ static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
     
     // Generate C header
     const generated = generateCHeader(parsed.symbolsGrid, parsed.symbolSlices, parsed.fontGrid, parsed.fontGlyphs, parsed.metadata);
+    const dts = generateDevicetreeLayouts(parsed.metadata!, parsed.symbolSlices, parsed.fontGlyphs);
     fs.writeFileSync('/tmp/regenerated_assets.h', generated);
-    expect(generated).toContain('LAYOUT_LEFT_ACTIVE_BLOCKS');
-    expect(generated).toContain('LAYOUT_RIGHT_ACTIVE_BLOCKS');
-    expect(generated).toContain('LAYOUT_LEFT_IDLE_BLOCKS');
-    expect(generated).toContain('LAYOUT_RIGHT_IDLE_BLOCKS');
+    expect(generated).not.toContain('LAYOUT_LEFT_ACTIVE_BLOCKS');
+    expect(dts).toContain('compatible = "scyan,layouts";');
+    expect(dts).toContain('compatible = "scyan,display-layout";');
     expect(generated).not.toContain('SYMBOL_BRACKET_LAYER(idx)');
     expect(generated).not.toContain('SYMBOL_SKULL_LAYER(idx)');
   });
@@ -376,12 +414,13 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     };
 
     const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
-    expect(cCode).toContain('WIDGET_TYPE_LAYER');
-    expect(cCode).toContain('"FREE"');
-    expect(cCode).toContain('"QWERTY"');
-    expect(cCode).toContain('"RIGHTHOLD"');
-    expect(cCode).toContain('"LEFTHOLD"');
-    expect(cCode).toContain('"SIMMHOLD"');
+    const dts = generateDevicetreeLayouts(metadata, []);
+    expect(dts).toContain('compatible = "scyan,widget-layer";');
+    expect(dts).toContain('"FREE"');
+    expect(dts).toContain('"QWERTY"');
+    expect(dts).toContain('"RIGHTHOLD"');
+    expect(dts).toContain('"LEFTHOLD"');
+    expect(dts).toContain('"SIMMHOLD"');
 
     const parsed = parseCHeader(cCode);
     expect(parsed.metadata?.layerNames).toEqual(['FREE', 'QWERTY', 'RIGHTHOLD', 'LEFTHOLD', 'SIMMHOLD']);
@@ -412,8 +451,11 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     };
 
     const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
-    // C struct should have width 32 and height 30 (not stale 24 and 21)
-    expect(cCode).toContain('.type = WIDGET_TYPE_WPM_CHART, .x = 0, .y = 56, .width = 32, .height = 30');
+    const dts = generateDevicetreeLayouts(metadata, []);
+    // DTS node should have width 32 and height 30 (not stale 24 and 21)
+    expect(dts).toContain('compatible = "scyan,widget-wpm-chart";');
+    expect(dts).toContain('width = <32>;');
+    expect(dts).toContain('height = <30>;');
 
     // Parsing should reconcile block width and height to 32 and 30
     const parsed = parseCHeader(cCode);
@@ -448,13 +490,16 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     };
 
     const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
-    // C struct should have width 4 and height 5 (measured tight for 'A', not stale 24 and 10)
-    expect(cCode).toContain('.type = WIDGET_TYPE_WPM, .x = 4, .y = 87, .width = 4, .height = 5');
+    const dts = generateDevicetreeLayouts(metadata, []);
+    // DTS node should have width 5 and height 5 (measured tight for 'A', not stale 24 and 10)
+    expect(dts).toContain('compatible = "scyan,widget-wpm";');
+    expect(dts).toContain('width = <5>;');
+    expect(dts).toContain('height = <5>;');
 
-    // Parsing should reconcile block width and height to 4 and 5
+    // Parsing should reconcile block width and height to 5 and 5
     const parsed = parseCHeader(cCode);
     const parsedBlock = parsed.metadata?.leftBlocks?.[0];
-    expect(parsedBlock?.width).toBe(4);
+    expect(parsedBlock?.width).toBe(5);
     expect(parsedBlock?.height).toBe(5);
   });
 
@@ -479,10 +524,12 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     };
 
     const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
-    // inst_loop has loop: true -> param2 = 0
-    expect(cCode).toContain('.param1 = 150, .param2 = 0');
-    // inst_oneshot has loop: false -> param2 = 1
-    expect(cCode).toContain('.param1 = 200, .param2 = 1');
+    const dts = generateDevicetreeLayouts(metadata, []);
+    // inst_loop has loop: true -> param2 = 0 (omitted or default in DTS) and param1 = 150
+    expect(dts).toContain('param1 = <150>;');
+    // inst_oneshot has loop: false -> param1 = 200, param2 = 1
+    expect(dts).toContain('param1 = <200>;');
+    expect(dts).toContain('param2 = <1>;');
 
     // Round-trip parse
     const parsed = parseCHeader(cCode);
@@ -619,19 +666,19 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     };
 
     const cCode = generateCHeader(testGrid, symbolSlices, testGrid, [], metadata);
+    const dts = generateDevicetreeLayouts(metadata, symbolSlices);
 
-    // Verify generated C header includes canonical arrays and dynamic peripheral blocks
-    expect(cCode).toContain('LAYOUT_CENTRAL_ACTIVE_BLOCKS');
-    expect(cCode).toContain('LAYOUT_PERIPHERAL_ACTIVE_BLOCKS');
-    expect(cCode).toContain('LAYOUT_PERIPHERAL_2_ACTIVE_BLOCKS');
-    expect(cCode).toContain('LAYOUT_PERIPHERAL_2_IDLE_BLOCKS');
-    expect(cCode).toContain('WIDGET_TYPE_BONGO');
-    expect(cCode).toContain('WIDGET_TYPE_LAYER');
-    expect(cCode).toContain('WIDGET_TYPE_SCREENSAVER');
+    // Verify generated Devicetree includes canonical layouts and dynamic peripheral blocks
+    expect(dts).toContain('display_1_active:');
+    expect(dts).toContain('display_2_active:');
+    expect(dts).toContain('display_3_active:');
+    expect(dts).toContain('compatible = "scyan,widget-bongo";');
+    expect(dts).toContain('compatible = "scyan,widget-layer";');
+    expect(dts).toContain('compatible = "scyan,widget-screensaver";');
 
-    // Verify backward-compatible aliases for firmware compilation
-    expect(cCode).toContain('#define LAYOUT_LEFT_ACTIVE_BLOCKS   LAYOUT_CENTRAL_ACTIVE_BLOCKS');
-    expect(cCode).toContain('#define LAYOUT_RIGHT_ACTIVE_BLOCKS  LAYOUT_PERIPHERAL_ACTIVE_BLOCKS');
+    // Verify C header does not contain static layout arrays
+    expect(cCode).not.toContain('LAYOUT_CENTRAL_ACTIVE_BLOCKS');
+    expect(cCode).not.toContain('LAYOUT_PERIPHERAL_ACTIVE_BLOCKS');
 
     // Parse the generated header and verify 100% round-trip fidelity
     const parsed = parseCHeader(cCode);
@@ -661,10 +708,10 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     };
 
     const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
-    expect(cCode).toContain('LAYOUT_CENTRAL_ACTIVE_BLOCKS');
-    expect(cCode).toContain('LAYOUT_PERIPHERAL_ACTIVE_BLOCKS');
-    expect(cCode).toContain('#define LAYOUT_LEFT_ACTIVE_BLOCKS   LAYOUT_CENTRAL_ACTIVE_BLOCKS');
-    expect(cCode).toContain('#define LAYOUT_RIGHT_ACTIVE_BLOCKS  LAYOUT_PERIPHERAL_ACTIVE_BLOCKS');
+    const dts = generateDevicetreeLayouts(metadata, []);
+    expect(dts).toContain('display_1_active:');
+    expect(dts).toContain('display_2_active:');
+    expect(cCode).not.toContain('LAYOUT_CENTRAL_ACTIVE_BLOCKS');
   });
 
   it('should reconcile widget instances for peripheralScreens blocks', () => {
@@ -851,10 +898,12 @@ static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
     };
 
     const cCode = generateCHeader(testGrid, symbolSlices, testGrid, [], metadata);
-    expect(cCode).toContain('WIDGET_TYPE_OUTPUT_STATUS');
+    const dts = generateDevicetreeLayouts(metadata, symbolSlices);
+    expect(cCode).toContain('#define SYMBOL_USB 0');
+    expect(dts).toContain('compatible = "scyan,widget-output";');
     // Ensure SYMBOL_USB is at index 0 of symbol_ids and symbol_id is SYMBOL_USB
-    expect(cCode).toMatch(/\.symbol_ids\s*=\s*\{\s*SYMBOL_USB,\s*SYMBOL_BLUETOOTH_P1/);
-    expect(cCode).toContain('.symbol_id = SYMBOL_USB');
+    expect(dts).toContain('symbols = <SYMBOL_USB SYMBOL_BLUETOOTH_P1>;');
+    expect(dts).toContain('symbol-id = <SYMBOL_USB>;');
   });
 
   describe('Typewriter Widget Serialization & Round-Trip', () => {
@@ -897,9 +946,11 @@ static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
       };
 
       const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
-      expect(cCode).toContain('WIDGET_TYPE_TYPEWRITER');
+      const dts = generateDevicetreeLayouts(metadata, []);
+      expect(dts).toContain('compatible = "scyan,widget-typewriter";');
       // mode: 0 (inline), param1: 1 (ew), param2: 5 (cleaning), param3: 0 (small)
-      expect(cCode).toMatch(/WIDGET_TYPE_TYPEWRITER.*\.mode\s*=\s*0.*\.param1\s*=\s*1.*\.param2\s*=\s*5.*\.param3\s*=\s*0/);
+      expect(dts).toContain('param1 = <1>;');
+      expect(dts).toContain('param2 = <5>;');
 
       // Verify round-trip parsing with metadata
       const parsed = parseCHeader(cCode);
@@ -987,9 +1038,12 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[] = {
       };
 
       const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
-      expect(cCode).toContain('WIDGET_TYPE_TYPEWRITER');
+      const dts = generateDevicetreeLayouts(metadata, []);
+      expect(dts).toContain('compatible = "scyan,widget-typewriter";');
       // mode: 2 (random), param1: 7 (letter bank), param2: 4 (cleaning), param3: 0 (small)
-      expect(cCode).toMatch(/WIDGET_TYPE_TYPEWRITER.*\.mode\s*=\s*2.*\.param1\s*=\s*7.*\.param2\s*=\s*4.*\.param3\s*=\s*0/);
+      expect(dts).toContain('mode = <2>;');
+      expect(dts).toContain('param1 = <7>;');
+      expect(dts).toContain('param2 = <4>;');
 
       // Verify round-trip parsing with metadata
       const parsed = parseCHeader(cCode);
@@ -1070,9 +1124,11 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[] = {
       };
 
       const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
-      expect(cCode).toContain('WIDGET_TYPE_TYPEWRITER');
-      // mode: 2, param1: 8 (bank size), param2: 0.35 (cleaning)
-      expect(cCode).toMatch(/WIDGET_TYPE_TYPEWRITER.*\.mode\s*=\s*2.*\.param1\s*=\s*8.*\.param2\s*=\s*0\.35/);
+      const dts = generateDevicetreeLayouts(metadata, []);
+      expect(dts).toContain('compatible = "scyan,widget-typewriter";');
+      // mode: 2, param1: 8 (bank size)
+      expect(dts).toContain('mode = <2>;');
+      expect(dts).toContain('param1 = <8>;');
 
       // Verify round-trip parsing with metadata preserves decimal cleaning
       const parsed = parseCHeader(cCode);
@@ -1138,9 +1194,12 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[] = {
       };
 
       const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
-      expect(cCode).toContain('WIDGET_TYPE_TYPEWRITER');
-      // Default random mode: param1: 20 (letter bank default), param2: 0.2 (cleaning default), param3: 2 (both)
-      expect(cCode).toMatch(/WIDGET_TYPE_TYPEWRITER.*\.mode\s*=\s*2.*\.param1\s*=\s*20.*\.param2\s*=\s*0\.2.*\.param3\s*=\s*2/);
+      const dts = generateDevicetreeLayouts(metadata, []);
+      expect(dts).toContain('compatible = "scyan,widget-typewriter";');
+      // Default random mode: param1: 20 (letter bank default), param3: 2 (both)
+      expect(dts).toContain('mode = <2>;');
+      expect(dts).toContain('param1 = <20>;');
+      expect(dts).toContain('param3 = <2>;');
 
       // Verify round-trip parsing with metadata
       const parsed = parseCHeader(cCode);
@@ -1206,7 +1265,8 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[] = {
       };
 
       const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
-      expect(cCode).toContain('WIDGET_TYPE_TYPEWRITER');
+      const dts = generateDevicetreeLayouts(metadata, []);
+      expect(dts).toContain('compatible = "scyan,widget-typewriter";');
 
       // Round-trip parse metadata
       const parsed = parseCHeader(cCode);
@@ -1277,9 +1337,10 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[] = {
       };
 
       const cCode = generateCHeader(testGrid, testSlices, testGrid, [], metadata);
-      expect(cCode).toContain('WIDGET_TYPE_KEYPRESS');
-      expect(cCode).toContain('SYMBOL_ARROW_UP');
-      expect(cCode).toContain('ArrowUp');
+      const dts = generateDevicetreeLayouts(metadata, testSlices);
+      expect(dts).toContain('compatible = "scyan,widget-keypress";');
+      expect(dts).toContain('SYMBOL_ARROW_UP');
+      expect(dts).toContain('ArrowUp');
 
       const parsed = parseCHeader(cCode);
       expect(parsed.metadata?.centralBlocks?.[0]?.widgetType).toBe('keypress');
@@ -1315,6 +1376,150 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[] = {
       expect(inst?.config?.keypressElements?.[0].symbolId).toBe('SYMBOL_ARROW_UP');
       expect(inst?.config?.keypressElements?.[1].key).toBe('ArrowDown');
       expect(inst?.config?.keypressElements?.[1].symbolId).toBe('SYMBOL_ARROW_DOWN');
+    });
+  });
+
+  describe('Devicetree Robust Generation', () => {
+    it('generateDevicetreeSymbols emits only #define SYMBOL_* numeric integer macros', () => {
+      const slices: SpriteSlice[] = [
+        { id: 'SYMBOL_USB', groupId: 'SYMBOL_USB', groupOrder: 1, name: 'USB', x: 0, y: 0, width: 10, height: 10, color: '#fff' },
+        { id: 'SYMBOL_BATTERY', groupId: 'SYMBOL_BATTERY', groupOrder: 1, name: 'Battery', x: 10, y: 0, width: 10, height: 10, color: '#fff' },
+        { id: 'LAYER_ICON', groupId: 'LAYER', groupOrder: 1, name: 'Layer', x: 20, y: 0, width: 10, height: 10, color: '#fff' },
+      ];
+
+      const dtsi = generateDevicetreeSymbols(slices);
+      expect(dtsi).toBe(
+        '#define SYMBOL_USB 0\n#define SYMBOL_BATTERY 1\n#define SYMBOL_LAYER_ICON 2\n'
+      );
+
+      const lines = dtsi.trim().split('\n');
+      for (const line of lines) {
+        expect(line).toMatch(/^#define SYMBOL_[A-Za-z0-9_]+ \d+$/);
+      }
+    });
+
+    it('generateDevicetreeSymbols sanitizes non-alphanumeric characters and handles missing IDs', () => {
+      const dirtySlices: any[] = [
+        { id: 'SYMBOL_MY-ICON', name: 'Hyphen Icon' },
+        { id: 'Custom Space Icon', name: 'Space' },
+        { id: 'SYMBOL_DOT.NAME', name: 'Dot' },
+        { id: '', name: 'Empty' },
+        { id: 'SYMBOL_', name: 'Prefix only' },
+        { name: 'No ID' },
+      ];
+
+      const dtsi = generateDevicetreeSymbols(dirtySlices);
+      expect(dtsi).toBe(
+        '#define SYMBOL_MY_ICON 0\n' +
+        '#define SYMBOL_Custom_Space_Icon 1\n' +
+        '#define SYMBOL_DOT_NAME 2\n' +
+        '#define SYMBOL_3 3\n' +
+        '#define SYMBOL_4 4\n' +
+        '#define SYMBOL_5 5\n'
+      );
+
+      const lines = dtsi.trim().split('\n');
+      for (const line of lines) {
+        expect(line).toMatch(/^#define SYMBOL_[A-Za-z0-9_]+ \d+$/);
+      }
+    });
+
+    it('generateDevicetreeSymbols handles empty or null symbols list gracefully', () => {
+      expect(generateDevicetreeSymbols([])).toBe('');
+      expect(generateDevicetreeSymbols(null as any)).toBe('');
+      expect(generateDevicetreeSymbols(undefined as any)).toBe('');
+    });
+
+    it('generateDevicetreeLayouts includes scyan_symbols.dtsi instead of scyan_assets.h', () => {
+      const metadata: HeaderMetadata = {
+        version: 2,
+        displays: {
+          display_1: {
+            id: 'display_1',
+            name: 'Left',
+            dimensions: { width: 32, height: 128 },
+            rotation: 90,
+            idleTimeoutSec: 30,
+            screenOffTimeoutSec: 60,
+            idleScreensEnabled: false,
+            blocks: [],
+            idleBlocks: [],
+          }
+        }
+      };
+      const dts = generateDevicetreeLayouts(metadata, []);
+      expect(dts).toContain('#include "scyan_symbols.dtsi"');
+      expect(dts).not.toContain('#include "scyan_assets.h"');
+    });
+
+    it('sortSymbolSlices orders multi-frame group members contiguously by groupOrder', () => {
+      const unorderedSlices: any[] = [
+        { id: 'SYMBOL_STANDALONE_0', groupId: 'SYMBOL_STANDALONE_0', groupOrder: 1, x: 0, y: 0, width: 8, height: 8 },
+        { id: 'SYMBOL_ANIM_1', groupId: 'ANIM_DUCK', groupOrder: 1, x: 0, y: 0, width: 8, height: 8 },
+        { id: 'SYMBOL_ANIM_5', groupId: 'ANIM_DUCK', groupOrder: 5, x: 0, y: 0, width: 8, height: 8 },
+        { id: 'SYMBOL_STANDALONE_1', groupId: 'SYMBOL_STANDALONE_1', groupOrder: 1, x: 0, y: 0, width: 8, height: 8 },
+        { id: 'SYMBOL_ANIM_2', groupId: 'ANIM_DUCK', groupOrder: 2, x: 0, y: 0, width: 8, height: 8 },
+        { id: 'SYMBOL_ANIM_4', groupId: 'ANIM_DUCK', groupOrder: 4, x: 0, y: 0, width: 8, height: 8 },
+        { id: 'SYMBOL_ANIM_3', groupId: 'ANIM_DUCK', groupOrder: 3, x: 0, y: 0, width: 8, height: 8 },
+      ];
+
+      const dtsi = generateDevicetreeSymbols(unorderedSlices);
+      expect(dtsi).toBe(
+        '#define SYMBOL_STANDALONE_0 0\n' +
+        '#define SYMBOL_ANIM_1 1\n' +
+        '#define SYMBOL_ANIM_2 2\n' +
+        '#define SYMBOL_ANIM_3 3\n' +
+        '#define SYMBOL_ANIM_4 4\n' +
+        '#define SYMBOL_ANIM_5 5\n' +
+        '#define SYMBOL_STANDALONE_1 6\n'
+      );
+    });
+
+    it('unifies sanitizeSymbolId across Devicetree symbols, C header, and block devicetree formatting', () => {
+      expect(sanitizeSymbolId('raw_icon')).toBe('SYMBOL_raw_icon');
+      expect(sanitizeSymbolId('SYMBOL_already_clean')).toBe('SYMBOL_already_clean');
+      expect(sanitizeSymbolId('icon-with-dash.and.dot')).toBe('SYMBOL_icon_with_dash_and_dot');
+      expect(sanitizeSymbolId('', 7)).toBe('SYMBOL_7');
+      expect(sanitizeSymbolId(undefined, 0)).toBe('SYMBOL_0');
+
+      const slices: any[] = [
+        { id: 'dirty-name', groupId: 'dirty-name', groupOrder: 1, x: 0, y: 0, width: 8, height: 8 },
+        { id: 'clean_id', groupId: 'clean_id', groupOrder: 1, x: 0, y: 0, width: 8, height: 8 },
+      ];
+
+      // 1. generateDevicetreeSymbols emits SYMBOL_<SANITIZED>
+      const symbolsDtsi = generateDevicetreeSymbols(slices);
+      expect(symbolsDtsi).toContain('#define SYMBOL_dirty_name 0');
+      expect(symbolsDtsi).toContain('#define SYMBOL_clean_id 1');
+
+      // 2. generateCHeader emits the exact same #define SYMBOL_<SANITIZED>
+      const testGrid = new BwpxGrid(16, 16);
+      const cHeader = generateCHeader(testGrid, slices, testGrid, []);
+      expect(cHeader).toContain('#define SYMBOL_dirty_name 0');
+      expect(cHeader).toContain('#define SYMBOL_clean_id 1');
+      expect(cHeader).toContain('[SYMBOL_dirty_name         ] = {');
+      expect(cHeader).toContain('[SYMBOL_clean_id           ] = {');
+
+      // 3. formatBlockToDevicetree formats symbols and symbol-id with SYMBOL_<SANITIZED>
+      const blockProps: any = {
+        compat: 'scyan,widget-battery',
+        compatSuffix: 'battery',
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        enabled: true,
+        mode: 0,
+        param1: 0,
+        param2: 0,
+        param3: 0,
+        symbolIds: ['dirty-name', 'clean_id'],
+        symbolId: 'dirty-name',
+        textEntries: [],
+      };
+      const dts = formatBlockToDevicetree(blockProps, 0, 'disp_1_active');
+      expect(dts).toContain('symbols = <SYMBOL_dirty_name SYMBOL_clean_id>;');
+      expect(dts).toContain('symbol-id = <SYMBOL_dirty_name>;');
     });
   });
 });
