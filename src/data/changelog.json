@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "2.0.1",
+        "date": "2026-09-24",
+        "commitHash": "49116bd",
+        "changes": [
+          "fix(topology): filter scyan_screen tokens as accessory shields in build.yaml"
+        ]
+      },
+      {
         "patch": "2.0.0",
         "date": "2026-09-24",
         "commitHash": "523ecec",
