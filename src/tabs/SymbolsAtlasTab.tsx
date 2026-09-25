@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { BwpxGrid } from '../pixel/core/PixelGrid';
 import { BwpxEditor, type EditorViewport } from '../pixel';
 import type { SpriteSlice } from '../types/zmk';
@@ -32,6 +32,58 @@ export interface SymbolsAtlasTabProps {
   viewport?: EditorViewport;
   onViewportChange?: (viewport: EditorViewport) => void;
 }
+
+interface SliceThumbnailProps {
+  slice: SpriteSlice;
+  grid: BwpxGrid;
+  scale?: number;
+}
+
+const SliceThumbnail = React.memo(function SliceThumbnail({
+  slice,
+  grid,
+  scale = 2,
+}: SliceThumbnailProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.fillStyle = '#101216';
+    ctx.fillRect(0, 0, slice.width, slice.height);
+    ctx.fillStyle = '#00d2ff';
+    for (let y = 0; y < slice.height; y++) {
+      for (let x = 0; x < slice.width; x++) {
+        if (grid.get(slice.x + x, slice.y + y)) {
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+    }
+  }, [slice.x, slice.y, slice.width, slice.height, grid]);
+
+  return (
+    <div
+      className="slice-thumbnail-box"
+      style={{
+        width: Math.max(24, slice.width * scale + 4),
+        height: Math.max(24, slice.height * scale + 4),
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        width={slice.width}
+        height={slice.height}
+        style={{
+          width: slice.width * scale,
+          height: slice.height * scale,
+          imageRendering: 'pixelated',
+        }}
+      />
+    </div>
+  );
+});
 
 export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
   symbolsGrid: propsSymbolsGrid,
@@ -324,43 +376,9 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
   };
 
   // Helper to render slice thumbnail onto small canvas
-  const renderSliceThumb = (slice: SpriteSlice) => {
-    const scale = 2;
-    return (
-      <div
-        className="slice-thumbnail-box"
-        style={{
-          width: Math.max(24, slice.width * scale + 4),
-          height: Math.max(24, slice.height * scale + 4),
-        }}
-      >
-        <canvas
-          width={slice.width}
-          height={slice.height}
-          style={{
-            width: slice.width * scale,
-            height: slice.height * scale,
-            imageRendering: 'pixelated',
-          }}
-          ref={canvas => {
-            if (!canvas) return;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) return;
-            ctx.fillStyle = '#101216';
-            ctx.fillRect(0, 0, slice.width, slice.height);
-            ctx.fillStyle = '#00d2ff';
-            for (let y = 0; y < slice.height; y++) {
-              for (let x = 0; x < slice.width; x++) {
-                if (symbolsGrid.get(slice.x + x, slice.y + y)) {
-                  ctx.fillRect(x, y, 1, 1);
-                }
-              }
-            }
-          }}
-        />
-      </div>
-    );
-  };
+  const renderSliceThumb = (slice: SpriteSlice) => (
+    <SliceThumbnail slice={slice} grid={symbolsGrid} />
+  );
 
   return (
     <div className="atlas-tab-container">

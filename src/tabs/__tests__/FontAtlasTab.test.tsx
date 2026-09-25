@@ -57,4 +57,18 @@ describe('FontAtlasTab selection & editing card', () => {
     expect(html).toContain('value="A"');
     expect(html).toContain('Deselect mapping');
   });
+
+  it('renders memoized SlotThumbnail canvas elements for glyph slots', () => {
+    const html = renderToString(
+      <FontAtlasTab
+        fontGrid={dummyGrid}
+        onFontGridChange={() => {}}
+        fontMappings={sampleMappings}
+        onFontMappingsChange={() => {}}
+      />
+    );
+
+    expect(html).toContain('<canvas width="6" height="8"');
+    expect(html).toContain('<canvas width="12" height="16"');
+  });
 });

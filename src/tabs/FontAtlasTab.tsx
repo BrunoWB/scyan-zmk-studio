@@ -38,6 +38,46 @@ const GHOST_SENTENCES = [
   'Click Clack Thock!',
 ];
 
+interface SlotThumbnailProps {
+  slot: GlyphSlot;
+  isBig: boolean;
+  scale?: number;
+  grid: BwpxGrid;
+}
+
+const SlotThumbnail = React.memo(function SlotThumbnail({
+  slot,
+  isBig,
+  scale = 2,
+  grid,
+}: SlotThumbnailProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.fillStyle = '#101216';
+    ctx.fillRect(0, 0, slot.width, slot.height);
+    ctx.fillStyle = isBig ? '#c084fc' : '#38bdf8';
+    for (let y = 0; y < slot.height; y++) {
+      for (let x = 0; x < slot.width; x++) {
+        if (grid.get(slot.x + x, slot.y + y)) ctx.fillRect(x, y, 1, 1);
+      }
+    }
+  }, [slot.x, slot.y, slot.width, slot.height, isBig, grid]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={slot.width}
+      height={slot.height}
+      style={{ width: slot.width * scale, height: slot.height * scale, imageRendering: 'pixelated' }}
+    />
+  );
+});
+
 export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
   fontGrid: propsFontGrid,
   onFontGridChange: propsOnFontGridChange,
@@ -315,24 +355,7 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
   }, [activeDisplayString, previewFontSize, fontGrid, fontMappings, userInput, findGlyphForChar]);
 
   const renderSlotThumb = (slot: GlyphSlot, isBig: boolean, scale = 2) => (
-    <canvas
-      width={slot.width}
-      height={slot.height}
-      style={{ width: slot.width * scale, height: slot.height * scale, imageRendering: 'pixelated' }}
-      ref={canvas => {
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-        ctx.fillStyle = '#101216';
-        ctx.fillRect(0, 0, slot.width, slot.height);
-        ctx.fillStyle = isBig ? '#c084fc' : '#38bdf8';
-        for (let y = 0; y < slot.height; y++) {
-          for (let x = 0; x < slot.width; x++) {
-            if (fontGrid.get(slot.x + x, slot.y + y)) ctx.fillRect(x, y, 1, 1);
-          }
-        }
-      }}
-    />
+    <SlotThumbnail slot={slot} isBig={isBig} scale={scale} grid={fontGrid} />
   );
 
   const assigningTargetMapping = assigningSlot

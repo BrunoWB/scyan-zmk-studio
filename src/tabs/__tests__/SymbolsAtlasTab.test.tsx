@@ -99,4 +99,20 @@ describe('SymbolsAtlasTab selected-slice-card', () => {
     expect(html).toContain('cursor-context-menu');
     expect(html).toContain('2 slices');
   });
+
+  it('renders memoized SliceThumbnail elements for each slice', () => {
+    const html = renderToString(
+      <SymbolsAtlasTab
+        symbolsGrid={dummyGrid}
+        onSymbolsGridChange={() => {}}
+        slices={sampleSlices}
+        onSlicesChange={() => {}}
+        initialSelectedSliceId="SYMBOL_BLUETOOTH"
+      />
+    );
+
+    // Verify slice-thumbnail-box containers are rendered with proper canvas
+    expect(html).toContain('slice-thumbnail-box');
+    expect(html).toContain('<canvas width="12" height="14"');
+  });
 });
