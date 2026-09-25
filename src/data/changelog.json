@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "2.0.5",
+        "date": "2026-09-25",
+        "commitHash": "a5d77f5",
+        "changes": [
+          "feat(editor): add round brush pencil variant as default and protect floodFill against unbounded void"
+        ]
+      },
+      {
         "patch": "2.0.4",
         "date": "2026-09-25",
         "commitHash": "6fada88",
