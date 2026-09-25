@@ -25,6 +25,7 @@ export interface GitHubState {
   isSaving: boolean;
   isInstallingStudio: boolean;
   isUninstallingStudio: boolean;
+  isSwitchingChannel: boolean;
   syncTrigger: number;
   autoSyncedRepo: string | null;
 
@@ -38,6 +39,7 @@ export interface GitHubState {
   setIsSaving: (isSaving: boolean) => void;
   setIsInstallingStudio: (isInstalling: boolean) => void;
   setIsUninstallingStudio: (isUninstalling: boolean) => void;
+  setIsSwitchingChannel: (isSwitching: boolean) => void;
   triggerSync: () => void;
   setAutoSyncedRepo: (repoKey: string | null) => void;
   testConnection: (cfg?: GitHubRepoConfig) => Promise<GitHubConnectionState>;
@@ -70,6 +72,7 @@ export const useGitHubStore = create<GitHubState>((set, get) => ({
   isSaving: false,
   isInstallingStudio: false,
   isUninstallingStudio: false,
+  isSwitchingChannel: false,
   syncTrigger: 0,
   autoSyncedRepo: null,
 
@@ -113,6 +116,8 @@ export const useGitHubStore = create<GitHubState>((set, get) => ({
   setIsInstallingStudio: (isInstallingStudio) => set({ isInstallingStudio }),
 
   setIsUninstallingStudio: (isUninstallingStudio) => set({ isUninstallingStudio }),
+
+  setIsSwitchingChannel: (isSwitchingChannel) => set({ isSwitchingChannel }),
 
   triggerSync: () => set((state) => ({ syncTrigger: state.syncTrigger + 1 })),
 

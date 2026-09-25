@@ -473,4 +473,118 @@ describe('HeaderBar disconnected-expanded and compact states', () => {
       expect(html).not.toContain('Unverified Selection');
     });
   });
+
+  describe('Module Channel Mismatch & Migration', () => {
+    const verifiedConfig: GitHubRepoConfig = {
+      owner: 'genteure',
+      repo: 'zmk-config',
+      branch: 'main',
+      token: 'github_pat_test',
+    };
+
+    const connectedState: GitHubConnectionState = {
+      status: 'connected',
+      user: { login: 'genteure', name: 'Genteure', avatarUrl: 'https://example.com/avatar.png' },
+      repo: { name: 'zmk-config', fullName: 'genteure/zmk-config', isPrivate: false, hasPushAccess: true, defaultBranch: 'main', description: null },
+      errorMessage: null,
+      lastCheckedAt: 123456789,
+      resolvedOwner: 'genteure',
+      resolvedRepo: 'zmk-config',
+    };
+
+    it('renders "Move to Stable" button in header and modal when repo has nightly module on stable studio', () => {
+      const prereqs = {
+        isInstalled: true,
+        hasWestModule: true,
+        hasKconfig: true,
+        hasAssetsHeader: true,
+        moduleRevision: 'nightly',
+      };
+
+      const html = renderToString(
+        <HeaderBar
+          {...baseProps}
+          config={verifiedConfig}
+          connection={connectedState}
+          repoPrereqs={prereqs}
+          isSettingsOpen={true}
+        />
+      );
+
+      // In Header bar & Settings modal
+      expect(html).toContain('Move to Stable');
+      expect(html).toContain('Nightly');
+      expect(html).toContain('Recommended:');
+      expect(html).toContain('Repository targets the nightly module, but you are on Stable Studio.');
+    });
+
+    it('renders "Move to Nightly" button in header and modal when repo has stable module on nightly studio', () => {
+      // Simulate nightly studio via location query param
+      const originalWindow = (globalThis as any).window;
+      (globalThis as any).window = {
+        location: {
+          pathname: '/scyan-zmk-studio/',
+          search: '?channel=nightly',
+        },
+      };
+
+      try {
+        const prereqs = {
+          isInstalled: true,
+          hasWestModule: true,
+          hasKconfig: true,
+          hasAssetsHeader: true,
+          moduleRevision: 'main',
+        };
+
+        const html = renderToString(
+          <HeaderBar
+            {...baseProps}
+            config={verifiedConfig}
+            connection={connectedState}
+            repoPrereqs={prereqs}
+            isSettingsOpen={true}
+          />
+        );
+
+        // In Header bar & Settings modal
+        expect(html).toContain('Move to Nightly');
+        expect(html).toContain('Stable');
+        expect(html).toContain('Recommended:');
+        expect(html).toContain('Repository targets the main (stable) module, but you are on Nightly Studio.');
+      } finally {
+        if (originalWindow !== undefined) {
+          (globalThis as any).window = originalWindow;
+        } else {
+          delete (globalThis as any).window;
+        }
+      }
+    });
+
+    it('renders manual channel toggle in settings modal when there is no mismatch', () => {
+      const prereqs = {
+        isInstalled: true,
+        hasWestModule: true,
+        hasKconfig: true,
+        hasAssetsHeader: true,
+        moduleRevision: 'main',
+      };
+
+      const html = renderToString(
+        <HeaderBar
+          {...baseProps}
+          config={verifiedConfig}
+          connection={connectedState}
+          repoPrereqs={prereqs}
+          isSettingsOpen={true}
+        />
+      );
+
+      // Header bar should not show the mismatch button
+      // (The only occurrence of 'Move to Nightly' will be in the settings modal)
+      expect(html).toContain('Move to Nightly');
+      expect(html).not.toContain('Recommended:');
+    });
+  });
 });
+

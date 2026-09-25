@@ -853,6 +853,7 @@ export interface RepoPrerequisites {
   hasWestModule: boolean;
   hasKconfig: boolean;
   hasAssetsHeader: boolean;
+  moduleRevision?: string;
   confPath?: string;
   candidateConfFiles?: string[];
   westPath?: string;
@@ -861,6 +862,63 @@ export interface RepoPrerequisites {
   existingConfContent?: string;
   existingWestContent?: string;
   buildYamlContent?: string;
+}
+
+export interface ChannelMismatchInfo {
+  hasMismatch: boolean;
+  isMovingToNightly: boolean;
+  isMovingToStable: boolean;
+  currentRepoRevision: string;
+  targetRevision: 'nightly' | 'main';
+  actionLabel: 'Move to Nightly' | 'Move to Stable';
+  badgeLabel: string;
+  description: string;
+}
+
+/**
+ * Detects whether the connected repository is moving TO or FROM nightly,
+ * and provides appropriate target channel migration actions.
+ */
+export function detectModuleChannelMismatch(
+  repoPrereqs: RepoPrerequisites | null | undefined,
+  currentStudioRevision?: string
+): ChannelMismatchInfo | null {
+  if (!repoPrereqs || !repoPrereqs.isInstalled || !repoPrereqs.hasWestModule) {
+    return null;
+  }
+
+  const studioRev = currentStudioRevision || getDefaultModuleRevision();
+  const isStudioNightly = studioRev === 'nightly';
+  const repoRev = repoPrereqs.moduleRevision || 'main';
+  const isRepoNightly = repoRev === 'nightly';
+
+  if (isStudioNightly && !isRepoNightly) {
+    return {
+      hasMismatch: true,
+      isMovingToNightly: true,
+      isMovingToStable: false,
+      currentRepoRevision: repoRev,
+      targetRevision: 'nightly',
+      actionLabel: 'Move to Nightly',
+      badgeLabel: 'Stable Module',
+      description: `Repository targets the ${repoRev} (stable) module, but you are on Nightly Studio.`,
+    };
+  }
+
+  if (!isStudioNightly && isRepoNightly) {
+    return {
+      hasMismatch: true,
+      isMovingToNightly: false,
+      isMovingToStable: true,
+      currentRepoRevision: repoRev,
+      targetRevision: 'main',
+      actionLabel: 'Move to Stable',
+      badgeLabel: 'Nightly Module',
+      description: 'Repository targets the nightly module, but you are on Stable Studio.',
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -902,6 +960,7 @@ export async function checkRepoPrerequisites(
   let hasWestModule = false;
   let hasKconfig = false;
   let hasAssetsHeader = false;
+  let moduleRevision: string | undefined = undefined;
   let confPath = 'config/corne.conf';
   let westPath = 'config/west.yml';
   let headerPath = 'config/scyan_assets.h';
@@ -926,13 +985,27 @@ export async function checkRepoPrerequisites(
           const parsedManifest = YAML.parse(decoded);
           const projects = parsedManifest?.manifest?.projects;
           if (Array.isArray(projects)) {
-            hasWestModule = projects.some((proj: any) => proj?.name === 'scyan-zmk-module');
+            const scyanProj = projects.find((proj: any) => proj?.name === 'scyan-zmk-module');
+            if (scyanProj) {
+              hasWestModule = true;
+              moduleRevision = scyanProj.revision ? String(scyanProj.revision).trim() : 'main';
+            } else {
+              hasWestModule = false;
+            }
           } else {
             hasWestModule = false;
           }
         } catch {
           // Fallback if YAML parsing errors
           hasWestModule = decoded.includes('scyan-zmk-module');
+          if (hasWestModule) {
+            const match = decoded.match(/name:\s*['"]?scyan-zmk-module['"]?[\s\S]*?revision:\s*['"]?([^\s'"#]+)['"]?/);
+            if (match) {
+              moduleRevision = match[1].trim();
+            } else {
+              moduleRevision = 'main';
+            }
+          }
         }
         break;
       }
@@ -1040,6 +1113,7 @@ export async function checkRepoPrerequisites(
     hasWestModule,
     hasKconfig,
     hasAssetsHeader,
+    moduleRevision,
     confPath,
     candidateConfFiles,
     westPath,
@@ -1258,11 +1332,19 @@ export async function installScyanStudioToRepo(
  * Gets the default scyan-zmk-module revision based on the active build channel (nightly vs main).
  */
 export function getDefaultModuleRevision(): string {
+  if (typeof window !== 'undefined') {
+    if (window.location.search.includes('channel=nightly')) {
+      return 'nightly';
+    }
+    if (window.location.search.includes('channel=main') || window.location.search.includes('channel=stable')) {
+      return 'main';
+    }
+    if (window.location.pathname.includes('/nightly')) {
+      return 'nightly';
+    }
+  }
   if (typeof __MODULE_DEFAULT_REVISION__ !== 'undefined' && __MODULE_DEFAULT_REVISION__) {
     return __MODULE_DEFAULT_REVISION__;
-  }
-  if (typeof window !== 'undefined' && window.location.pathname.includes('/nightly/')) {
-    return 'nightly';
   }
   return 'main';
 }
@@ -1362,9 +1444,54 @@ export function injectScyanIntoWest(content: string, targetRevision?: string): s
 
     return doc.toString();
   } catch (err) {
-    console.warn('[injectScyanIntoWest] AST manipulation failed, returning original:', err);
+    console.warn('[injectScyanIntoWest] AST manipulation failed, falling back:', err);
+    if (content.includes('scyan-zmk-module')) {
+      if (/revision:\s*['"]?[^\s'"#]+['"]?/.test(content)) {
+        return content.replace(
+          /(name:\s*['"]?scyan-zmk-module['"]?[\s\S]*?revision:\s*['"]?)[^\s'"#]+(['"]?)/,
+          `$1${revision}$2`
+        );
+      }
+    }
     return content;
   }
+}
+
+/**
+ * Updates scyan-zmk-module in west.yml to target a specific channel revision (e.g. 'nightly' or 'main')
+ * and commits the change atomically to the repository.
+ */
+export async function updateModuleRevision(
+  config: GitHubRepoConfig,
+  targetRevision: 'nightly' | 'main' | string
+): Promise<{ commitSha: string; commitUrl: string }> {
+  if (!config.token || !config.owner || !config.repo) {
+    throw new Error('Repository is not configured.');
+  }
+
+  const prereqs = await checkRepoPrerequisites(config);
+  const westPath = prereqs.westPath || 'config/west.yml';
+  const existingWest = prereqs.existingWestContent || '';
+
+  const newWestContent = injectScyanIntoWest(existingWest, targetRevision);
+
+  const commitLabel = targetRevision === 'nightly' ? 'nightly' : 'stable';
+  const commitRes = await commitChangesWithFallback({
+    config,
+    message: `${STUDIO_COMMIT_PREFIX}Move to ${commitLabel} module (${targetRevision})`,
+    additions: [
+      {
+        path: westPath,
+        content: newWestContent,
+      },
+    ],
+    deletions: [],
+  });
+
+  return {
+    commitSha: commitRes.commitSha,
+    commitUrl: commitRes.commitUrl,
+  };
 }
 
 /**

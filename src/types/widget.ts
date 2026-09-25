@@ -53,7 +53,7 @@ export interface WidgetInstanceConfig {
   bongoDebounceMs?: number;       // Debounce interval in ms (default 100)
   loopSpeedMs?: number;           // Animation frame duration in ms for Animation widget (default 250)
   loop?: boolean;                  // Whether animation loops indefinitely (default true) or stops at the last frame
-  syncAnimation?: boolean;        // Synchronize animation frames across split displays (mode = 1)
+  syncAnimation?: boolean;         // Phase-locked deterministic synchronization across split displays
   typewriterMode?: TypewriterMode;          // Mode: 'inline', 'spot', or 'random'
   typewriterDirection?: TypewriterDirection;// Direction for inline: 'we', 'ew', 'ns', or 'sn'
   typewriterCleaning?: number;              // 0 = off, >0 = cleanup interval / wipe delay in seconds
