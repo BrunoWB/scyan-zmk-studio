@@ -1,7 +1,13 @@
 import React, { useState } from 'react';
-import { Zap, RefreshCw, X, CheckCircle2, RotateCcw } from 'lucide-react';
+import { Zap, RefreshCw, AlertTriangle, X, CheckCircle2, RotateCcw } from 'lucide-react';
 
-export type PlacementWarningType = 'idle-interactive' | 'sync-animation';
+export type PlacementWarningType = 'peripheral-master' | 'idle-interactive' | 'sync-animation';
+
+export const PLACEMENT_WARNING_SUPPRESS_KEYS: Record<PlacementWarningType, string> = {
+  'peripheral-master': 'scyan_suppress_peripheral_master_modal',
+  'idle-interactive': 'scyan_suppress_idle_interactive_modal',
+  'sync-animation': 'scyan_suppress_sync_animation_modal',
+};
 
 export interface PlacementWarningModalProps {
   isOpen: boolean;
@@ -25,9 +31,34 @@ const CONTENT: Record<
     title: string;
     subtitle: (widgetName: string) => string;
     body: React.ReactNode;
-    suppressKey: string;
   }
 > = {
+  'peripheral-master': {
+    icon: <AlertTriangle size={20} />,
+    accentColor: '#f2741d',
+    accentBg: 'rgba(242,116,29,0.15)',
+    accentBorder: 'rgba(242,116,29,0.4)',
+    accentShadow: 'rgba(242,116,29,0.15)',
+    keepLabel: 'Keep Widget',
+    keepGradient: 'from-[#f2741d] to-[#e35913] hover:from-[#f59442] hover:to-[#f2741d]',
+    keepShadow: 'rgba(242,116,29,0.35)',
+    title: 'Just a heads up!',
+    subtitle: (n) => `${n} on the right side`,
+    body: (
+      <>
+        <p className="text-[#cbd5e1] text-xs leading-relaxed">
+          The secondary half of a split keyboard usually doesn't receive live updates from your
+          computer (like battery, active layer, or Bluetooth status).
+        </p>
+        <p className="text-[#94a3b8] text-xs leading-relaxed mt-2">
+          You can still place it here, but it might not update in real time. We marked it with a
+          small <span className="text-[#f2741d] font-bold">(!)</span> badge on your preview as a
+          reminder.
+        </p>
+      </>
+    ),
+  },
+
   'idle-interactive': {
     icon: <Zap size={20} />,
     accentColor: '#f59e0b',
@@ -53,8 +84,8 @@ const CONTENT: Record<
         </p>
       </>
     ),
-    suppressKey: 'scyan_suppress_idle_interactive_modal',
   },
+
   'sync-animation': {
     icon: <RefreshCw size={20} />,
     accentColor: '#22d3ee',
@@ -86,7 +117,6 @@ const CONTENT: Record<
         </p>
       </>
     ),
-    suppressKey: 'scyan_suppress_sync_animation_modal',
   },
 };
 
@@ -112,7 +142,7 @@ export const PlacementWarningModal: React.FC<PlacementWarningModalProps> = ({
       aria-labelledby="placement-warning-title"
     >
       <div
-        className="bg-[#131722] rounded-2xl w-full max-w-md overflow-hidden shadow-[0_16px_48px_rgba(0,0,0,0.85)] flex flex-col"
+        className="bg-[#131722] rounded-2xl w-full max-w-md overflow-hidden flex flex-col"
         style={{
           border: `1px solid ${c.accentBorder}`,
           boxShadow: `0 16px 48px rgba(0,0,0,0.85), 0 0 24px ${c.accentShadow}`,

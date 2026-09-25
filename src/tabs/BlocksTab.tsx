@@ -13,8 +13,7 @@ import { getWidgetNaturalSize, resolveWidgetInstance, normalizeWidgetType } from
 import { OledPanelColumn } from './blocks/OledPanelColumn';
 import { WidgetCatalogList } from './blocks/WidgetCatalogList';
 import { GhostDragOverlay } from './blocks/GhostDragOverlay';
-import { PeripheralMasterWarningModal } from './blocks/PeripheralMasterWarningModal';
-import { PlacementWarningModal } from './blocks/PlacementWarningModal';
+import { PlacementWarningModal, PLACEMENT_WARNING_SUPPRESS_KEYS } from './blocks/PlacementWarningModal';
 import type { PlacementWarningType } from './blocks/PlacementWarningModal';
 import { SideSettingsPanel } from '../components/ScreenSizePopover';
 import { trackEvent } from '../services/analytics';
@@ -204,7 +203,6 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   const storeFontGlyphs = useAtlasStore((s) => s.fontGlyphs);
   const storeFontMappings = useAtlasStore((s) => s.fontMappings);
   const storeCustomText = useUiStore((s) => s.customText);
-  const showToast = useUiStore((s) => s.showToast);
 
   const storeCentralBlocks = useLayoutStore((s) => s.centralBlocks);
   const storeSetCentralBlocks = useLayoutStore((s) => s.setCentralBlocks);
@@ -1060,45 +1058,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   // Drag-and-drop state from center widget catalog to OLED panels
   const [dragState, setDragState] = useState<DragWidgetState | null>(null);
 
-  // Warning modal when master widget is placed on peripheral side
-  const [warningModalState, setWarningModalState] = useState<{
-    isOpen: boolean;
-    widgetName: string;
-    blockId: string;
-    side: 'central' | 'peripheral' | string;
-    targetMode: 'active' | 'idle';
-  } | null>(null);
-
-  const checkPeripheralMasterWarning = useCallback(
-    (widget: DisplayWidgetDefinition, side: 'central' | 'peripheral' | string, blockId: string, targetMode: 'active' | 'idle') => {
-      // In our dynamic layout architecture:
-      // Central display is always Master. Any display on peripheral is Peripheral.
-      const isPeripheral = side !== 'central' && side !== 'left';
-
-      if (isPeripheral && widget.requiresMaster) {
-        const isSuppressed = typeof window !== 'undefined' && localStorage.getItem('scyan_suppress_peripheral_master_modal') === 'true';
-        if (!isSuppressed) {
-          setWarningModalState({
-            isOpen: true,
-            widgetName: widget.name,
-            blockId,
-            side,
-            targetMode,
-          });
-        }
-      }
-    },
-    []
-  );
-
-  const handleDismissWarningModal = useCallback((dontShowAgain: boolean) => {
-    if (dontShowAgain && typeof window !== 'undefined') {
-      localStorage.setItem('scyan_suppress_peripheral_master_modal', 'true');
-    }
-    setWarningModalState(null);
-  }, []);
-
-  // Placement warning modal for idle-interactive / sync-animation
+  // Unified placement warning modal (peripheral-master, idle-interactive, sync-animation)
   const [placementModalState, setPlacementModalState] = useState<{
     isOpen: boolean;
     type: PlacementWarningType;
@@ -1116,22 +1076,57 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       targetMode: 'active' | 'idle',
       activeInstance: { config?: { syncAnimation?: boolean } } | null | undefined,
     ) => {
-      if (targetMode === 'idle' && widget.isInteractive) {
-        const key = 'scyan_suppress_idle_interactive_modal';
+      // 1. Central / Master widget placed on peripheral side
+      const isPeripheral = side !== 'central' && side !== 'left';
+      if (isPeripheral && widget.requiresMaster) {
+        const key = PLACEMENT_WARNING_SUPPRESS_KEYS['peripheral-master'];
         const isSuppressed = typeof window !== 'undefined' && localStorage.getItem(key) === 'true';
         if (!isSuppressed) {
-          setPlacementModalState({ isOpen: true, type: 'idle-interactive', widgetName: widget.name, blockId, side, targetMode });
+          setPlacementModalState({
+            isOpen: true,
+            type: 'peripheral-master',
+            widgetName: widget.name,
+            blockId,
+            side,
+            targetMode,
+          });
           return;
         }
       }
+
+      // 2. Active / interactive widget placed on idle screen
+      if (targetMode === 'idle' && widget.isInteractive) {
+        const key = PLACEMENT_WARNING_SUPPRESS_KEYS['idle-interactive'];
+        const isSuppressed = typeof window !== 'undefined' && localStorage.getItem(key) === 'true';
+        if (!isSuppressed) {
+          setPlacementModalState({
+            isOpen: true,
+            type: 'idle-interactive',
+            widgetName: widget.name,
+            blockId,
+            side,
+            targetMode,
+          });
+          return;
+        }
+      }
+
+      // 3. Split-synchronized animation uptime requirement
       if (
         (widget.id === 'animation' || normalizeWidgetType(widget.id) === 'animation') &&
         activeInstance?.config?.syncAnimation
       ) {
-        const key = 'scyan_suppress_sync_animation_modal';
+        const key = PLACEMENT_WARNING_SUPPRESS_KEYS['sync-animation'];
         const isSuppressed = typeof window !== 'undefined' && localStorage.getItem(key) === 'true';
         if (!isSuppressed) {
-          setPlacementModalState({ isOpen: true, type: 'sync-animation', widgetName: widget.name, blockId, side, targetMode });
+          setPlacementModalState({
+            isOpen: true,
+            type: 'sync-animation',
+            widgetName: widget.name,
+            blockId,
+            side,
+            targetMode,
+          });
         }
       }
     },
@@ -1140,9 +1135,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
 
   const handleDismissPlacementModal = useCallback((dontShowAgain: boolean) => {
     if (dontShowAgain && placementModalState && typeof window !== 'undefined') {
-      const key = placementModalState.type === 'idle-interactive'
-        ? 'scyan_suppress_idle_interactive_modal'
-        : 'scyan_suppress_sync_animation_modal';
+      const key = PLACEMENT_WARNING_SUPPRESS_KEYS[placementModalState.type];
       localStorage.setItem(key, 'true');
     }
     setPlacementModalState(null);
@@ -1151,9 +1144,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   const handleRemovePlacementWidget = useCallback(
     (dontShowAgain: boolean) => {
       if (dontShowAgain && placementModalState && typeof window !== 'undefined') {
-        const key = placementModalState.type === 'idle-interactive'
-          ? 'scyan_suppress_idle_interactive_modal'
-          : 'scyan_suppress_sync_animation_modal';
+        const key = PLACEMENT_WARNING_SUPPRESS_KEYS[placementModalState.type];
         localStorage.setItem(key, 'true');
       }
       if (placementModalState) {
@@ -1172,29 +1163,6 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       setPlacementModalState(null);
     },
     [placementModalState, getSideConfig, selectedBlockId]
-  );
-
-  const handleRemoveWarningWidget = useCallback(
-    (dontShowAgain: boolean) => {
-      if (dontShowAgain && typeof window !== 'undefined') {
-        localStorage.setItem('scyan_suppress_peripheral_master_modal', 'true');
-      }
-      if (warningModalState) {
-        const { blockId, side, targetMode } = warningModalState;
-        const cfg = getSideConfig(side);
-        if (targetMode === 'active') {
-          cfg.onBlocksChange(cfg.blocks.filter(b => b.id !== blockId));
-        } else {
-          cfg.onIdleBlocksChange(cfg.idleBlocks.filter(b => b.id !== blockId));
-        }
-        if (selectedBlockId === blockId) {
-          setSelectedBlockId(null);
-          setSelectedBlockSide(null);
-        }
-      }
-      setWarningModalState(null);
-    },
-    [warningModalState, getSideConfig, selectedBlockId]
   );
 
   // Screen DOM element registration for precise drag hit-testing
@@ -1278,12 +1246,9 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       setSelectedBlockSide(side);
       setSelectedBlockKind(targetMode);
       setSelectedBlockId(newBlock.id);
-      if (side !== 'central' && side !== 'left') {
-        checkPeripheralMasterWarning(widget, side, newBlock.id, targetMode);
-      }
       checkPlacementWarning(widget, side, newBlock.id, targetMode, activeInstance);
     },
-    [getSideConfig, getScreenMode, instances, symbolSlices, fontGlyphs, fontMappings, checkPeripheralMasterWarning, checkPlacementWarning]
+    [getSideConfig, getScreenMode, instances, symbolSlices, fontGlyphs, fontMappings, checkPlacementWarning]
   );
 
   // Window listeners during active ghost drag
@@ -1384,9 +1349,6 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         setSelectedBlockSide(side);
         setSelectedBlockKind(targetMode);
         setSelectedBlockId(newBlock.id);
-        if (side !== 'central' && side !== 'left') {
-          checkPeripheralMasterWarning(active.widget, side, newBlock.id, targetMode);
-        }
         checkPlacementWarning(active.widget, side, newBlock.id, targetMode, activeInstance);
       }
 
@@ -1411,7 +1373,6 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     instances,
     fontGlyphs,
     fontMappings,
-    checkPeripheralMasterWarning,
     checkPlacementWarning,
   ]);
 
@@ -1755,17 +1716,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
           />
         )}
 
-        {/* Master Widget on Peripheral Half Warning Modal */}
-        {warningModalState && (
-          <PeripheralMasterWarningModal
-            isOpen={warningModalState.isOpen}
-            widgetName={warningModalState.widgetName}
-            onDismiss={handleDismissWarningModal}
-            onRemove={handleRemoveWarningWidget}
-          />
-        )}
-
-        {/* Idle-Interactive / Sync-Animation Placement Warning Modal */}
+        {/* Placement Warning Modal (Peripheral Master / Idle-Interactive / Sync-Animation) */}
         {placementModalState && (
           <PlacementWarningModal
             isOpen={placementModalState.isOpen}

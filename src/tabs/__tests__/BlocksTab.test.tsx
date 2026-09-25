@@ -1,10 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { BlocksTab } from '../BlocksTab';
 import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import type { LayoutBlock } from '../../types/zmk';
 import { useLayoutStore } from '../../stores/useLayoutStore';
-import { useUiStore } from '../../stores/useUiStore';
 import { getWidgetDefinition, normalizeWidgetType } from '../../services/widgetRegistry';
 
 describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
