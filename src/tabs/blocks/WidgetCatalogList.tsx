@@ -268,15 +268,13 @@ export const WidgetCatalogList: React.FC<WidgetCatalogListProps> = ({
                       </span>
                     )}
                     {widget.isInteractive && (
-                      <span className="badge-active badge-active--tile" title="Active (interactive widget)">
+                      <span className="badge-active badge-active--tile" title="Active — responds interactively to keystrokes or typing events">
                         <Zap size={9} className="shrink-0" />
-                        Active
                       </span>
                     )}
                     {inst.config?.syncAnimation && (
-                      <span className="badge-synced badge-synced--tile" title="Split-synchronized animation">
+                      <span className="badge-synced badge-synced--tile" title="Synced — phase-locked to MCU uptime across split displays">
                         <RefreshCw size={9} className="shrink-0" />
-                        Synced
                       </span>
                     )}
                   </div>
