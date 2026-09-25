@@ -853,6 +853,7 @@ export interface RepoPrerequisites {
   hasWestModule: boolean;
   hasKconfig: boolean;
   hasAssetsHeader: boolean;
+  moduleRevision?: string;
   confPath?: string;
   candidateConfFiles?: string[];
   westPath?: string;
@@ -861,6 +862,458 @@ export interface RepoPrerequisites {
   existingConfContent?: string;
   existingWestContent?: string;
   buildYamlContent?: string;
+}
+
+export interface ChannelMismatchInfo {
+  hasMismatch: boolean;
+  isMovingToNightly: boolean;
+  isMovingToStable: boolean;
+  currentRepoRevision: string;
+  targetRevision: 'nightly' | 'main';
+  actionLabel: 'Move to Nightly' | 'Move to Stable';
+  badgeLabel: string;
+  description: string;
+}
+
+/**
+ * Detects whether the connected repository is moving TO or FROM nightly,
+ * and provides appropriate target channel migration actions.
+ */
+export function detectModuleChannelMismatch(
+  repoPrereqs: RepoPrerequisites | null | undefined,
+  currentStudioRevision?: string
+): ChannelMismatchInfo | null {
+  if (!repoPrereqs || !repoPrereqs.isInstalled || !repoPrereqs.hasWestModule) {
+    return null;
+  }
+
+  const studioRev = currentStudioRevision || getDefaultModuleRevision();
+  const isStudioNightly = studioRev === 'nightly';
+  const repoRev = repoPrereqs.moduleRevision || 'main';
+  const isRepoNightly = repoRev === 'nightly';
+
+  if (isStudioNightly && !isRepoNightly) {
+    return {
+      hasMismatch: true,
+      isMovingToNightly: true,
+      isMovingToStable: false,
+      currentRepoRevision: repoRev,
+      targetRevision: 'nightly',
+      actionLabel: 'Move to Nightly',
+      badgeLabel: 'Stable Module',
+      description: `Repository targets the ${repoRev} (stable) module, but you are on Nightly Studio.`,
+    };
+  }
+
+  if (!isStudioNightly && isRepoNightly) {
+    return {
+      hasMismatch: true,
+      isMovingToNightly: false,
+      isMovingToStable: true,
+      currentRepoRevision: repoRev,
+      targetRevision: 'main',
+      actionLabel: 'Move to Stable',
+      badgeLabel: 'Nightly Module',
+      description: 'Repository targets the nightly module, but you are on Stable Studio.',
+    };
+  }
+
+  return null;
+}
+
+export const SCYAN_CONF_MARKER_BEGIN = '# === SCYAN-STUDIO:BEGIN (DO NOT EDIT) ===';
+export const SCYAN_CONF_MARKER_END = '# === SCYAN-STUDIO:END ===';
+export const SCYAN_CONF_BLOCK_REGEX = /#[ \t]*===[ \t]*SCYAN-STUDIO:BEGIN[^\n]*?[\s\S]*?#[ \t]*===[ \t]*SCYAN-STUDIO:END[^\n]*/;
+
+export interface FormatScyanConfBlockOptions {
+  includeDisplayDefaults?: boolean;
+}
+
+/**
+ * Formats key=value settings into an isolated, delimited Scyan Studio .conf block.
+ * When options.includeDisplayDefaults is true, default display and custom status screen flags
+ * are pre-populated.
+ */
+export function formatScyanConfBlock(
+  settings: Record<string, string | number | boolean>,
+  options?: FormatScyanConfBlockOptions
+): string {
+  const mergedSettings: Record<string, string | number | boolean> = {};
+
+  if (options?.includeDisplayDefaults) {
+    mergedSettings['CONFIG_ZMK_DISPLAY'] = 'y';
+    mergedSettings['CONFIG_ZMK_DISPLAY_WORK_QUEUE_DEDICATED'] = 'y';
+    mergedSettings['CONFIG_ZMK_DISPLAY_DEDICATED_THREAD_PRIORITY'] = 10;
+    mergedSettings['CONFIG_ZMK_DISPLAY_BLANK_ON_IDLE'] = 'y';
+    mergedSettings['CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM'] = 'y';
+    mergedSettings['CONFIG_ZMK_DISPLAY_STATUS_SCREEN_BUILT_IN'] = 'n';
+    mergedSettings['CONFIG_LV_USE_CANVAS'] = 'y';
+    mergedSettings['CONFIG_LV_USE_IMG'] = 'y';
+    mergedSettings['CONFIG_SCYAN_INVERT'] = 'y';
+  }
+
+  for (const [k, v] of Object.entries(settings)) {
+    mergedSettings[k] = v;
+  }
+
+  const lines: string[] = [SCYAN_CONF_MARKER_BEGIN];
+  for (const [key, value] of Object.entries(mergedSettings)) {
+    const formattedVal = typeof value === 'boolean' ? (value ? 'y' : 'n') : value;
+    lines.push(`${key}=${formattedVal}`);
+  }
+  lines.push(SCYAN_CONF_MARKER_END);
+
+  return lines.join('\n');
+}
+
+/**
+ * Cleans legacy un-delimited Scyan flags and comments from a string of lines.
+ */
+function cleanLegacyScyanConfLines(content: string): string {
+  const lines = content.split(/\r?\n/);
+  const filtered = lines.filter(line => {
+    const trimmed = line.trim();
+    if (/^#?\s*CONFIG_SCYAN_/i.test(trimmed)) return false;
+    if (/^#?\s*CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM\b/i.test(trimmed)) return false;
+    if (/^#?\s*CONFIG_ZMK_DISPLAY_STATUS_SCREEN_BUILT_IN\b/i.test(trimmed)) return false;
+    if (/^#?\s*CONFIG_LV_USE_CANVAS\b/i.test(trimmed)) return false;
+    if (/^#?\s*CONFIG_LV_USE_IMG\b/i.test(trimmed)) return false;
+    if (/^#\s*(Custom status screen|Scyan ZMK Display Module)/i.test(trimmed)) return false;
+    if (/^#[ \t]*===[ \t]*SCYAN-STUDIO:(?:BEGIN|END)/i.test(trimmed)) return false;
+    return true;
+  });
+  return filtered.join('\n').replace(/(?:\r?\n[ \t]*){3,}/g, '\n\n').trim();
+}
+
+/**
+ * Removes legacy un-delimited Scyan flags like CONFIG_SCYAN_*,
+ * CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM, etc.
+ * If a delimited Scyan block is present, content inside the block is preserved.
+ */
+export function cleanLegacyScyanConf(content: string): string {
+  const blockMatch = content.match(SCYAN_CONF_BLOCK_REGEX);
+  if (blockMatch) {
+    const block = blockMatch[0];
+    const before = content.slice(0, blockMatch.index);
+    const after = content.slice((blockMatch.index ?? 0) + block.length);
+    const cleanedBefore = cleanLegacyScyanConfLines(before);
+    const cleanedAfter = cleanLegacyScyanConfLines(after);
+
+    const parts = [cleanedBefore, block, cleanedAfter].filter(Boolean);
+    return parts.join('\n\n').trimEnd() + '\n';
+  }
+
+  const cleaned = cleanLegacyScyanConfLines(content);
+  return cleaned ? `${cleaned}\n` : '';
+}
+
+/**
+ * Extracts legacy un-delimited Scyan settings from content outside of delimited blocks.
+ */
+export function extractLegacyScyanSettings(content: string): {
+  cleaned: string;
+  settings: Record<string, string>;
+} {
+  const settings: Record<string, string> = {};
+  const lines = content.split(/\r?\n/);
+  const keptLines: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const isScyanKey =
+      /^CONFIG_SCYAN_/i.test(trimmed) ||
+      /^CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM\b/i.test(trimmed) ||
+      /^CONFIG_ZMK_DISPLAY_STATUS_SCREEN_BUILT_IN\b/i.test(trimmed) ||
+      /^CONFIG_LV_USE_CANVAS\b/i.test(trimmed) ||
+      /^CONFIG_LV_USE_IMG\b/i.test(trimmed);
+
+    if (isScyanKey && trimmed.includes('=')) {
+      const eqIdx = trimmed.indexOf('=');
+      const key = trimmed.slice(0, eqIdx).trim().replace(/^#\s*/, '');
+      const val = trimmed.slice(eqIdx + 1).trim();
+      if (key && !line.trim().startsWith('#')) {
+        settings[key] = val;
+      }
+    } else if (/^#\s*(Custom status screen|Scyan ZMK Display Module)/i.test(trimmed)) {
+      // drop legacy Scyan header comment
+    } else {
+      keptLines.push(line);
+    }
+  }
+
+  const cleaned = keptLines.join('\n').replace(/(?:\r?\n[ \t]*){3,}/g, '\n\n').trim();
+  return { cleaned, settings };
+}
+
+/**
+ * Parses key-value pairs from inside a delimited Scyan .conf block.
+ */
+export function parseKconfigBlock(blockContent: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  const lines = blockContent.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    const key = trimmed.slice(0, eqIdx).trim();
+    const val = trimmed.slice(eqIdx + 1).trim();
+    if (key) {
+      result[key] = val;
+    }
+  }
+  return result;
+}
+
+/**
+ * Removes custom Scyan display configs, overrides, and delimited blocks from a .conf file.
+ * Leaves generic display configurations (like SSD1306, work queue, etc.) intact.
+ */
+export function removeScyanFromConf(content: string): string {
+  // 1. Remove delimited SCYAN-STUDIO block if present
+  const cleaned = content.replace(new RegExp(SCYAN_CONF_BLOCK_REGEX.source, 'g'), '');
+
+  // 2. Clean legacy un-delimited Scyan flags
+  const lines = cleanLegacyScyanConfLines(cleaned);
+  return lines ? `${lines}\n` : '';
+}
+
+/**
+ * Injects or updates a delimited Scyan block in .conf content.
+ * Preserves user settings and comments outside the block, and cleans up legacy un-delimited flags.
+ */
+export function injectOrUpdateConfBlock(content: string, block: string): string {
+  const trimmedBlock = block.trim();
+
+  // If block is empty, cleanly remove the block if present
+  if (!trimmedBlock) {
+    return removeScyanFromConf(content);
+  }
+
+  // 1. If content already has the SCYAN-STUDIO conf block, replace it
+  if (SCYAN_CONF_BLOCK_REGEX.test(content)) {
+    let replaced = false;
+    let updated = content.replace(new RegExp(SCYAN_CONF_BLOCK_REGEX.source, 'g'), () => {
+      if (!replaced) {
+        replaced = true;
+        return trimmedBlock;
+      }
+      return '';
+    });
+    updated = cleanLegacyScyanConf(updated);
+    return updated.trimEnd() + '\n';
+  }
+
+  // 2. If no block yet, clean legacy un-delimited Scyan flags first
+  const cleaned = cleanLegacyScyanConf(content).trim();
+  if (!cleaned) {
+    return `${trimmedBlock}\n`;
+  }
+  return `${cleaned}\n\n${trimmedBlock}\n`;
+}
+
+/**
+ * Migrates legacy un-delimited Scyan configs into a delimited Scyan block.
+ */
+export function migrateLegacyConfToBlock(content: string): { updated: string; changed: boolean } {
+  const blockMatch = content.match(SCYAN_CONF_BLOCK_REGEX);
+  if (blockMatch) {
+    const block = blockMatch[0];
+    const before = content.slice(0, blockMatch.index);
+    const after = content.slice((blockMatch.index ?? 0) + block.length);
+
+    const extractedBefore = extractLegacyScyanSettings(before);
+    const extractedAfter = extractLegacyScyanSettings(after);
+
+    const hadLegacyOutside =
+      Object.keys(extractedBefore.settings).length > 0 ||
+      Object.keys(extractedAfter.settings).length > 0;
+
+    if (!hadLegacyOutside) {
+      return { updated: content, changed: false };
+    }
+
+    const blockSettings = parseKconfigBlock(block);
+    Object.assign(blockSettings, extractedBefore.settings, extractedAfter.settings);
+
+    const newBlock = formatScyanConfBlock(blockSettings);
+    const cleanedBefore = extractedBefore.cleaned.trim();
+    const cleanedAfter = extractedAfter.cleaned.trim();
+
+    const parts = [cleanedBefore, newBlock, cleanedAfter].filter(Boolean);
+    const updated = parts.join('\n\n').trimEnd() + '\n';
+    return { updated, changed: true };
+  }
+
+  const extracted = extractLegacyScyanSettings(content);
+  if (Object.keys(extracted.settings).length === 0) {
+    return { updated: content, changed: false };
+  }
+
+  const block = formatScyanConfBlock(extracted.settings);
+  const updated = injectOrUpdateConfBlock(extracted.cleaned, block);
+  return { updated, changed: true };
+}
+
+/**
+ * Updates CONFIG_ZMK_IDLE_TIMEOUT inside the isolated Scyan conf block.
+ * Preserves all user configurations outside the block and cleanly migrates legacy un-delimited flags.
+ */
+export function updateConfTimeoutSetting(
+  content: string,
+  targetTimeoutMs: number
+): { updated: string; changed: boolean } {
+  const blockMatch = content.match(SCYAN_CONF_BLOCK_REGEX);
+
+  if (blockMatch) {
+    const block = blockMatch[0];
+    const before = content.slice(0, blockMatch.index);
+    const after = content.slice((blockMatch.index ?? 0) + block.length);
+
+    // Extract any legacy settings from outside the block
+    const extractedBefore = extractLegacyScyanSettings(before);
+    const extractedAfter = extractLegacyScyanSettings(after);
+    const legacyTimeoutBefore = removeKconfigSetting(extractedBefore.cleaned, 'CONFIG_ZMK_IDLE_TIMEOUT');
+    const legacyTimeoutAfter = removeKconfigSetting(extractedAfter.cleaned, 'CONFIG_ZMK_IDLE_TIMEOUT');
+
+    const hadLegacyOutside =
+      Object.keys(extractedBefore.settings).length > 0 ||
+      Object.keys(extractedAfter.settings).length > 0 ||
+      legacyTimeoutBefore.changed ||
+      legacyTimeoutAfter.changed;
+
+    // Parse existing block settings
+    const blockSettings = parseKconfigBlock(block);
+
+    // Merge any extracted legacy settings into blockSettings
+    Object.assign(blockSettings, extractedBefore.settings, extractedAfter.settings);
+
+    const currentTimeoutInBlock = blockSettings['CONFIG_ZMK_IDLE_TIMEOUT'];
+    const timeoutChanged = currentTimeoutInBlock !== String(targetTimeoutMs);
+
+    if (!timeoutChanged && !hadLegacyOutside) {
+      return { updated: content, changed: false };
+    }
+
+    blockSettings['CONFIG_ZMK_IDLE_TIMEOUT'] = String(targetTimeoutMs);
+
+    const newBlock = formatScyanConfBlock(blockSettings);
+
+    const cleanedBefore = legacyTimeoutBefore.updated.trim();
+    const cleanedAfter = legacyTimeoutAfter.updated.trim();
+
+    const parts = [cleanedBefore, newBlock, cleanedAfter].filter(Boolean);
+    const updated = parts.join('\n\n').trimEnd() + '\n';
+
+    return { updated, changed: true };
+  }
+
+  // No block exists currently.
+  // Check if un-delimited active CONFIG_ZMK_IDLE_TIMEOUT already matches target timeout
+  const activeMatch = content.match(/^\s*CONFIG_ZMK_IDLE_TIMEOUT\s*=\s*(\d+)/m);
+  const currentTimeout = activeMatch ? parseInt(activeMatch[1], 10) : null;
+
+  // Check if legacy Scyan settings exist
+  const extracted = extractLegacyScyanSettings(content);
+  const hasLegacyScyanFlags = Object.keys(extracted.settings).length > 0;
+
+  if (currentTimeout === targetTimeoutMs && !hasLegacyScyanFlags) {
+    // Already matches and no legacy Scyan flags to migrate
+    return { updated: content, changed: false };
+  }
+
+  // Remove legacy timeout line from cleaned content
+  const cleanedContent = removeKconfigSetting(extracted.cleaned, 'CONFIG_ZMK_IDLE_TIMEOUT').updated.trim();
+
+  // Create new block
+  const blockSettings: Record<string, string | number | boolean> = {
+    ...extracted.settings,
+    CONFIG_ZMK_IDLE_TIMEOUT: targetTimeoutMs,
+  };
+  const newBlock = formatScyanConfBlock(blockSettings);
+
+  const updated = cleanedContent ? `${cleanedContent}\n\n${newBlock}\n` : `${newBlock}\n`;
+  return { updated, changed: true };
+}
+
+/**
+ * Removes CONFIG_ZMK_IDLE_TIMEOUT from inside Scyan block and un-delimited settings,
+ * while preserving other Scyan block settings (e.g. display flags) and consolidating
+ * any legacy un-delimited Scyan flags into the delimited block.
+ */
+export function removeConfTimeoutSetting(content: string): { updated: string; changed: boolean } {
+  let changed = false;
+  let res = content;
+
+  // 1. Check if block exists
+  const blockMatch = res.match(SCYAN_CONF_BLOCK_REGEX);
+  if (blockMatch) {
+    const block = blockMatch[0];
+    const before = res.slice(0, blockMatch.index);
+    const after = res.slice((blockMatch.index ?? 0) + block.length);
+
+    const extractedBefore = extractLegacyScyanSettings(before);
+    const extractedAfter = extractLegacyScyanSettings(after);
+    const legacyTimeoutBefore = removeKconfigSetting(extractedBefore.cleaned, 'CONFIG_ZMK_IDLE_TIMEOUT');
+    const legacyTimeoutAfter = removeKconfigSetting(extractedAfter.cleaned, 'CONFIG_ZMK_IDLE_TIMEOUT');
+
+    const hadLegacyOutside =
+      Object.keys(extractedBefore.settings).length > 0 ||
+      Object.keys(extractedAfter.settings).length > 0 ||
+      legacyTimeoutBefore.changed ||
+      legacyTimeoutAfter.changed;
+
+    const blockSettings = parseKconfigBlock(block);
+    const hadTimeoutInBlock = 'CONFIG_ZMK_IDLE_TIMEOUT' in blockSettings;
+    if (hadTimeoutInBlock) {
+      delete blockSettings['CONFIG_ZMK_IDLE_TIMEOUT'];
+      changed = true;
+    }
+
+    if (hadLegacyOutside) {
+      changed = true;
+      Object.assign(blockSettings, extractedBefore.settings, extractedAfter.settings);
+    }
+
+    if (changed) {
+      const cleanedBefore = legacyTimeoutBefore.updated.trim();
+      const cleanedAfter = legacyTimeoutAfter.updated.trim();
+
+      if (Object.keys(blockSettings).length > 0) {
+        const newBlock = formatScyanConfBlock(blockSettings);
+        const parts = [cleanedBefore, newBlock, cleanedAfter].filter(Boolean);
+        res = parts.join('\n\n').trimEnd() + '\n';
+      } else {
+        const parts = [cleanedBefore, cleanedAfter].filter(Boolean);
+        res = parts.join('\n\n').trimEnd();
+        res = res ? res + '\n' : '';
+      }
+    }
+
+    return { updated: res, changed };
+  }
+
+  // No block exists currently.
+  // Check if legacy CONFIG_ZMK_IDLE_TIMEOUT exists
+  const legacyTimeoutRes = removeKconfigSetting(res, 'CONFIG_ZMK_IDLE_TIMEOUT');
+  const extracted = extractLegacyScyanSettings(legacyTimeoutRes.updated);
+
+  const hadTimeout = legacyTimeoutRes.changed;
+  const hadLegacyScyan = Object.keys(extracted.settings).length > 0;
+
+  if (!hadTimeout && !hadLegacyScyan) {
+    return { updated: content, changed: false };
+  }
+
+  // If there are remaining Scyan settings (e.g. display flags), put them in a delimited block!
+  if (hadLegacyScyan) {
+    const newBlock = formatScyanConfBlock(extracted.settings);
+    const cleaned = extracted.cleaned.trim();
+    const updated = cleaned ? `${cleaned}\n\n${newBlock}\n` : `${newBlock}\n`;
+    return { updated, changed: true };
+  }
+
+  // Otherwise, only timeout was removed and no other Scyan settings exist
+  return { updated: legacyTimeoutRes.updated, changed: true };
 }
 
 /**
@@ -902,6 +1355,7 @@ export async function checkRepoPrerequisites(
   let hasWestModule = false;
   let hasKconfig = false;
   let hasAssetsHeader = false;
+  let moduleRevision: string | undefined = undefined;
   let confPath = 'config/corne.conf';
   let westPath = 'config/west.yml';
   let headerPath = 'config/scyan_assets.h';
@@ -926,13 +1380,27 @@ export async function checkRepoPrerequisites(
           const parsedManifest = YAML.parse(decoded);
           const projects = parsedManifest?.manifest?.projects;
           if (Array.isArray(projects)) {
-            hasWestModule = projects.some((proj: any) => proj?.name === 'scyan-zmk-module');
+            const scyanProj = projects.find((proj: any) => proj?.name === 'scyan-zmk-module');
+            if (scyanProj) {
+              hasWestModule = true;
+              moduleRevision = scyanProj.revision ? String(scyanProj.revision).trim() : 'main';
+            } else {
+              hasWestModule = false;
+            }
           } else {
             hasWestModule = false;
           }
         } catch {
           // Fallback if YAML parsing errors
           hasWestModule = decoded.includes('scyan-zmk-module');
+          if (hasWestModule) {
+            const match = decoded.match(/name:\s*['"]?scyan-zmk-module['"]?[\s\S]*?revision:\s*['"]?([^\s'"#]+)['"]?/);
+            if (match) {
+              moduleRevision = match[1].trim();
+            } else {
+              moduleRevision = 'main';
+            }
+          }
         }
         break;
       }
@@ -1006,7 +1474,10 @@ export async function checkRepoPrerequisites(
         const decoded = atob(res.data.content.replace(/\s/g, ''));
         confPath = cp;
         existingConfContent = decoded;
-        if (decoded.includes('CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM=y')) {
+        if (
+          decoded.includes('CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM=y') ||
+          decoded.includes('SCYAN-STUDIO:BEGIN')
+        ) {
           hasKconfig = true;
         }
         break;
@@ -1040,6 +1511,7 @@ export async function checkRepoPrerequisites(
     hasWestModule,
     hasKconfig,
     hasAssetsHeader,
+    moduleRevision,
     confPath,
     candidateConfFiles,
     westPath,
@@ -1076,26 +1548,25 @@ export async function installScyanStudioToRepo(
 
   // 3. Prepare .conf content
   let newConfContent = prereqs.existingConfContent || '';
+  let confNeedsCommit = false;
   if (!prereqs.hasKconfig) {
-    const lines: string[] = [''];
-    if (!newConfContent.includes('CONFIG_ZMK_DISPLAY=')) {
-      lines.push('# Enable display');
-      lines.push('CONFIG_ZMK_DISPLAY=y');
-      lines.push('CONFIG_ZMK_DISPLAY_WORK_QUEUE_DEDICATED=y');
-      lines.push('CONFIG_ZMK_DISPLAY_DEDICATED_THREAD_PRIORITY=10');
-      lines.push('CONFIG_ZMK_DISPLAY_BLANK_ON_IDLE=y');
-      lines.push('');
+    const includeDisplayDefaults = !newConfContent.includes('CONFIG_ZMK_DISPLAY=');
+    const initialSettings: Record<string, string | number | boolean> = {
+      CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM: 'y',
+      CONFIG_ZMK_DISPLAY_STATUS_SCREEN_BUILT_IN: 'n',
+      CONFIG_LV_USE_CANVAS: 'y',
+      CONFIG_LV_USE_IMG: 'y',
+      CONFIG_SCYAN_INVERT: 'y',
+    };
+    const block = formatScyanConfBlock(initialSettings, { includeDisplayDefaults });
+    newConfContent = injectOrUpdateConfBlock(newConfContent, block);
+    confNeedsCommit = true;
+  } else if (!SCYAN_CONF_BLOCK_REGEX.test(newConfContent)) {
+    const migrated = migrateLegacyConfToBlock(newConfContent);
+    if (migrated.changed) {
+      newConfContent = migrated.updated;
+      confNeedsCommit = true;
     }
-    lines.push('# Custom status screen (Scyan ZMK Display Module)');
-    lines.push('CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM=y');
-    lines.push('CONFIG_ZMK_DISPLAY_STATUS_SCREEN_BUILT_IN=n');
-    lines.push('CONFIG_LV_USE_CANVAS=y');
-    lines.push('CONFIG_LV_USE_IMG=y');
-    lines.push('CONFIG_SCYAN_INVERT=y');
-    lines.push('');
-    const kconfigSnippet = lines.join('\n');
-
-    newConfContent = (newConfContent ? newConfContent.trimEnd() + '\n' : '') + kconfigSnippet;
   }
 
   // 4. Collect file updates
@@ -1233,7 +1704,7 @@ export async function installScyanStudioToRepo(
     });
   }
 
-  if (!prereqs.hasKconfig) {
+  if (confNeedsCommit) {
     filesToCommit.push({
       path: prereqs.confPath || 'config/corne.conf',
       content: newConfContent,
@@ -1258,11 +1729,19 @@ export async function installScyanStudioToRepo(
  * Gets the default scyan-zmk-module revision based on the active build channel (nightly vs main).
  */
 export function getDefaultModuleRevision(): string {
+  if (typeof window !== 'undefined') {
+    if (window.location.search.includes('channel=nightly')) {
+      return 'nightly';
+    }
+    if (window.location.search.includes('channel=main') || window.location.search.includes('channel=stable')) {
+      return 'main';
+    }
+    if (window.location.pathname.includes('/nightly')) {
+      return 'nightly';
+    }
+  }
   if (typeof __MODULE_DEFAULT_REVISION__ !== 'undefined' && __MODULE_DEFAULT_REVISION__) {
     return __MODULE_DEFAULT_REVISION__;
-  }
-  if (typeof window !== 'undefined' && window.location.pathname.includes('/nightly/')) {
-    return 'nightly';
   }
   return 'main';
 }
@@ -1362,9 +1841,54 @@ export function injectScyanIntoWest(content: string, targetRevision?: string): s
 
     return doc.toString();
   } catch (err) {
-    console.warn('[injectScyanIntoWest] AST manipulation failed, returning original:', err);
+    console.warn('[injectScyanIntoWest] AST manipulation failed, falling back:', err);
+    if (content.includes('scyan-zmk-module')) {
+      if (/revision:\s*['"]?[^\s'"#]+['"]?/.test(content)) {
+        return content.replace(
+          /(name:\s*['"]?scyan-zmk-module['"]?[\s\S]*?revision:\s*['"]?)[^\s'"#]+(['"]?)/,
+          `$1${revision}$2`
+        );
+      }
+    }
     return content;
   }
+}
+
+/**
+ * Updates scyan-zmk-module in west.yml to target a specific channel revision (e.g. 'nightly' or 'main')
+ * and commits the change atomically to the repository.
+ */
+export async function updateModuleRevision(
+  config: GitHubRepoConfig,
+  targetRevision: 'nightly' | 'main' | string
+): Promise<{ commitSha: string; commitUrl: string }> {
+  if (!config.token || !config.owner || !config.repo) {
+    throw new Error('Repository is not configured.');
+  }
+
+  const prereqs = await checkRepoPrerequisites(config);
+  const westPath = prereqs.westPath || 'config/west.yml';
+  const existingWest = prereqs.existingWestContent || '';
+
+  const newWestContent = injectScyanIntoWest(existingWest, targetRevision);
+
+  const commitLabel = targetRevision === 'nightly' ? 'nightly' : 'stable';
+  const commitRes = await commitChangesWithFallback({
+    config,
+    message: `${STUDIO_COMMIT_PREFIX}Move to ${commitLabel} module (${targetRevision})`,
+    additions: [
+      {
+        path: westPath,
+        content: newWestContent,
+      },
+    ],
+    deletions: [],
+  });
+
+  return {
+    commitSha: commitRes.commitSha,
+    commitUrl: commitRes.commitUrl,
+  };
 }
 
 /**
@@ -1451,24 +1975,6 @@ export function removeScyanFromWest(content: string): string {
   }
 }
 
-/**
- * Removes custom Scyan display configs and overrides from a .conf file.
- * Leaves generic display configurations (like SSD1306, work queue, etc.) intact.
- */
-export function removeScyanFromConf(content: string): string {
-  const lines = content.split(/\r?\n/);
-  const filtered = lines.filter(line => {
-    const trimmed = line.trim();
-    if (/^#?\s*CONFIG_SCYAN_/i.test(trimmed)) return false;
-    if (/^#?\s*CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM\b/i.test(trimmed)) return false;
-    if (/^#?\s*CONFIG_ZMK_DISPLAY_STATUS_SCREEN_BUILT_IN\b/i.test(trimmed)) return false;
-    if (/^#?\s*CONFIG_LV_USE_CANVAS\b/i.test(trimmed)) return false;
-    if (/^#?\s*CONFIG_LV_USE_IMG\b/i.test(trimmed)) return false;
-    if (/^#\s*(Custom status screen|Scyan ZMK Display Module)/i.test(trimmed)) return false;
-    return true;
-  });
-  return filtered.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
-}
 
 /**
  * Atomically uninstalls Scyan Studio from the connected repository:
@@ -1732,6 +2238,22 @@ export function updateKconfigSetting(
   return { updated, changed: true };
 }
 
+/**
+ * Removes a Kconfig setting from .conf content.
+ * Safely handles active or commented-out settings.
+ */
+export function removeKconfigSetting(
+  content: string,
+  key: string
+): { updated: string; changed: boolean } {
+  const regex = new RegExp(`^[ \\t]*(?:#\\s*)?${key}(?:=.*|\\s+is not set)(?:\\r?\\n)?`, 'gm');
+  if (!regex.test(content)) {
+    return { updated: content, changed: false };
+  }
+  const updated = content.replace(regex, '');
+  return { updated, changed: true };
+}
+
 export interface TimeoutConfig {
   screenOffTimeoutSec: number;
   peripheralScreenOffTimeoutSec?: number;
@@ -1810,7 +2332,7 @@ export function resolveConfTimeoutUpdates(
 
       for (const conf of matchingConfs) {
         handledPaths.add(conf.path);
-        const res = updateKconfigSetting(conf.content, 'CONFIG_ZMK_IDLE_TIMEOUT', targetTimeoutMs);
+        const res = updateConfTimeoutSetting(conf.content, targetTimeoutMs);
         if (res.changed) {
           updates.push({ path: conf.path, content: res.updated });
         }
@@ -1818,7 +2340,35 @@ export function resolveConfTimeoutUpdates(
     }
   }
 
-  // If all active conf files were resolved via display assignments, return early
+  // If any conf files were handled via display assignments:
+  // Update any unhandled side-specific confs with defaults, and strip CONFIG_ZMK_IDLE_TIMEOUT from base conf files so they don't override side-specific confs in ZMK
+  if (handledPaths.size > 0) {
+    const unhandledConfs = activeConfFiles.filter((f) => !handledPaths.has(f.path));
+    for (const conf of unhandledConfs) {
+      const lower = conf.path.toLowerCase();
+      const isLeft = lower.includes('_central') || lower.includes('-central') || lower.includes('_left') || lower.includes('-left');
+      const isRight = lower.includes('_peripheral') || lower.includes('-peripheral') || lower.includes('_right') || lower.includes('-right');
+
+      if (isLeft) {
+        const res = updateConfTimeoutSetting(conf.content, leftTimeoutMs);
+        if (res.changed) {
+          updates.push({ path: conf.path, content: res.updated });
+        }
+      } else if (isRight) {
+        const res = updateConfTimeoutSetting(conf.content, rightTimeoutMs);
+        if (res.changed) {
+          updates.push({ path: conf.path, content: res.updated });
+        }
+      } else {
+        const res = removeConfTimeoutSetting(conf.content);
+        if (res.changed) {
+          updates.push({ path: conf.path, content: res.updated });
+        }
+      }
+    }
+    return updates;
+  }
+
   const unhandledConfs = activeConfFiles.filter((f) => !handledPaths.has(f.path));
   if (unhandledConfs.length === 0) {
     return updates;
@@ -1862,21 +2412,31 @@ export function resolveConfTimeoutUpdates(
     // Split configuration present: update left (or base fallback) and right confs
     const primaryLefts = leftConfs.length > 0 ? leftConfs : baseConfs;
     for (const lc of primaryLefts) {
-      const res = updateKconfigSetting(lc.content, 'CONFIG_ZMK_IDLE_TIMEOUT', leftTimeoutMs);
+      const res = updateConfTimeoutSetting(lc.content, leftTimeoutMs);
       if (res.changed) {
         updates.push({ path: lc.path, content: res.updated });
       }
     }
     for (const rc of rightConfs) {
-      const res = updateKconfigSetting(rc.content, 'CONFIG_ZMK_IDLE_TIMEOUT', rightTimeoutMs);
+      const res = updateConfTimeoutSetting(rc.content, rightTimeoutMs);
       if (res.changed) {
         updates.push({ path: rc.path, content: res.updated });
+      }
+    }
+    if (leftConfs.length > 0) {
+      // Both left and right or specific left conf exist: strip CONFIG_ZMK_IDLE_TIMEOUT from base confs
+      // to avoid shared base confs overriding peripheral/right in ZMK
+      for (const bc of baseConfs) {
+        const res = removeConfTimeoutSetting(bc.content);
+        if (res.changed) {
+          updates.push({ path: bc.path, content: res.updated });
+        }
       }
     }
   } else if (baseConfs.length > 0) {
     // Single/unified configuration or unibody keyboard
     for (const bc of baseConfs) {
-      const res = updateKconfigSetting(bc.content, 'CONFIG_ZMK_IDLE_TIMEOUT', leftTimeoutMs);
+      const res = updateConfTimeoutSetting(bc.content, leftTimeoutMs);
       if (res.changed) {
         updates.push({ path: bc.path, content: res.updated });
       }

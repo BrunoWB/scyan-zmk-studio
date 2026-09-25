@@ -93,7 +93,33 @@ export const populateDefaultWidgetInstances = (
           },
           slots: {},
         };
-        defaults[w.id] = [campfireInst, duckInst, capybaraInst];
+        const syncDownInst: WidgetInstance = {
+          id: 'anim-sync-down',
+          widgetTypeId: w.id,
+          label: 'Sync (Down-Up)',
+          config: {
+            mode: 'symbol',
+            groupId: 'SYMBOL_SYNC_DOWN',
+            loopSpeedMs: 100,
+            loop: true,
+            syncAnimation: true,
+          },
+          slots: {},
+        };
+        const syncUpInst: WidgetInstance = {
+          id: 'anim-sync-up',
+          widgetTypeId: w.id,
+          label: 'Sync (Up-Down Mirror)',
+          config: {
+            mode: 'symbol',
+            groupId: 'SYMBOL_SYNC_UP',
+            loopSpeedMs: 100,
+            loop: true,
+            syncAnimation: true,
+          },
+          slots: {},
+        };
+        defaults[w.id] = [campfireInst, duckInst, capybaraInst, syncDownInst, syncUpInst];
       } else if (w.id === 'typewriter') {
         defaults[w.id] = [
           {

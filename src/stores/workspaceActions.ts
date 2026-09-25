@@ -12,6 +12,7 @@ import {
   installScyanStudioToRepo,
   uninstallScyanStudioFromRepo,
   commitStudioSaveToRepo,
+  updateModuleRevision,
 } from '../services/githubService';
 import {
   fetchRepoKeymap,
@@ -408,6 +409,41 @@ export const uninstallScyanStudio = async () => {
     console.error('Failed to uninstall Scyan Studio:', err);
     uiStore.showToast('error', `Uninstallation failed: ${err.message || 'Check repository permissions'}`);
     gitHubStore.setIsUninstallingStudio(false);
+  }
+};
+
+export const switchModuleChannel = async (targetRevision: 'nightly' | 'main') => {
+  const gitHubStore = useGitHubStore.getState();
+  const uiStore = useUiStore.getState();
+  const { config } = gitHubStore;
+
+  if (!config.token || !config.owner || !config.repo) {
+    uiStore.showToast('error', 'Connect your GitHub repository before switching module channels.');
+    return;
+  }
+
+  try {
+    gitHubStore.setIsSwitchingChannel(true);
+    const res = await updateModuleRevision(config, targetRevision);
+
+    // Refresh repo prerequisites using the newly created commit SHA to bypass cache
+    const updatedPrereqs = await checkRepoPrerequisites(config, res.commitSha);
+    gitHubStore.setRepoPrereqs(updatedPrereqs);
+
+    const channelLabel = targetRevision === 'nightly' ? 'Nightly' : 'Stable';
+    uiStore.showToast(
+      'success',
+      `Switched scyan-zmk-module to ${channelLabel}! Firmware build started in GitHub Actions.`
+    );
+    trackEvent('module_channel_switched', {
+      repo: `${config.owner}/${config.repo}`,
+      targetRevision,
+    });
+  } catch (err: any) {
+    console.error('Failed to switch module channel:', err);
+    uiStore.showToast('error', `Channel switch failed: ${err.message || 'Check repository permissions'}`);
+  } finally {
+    gitHubStore.setIsSwitchingChannel(false);
   }
 };
 

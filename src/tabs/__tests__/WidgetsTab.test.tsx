@@ -535,6 +535,59 @@ describe('WidgetsTab keypress widget UI', () => {
     expect(html).toContain('badge-master');
     expect(html).toContain('CENTRAL');
   });
+
+  it('renders ACTIVE badge for interactive widget in sidebar and header', () => {
+    const html = renderToString(
+      <WidgetsTab
+        initialActiveWidgetId="bongo"
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        instances={{}}
+        onInstancesChange={() => {}}
+      />
+    );
+
+    // Badge is icon-only — verify by class name and tooltip title
+    expect(html).toContain('badge-active');
+    expect(html).toContain('Active —');
+  });
+
+  it('renders Synced badge on animation card and callout box when syncAnimation is checked', () => {
+    const instances: WidgetInstanceMap = {
+      animation: [
+        {
+          id: 'anim-synced-inst',
+          widgetTypeId: 'animation',
+          label: 'My Synced Animation',
+          config: {
+            mode: 'symbol',
+            syncAnimation: true,
+          },
+          slots: {},
+        },
+      ],
+    };
+
+    const html = renderToString(
+      <WidgetsTab
+        initialActiveWidgetId="animation"
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        instances={instances}
+        onInstancesChange={() => {}}
+      />
+    );
+
+    // Synced badge
+    expect(html).toContain('badge-synced');
+    expect(html).toContain('Synced —');
+
+    // Split keyboards tip callout box
+    expect(html).toContain('Tip for Split Keyboards:');
+    expect(html).toContain('turn on both battery switches or reset both halves around the same time');
+  });
 });
 
 

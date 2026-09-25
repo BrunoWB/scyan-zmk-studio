@@ -24,7 +24,8 @@ import {
   Type as TypeIcon, Image as ImageIcon,
   Plus, Trash2, Usb, Bluetooth, Cat, Repeat, Film,
   AlignLeft, AlignCenter, AlignRight, Cpu, Keyboard,
-  ArrowRight, ArrowLeft, ArrowDown, ArrowUp
+  ArrowRight, ArrowLeft, ArrowDown, ArrowUp,
+  Zap, RefreshCw, Info
 } from 'lucide-react';
 
 import { useAtlasStore } from '../stores/useAtlasStore';
@@ -360,6 +361,11 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                               <Cpu size={9} className="shrink-0" />
                             </span>
                           )}
+                          {widget.isInteractive && (
+                            <span className="badge-active badge-active--nav" title="Active — responds interactively to keystrokes or typing events">
+                              <Zap size={9} className="shrink-0" />
+                            </span>
+                          )}
                           {instanceCount > 0 && (
                             <span className="instance-count-badge">{instanceCount}</span>
                           )}
@@ -404,6 +410,11 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
               <span className="badge-master" title="Requires Central half in ZMK split">
                 <Cpu size={10} className="shrink-0" />
                 CENTRAL
+              </span>
+            )}
+            {activeWidget.isInteractive && (
+              <span className="badge-active" title="Active — responds interactively to keystrokes or typing events">
+                <Zap size={10} className="shrink-0" />
               </span>
             )}
           </div>
@@ -700,6 +711,11 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                   className="widget-instance-label-input flex-1 min-w-0"
                   placeholder="Instance Label..."
                 />
+                {(activeWidget.id === 'animation' || activeWidget.id === 'loop') && inst.config?.syncAnimation && (
+                  <span className="badge-synced" title="Synced — phase-locked to MCU uptime across split displays">
+                    <RefreshCw size={9} className="shrink-0" />
+                  </span>
+                )}
                 {activeWidget.id !== 'wpm-chart' && activeWidget.id !== 'branding' && activeWidget.id !== 'typewriter' && activeWidget.id !== 'keypress' && (
                   <div className="widget-mode-radio-group" role="radiogroup" aria-label="Display Mode">
                     <button
@@ -1688,6 +1704,34 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                             <span className="text-[10px] text-muted mt-1 block">
                               Duration in milliseconds each symbol frame remains on screen before cycling to the next frame.
                             </span>
+                          </div>
+
+                          {/* Sync Animation Across Displays */}
+                          <div className="pt-3 border-t border-border-base/50">
+                            <label className="flex items-center justify-between cursor-pointer">
+                              <div>
+                                <span className="text-xs font-semibold text-text-main block">
+                                  Sync Animation Across Displays
+                                </span>
+                                <span className="text-[10px] text-muted block">
+                                  Locks animation frame indices deterministically to global uptime across split screens.
+                                </span>
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={inst.config?.syncAnimation ?? false}
+                                onChange={e => handleUpdateInstanceConfig(inst.id, { syncAnimation: e.target.checked })}
+                                className="toggle-switch accent-accent w-4 h-4 cursor-pointer"
+                              />
+                            </label>
+                            {inst.config?.syncAnimation && (
+                              <div className="mt-2 text-[11px] text-cyan-300 bg-cyan-950/30 border border-cyan-800/40 rounded p-2.5 flex items-start gap-2">
+                                <Info size={14} className="text-accent shrink-0 mt-0.5" />
+                                <div>
+                                  <strong>Tip for Split Keyboards:</strong> To keep animations synchronized between left and right screens, turn on both battery switches or reset both halves around the same time. They'll stay in step without drifting, even after waking from sleep.
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}

@@ -43,6 +43,7 @@ import {
   saveWorkspaceToRepo,
   installScyanStudio,
   uninstallScyanStudio,
+  switchModuleChannel,
   restoreInitialValues,
   restoreDefaults,
 } from './stores/workspaceActions';
@@ -118,6 +119,7 @@ export function App() {
   const repoPrereqs = useGitHubStore((s) => s.repoPrereqs);
   const isInstallingStudio = useGitHubStore((s) => s.isInstallingStudio);
   const isUninstallingStudio = useGitHubStore((s) => s.isUninstallingStudio);
+  const isSwitchingChannel = useGitHubStore((s) => s.isSwitchingChannel);
 
   // Sync hash routing on window popstate / hashchange
   useEffect(() => {
@@ -187,6 +189,8 @@ export function App() {
         onInstallStudio={installScyanStudio}
         isUninstallingStudio={isUninstallingStudio}
         onUninstallStudio={uninstallScyanStudio}
+        isSwitchingChannel={isSwitchingChannel}
+        onSwitchChannel={switchModuleChannel}
         onSearchClick={import.meta.env.DEV ? () => setIsCommandPaletteOpen(true) : undefined}
         onRestoreInitialValues={restoreInitialValues}
         onRestoreDefaults={restoreDefaults}

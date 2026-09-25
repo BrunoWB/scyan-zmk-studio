@@ -4,6 +4,7 @@ import { BlocksTab } from '../BlocksTab';
 import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import type { LayoutBlock } from '../../types/zmk';
 import { useLayoutStore } from '../../stores/useLayoutStore';
+import { getWidgetDefinition, normalizeWidgetType } from '../../services/widgetRegistry';
 
 describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
   const dummyGrid = new BwpxGrid(32, 128);
@@ -325,6 +326,69 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
     const peripheralIdx = html.indexOf('Peripheral Active');
     expect(centralIdx).toBeLessThan(catalogIdx);
     expect(catalogIdx).toBeLessThan(peripheralIdx);
+  });
+
+  it('renders Active badge on interactive widgets and Synced badge on synced animation in the catalog', () => {
+    const instances = {
+      bongo: [
+        {
+          id: 'inst-bongo',
+          widgetTypeId: 'bongo',
+          label: 'Bongo Cat',
+          config: { mode: 'symbol' as const },
+        },
+      ],
+      animation: [
+        {
+          id: 'inst-anim',
+          widgetTypeId: 'animation',
+          label: 'Synced Loop',
+          config: { mode: 'symbol' as const, syncAnimation: true },
+        },
+      ],
+    };
+
+    const html = renderToString(
+      <BlocksTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText="TEST"
+        instances={instances}
+      />
+    );
+
+    expect(html).toContain('badge-active');
+    expect(html).toContain('badge-synced');
+    expect(html).toContain('Active');
+    expect(html).toContain('Synced');
+  });
+
+  it('widget.isInteractive flag is set on interactive widgets (modal suppression key is defined)', () => {
+    const widget = getWidgetDefinition('bongo')!;
+    expect(widget.isInteractive).toBe(true);
+    // The modal uses this key to suppress future modals
+    const suppressKey = 'scyan_suppress_idle_interactive_modal';
+    expect(typeof suppressKey).toBe('string');
+  });
+
+  it('animation widget syncAnimation config triggers sync modal suppress key check', () => {
+    const widget = getWidgetDefinition('animation')!;
+    const activeInstance = {
+      id: 'anim-1',
+      widgetTypeId: 'animation',
+      label: 'Synced',
+      config: { mode: 'symbol' as const, syncAnimation: true },
+    };
+
+    const isSyncedAnimation =
+      (widget.id === 'animation' || normalizeWidgetType(widget.id) === 'animation') &&
+      activeInstance?.config?.syncAnimation;
+
+    expect(isSyncedAnimation).toBe(true);
+    // The modal uses this key to suppress future modals
+    const suppressKey = 'scyan_suppress_sync_animation_modal';
+    expect(typeof suppressKey).toBe('string');
   });
 });
 

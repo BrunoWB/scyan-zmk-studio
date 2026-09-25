@@ -796,6 +796,7 @@ export function parseCHeader(cCode: string): ParsedAssets {
                         groupId: resolvedGroupId,
                         loopSpeedMs: param1 || 250,
                         loop: param2 !== 1,
+                        syncAnimation: blockMode === 1,
                       },
                       slots: {},
                     };
@@ -1494,6 +1495,7 @@ export function resolveBlockProperties(
   } else if (enumType === 'WIDGET_TYPE_LOOP') {
     param1 = instance?.config?.loopSpeedMs ?? 250;
     param2 = (instance?.config?.loop ?? true) ? 0 : 1;
+    mode = (instance?.config?.syncAnimation ?? false) ? 1 : 0;
   } else if (enumType === 'WIDGET_TYPE_TYPEWRITER') {
     const twMode = instance?.config?.typewriterMode || (['inline', 'spot', 'random'].includes(instance?.config?.mode as string) ? instance?.config?.mode : 'inline');
     mode = twMode === 'spot' ? 1 : twMode === 'random' ? 2 : 0;

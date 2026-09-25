@@ -38,6 +38,7 @@ import {
   fetchLatestWorkflowRuns,
   fetchUserRepositories,
   fetchRepoBranches,
+  detectModuleChannelMismatch,
 } from '../services/githubService';
 import { BrandIdentityLogo } from './brand/BrandIdentityLogo';
 import { LogoContextMenu } from './LogoContextMenu';
@@ -63,6 +64,8 @@ export interface HeaderBarProps {
   onInstallStudio?: () => void;
   isUninstallingStudio?: boolean;
   onUninstallStudio?: () => void;
+  isSwitchingChannel?: boolean;
+  onSwitchChannel?: (targetRevision: 'nightly' | 'main') => void;
   onSearchClick?: () => void;
   onRestoreInitialValues?: () => void;
   onRestoreDefaults?: () => void;
@@ -133,6 +136,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onInstallStudio,
   isUninstallingStudio,
   onUninstallStudio,
+  isSwitchingChannel = false,
+  onSwitchChannel,
   onSearchClick,
   onRestoreInitialValues,
   onRestoreDefaults,
@@ -146,6 +151,10 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   const [confirmUninstall, setConfirmUninstall] = useState(false);
   const [logoMenuPos, setLogoMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [isChangelogOpen, setIsChangelogOpen] = useState(false);
+
+  const channelMismatch = useMemo(() => {
+    return detectModuleChannelMismatch(repoPrereqs);
+  }, [repoPrereqs]);
 
   const [prevSettingsOpen, setPrevSettingsOpen] = useState(isSettingsOpen);
   if (isSettingsOpen !== prevSettingsOpen) {
@@ -709,43 +718,70 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               </button>
             </div>
           ) : (
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="flex items-center gap-2 bg-[#131722] hover:bg-[#19202f] border border-[#00f0ff]/30 hover:border-[#00f0ff] rounded-full px-3.5 py-1 text-xs transition-all cursor-pointer shadow-inner"
-              title={`Connected to ${config.owner}/${config.repo} (${config.branch}). Click to change.`}
-            >
-              <span className="size-2 rounded-full bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]"></span>
-              {connection.user?.avatarUrl ? (
-                <img
-                  src={connection.user.avatarUrl}
-                  alt={connection.user.login}
-                  className="size-4 rounded-full border border-[#00f0ff]/40"
-                />
-              ) : (
-                <GithubIcon size={12} className="text-[#00f0ff]" />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                className="flex items-center gap-2 bg-[#131722] hover:bg-[#19202f] border border-[#00f0ff]/30 hover:border-[#00f0ff] rounded-full px-3.5 py-1 text-xs transition-all cursor-pointer shadow-inner"
+                title={`Connected to ${config.owner}/${config.repo} (${config.branch}). Click to change.`}
+              >
+                <span className="size-2 rounded-full bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]"></span>
+                {connection.user?.avatarUrl ? (
+                  <img
+                    src={connection.user.avatarUrl}
+                    alt={connection.user.login}
+                    className="size-4 rounded-full border border-[#00f0ff]/40"
+                  />
+                ) : (
+                  <GithubIcon size={12} className="text-[#00f0ff]" />
+                )}
+                <span className="text-white font-medium">
+                  {config.owner && config.repo ? `${config.owner}/${config.repo}` : 'No Repository Selected'}
+                </span>
+                <span className="text-[#94a3b8]">•</span>
+                <span className="text-[#00f0ff] font-mono text-[11px] flex items-center gap-1">
+                  <GitBranch size={11} />
+                  {config.branch}
+                </span>
+                {config.owner && config.repo && connection.repo?.name?.toLowerCase() === config.repo.toLowerCase() && connection.repo?.hasPushAccess ? (
+                  <span className="text-[10px] font-mono bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/40 px-1.5 py-0.2 rounded font-semibold ml-1">
+                    PUSH OK
+                  </span>
+                ) : !config.owner || !config.repo ? (
+                  <span className="text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-semibold ml-1">
+                    NO REPO
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-semibold ml-1">
+                    READ ONLY
+                  </span>
+                )}
+              </button>
+
+              {channelMismatch && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSwitchChannel?.(channelMismatch.targetRevision);
+                  }}
+                  disabled={isSwitchingChannel}
+                  className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 text-amber-300 border border-amber-500/50 hover:border-amber-400 rounded-full px-3 py-1 text-xs font-semibold transition-all cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.25)] hover:shadow-[0_0_16px_rgba(245,158,11,0.4)] disabled:opacity-60 disabled:cursor-not-allowed shrink-0"
+                  title={channelMismatch.description}
+                >
+                  {isSwitchingChannel ? (
+                    <>
+                      <RefreshCw size={11} className="animate-spin text-amber-400" />
+                      <span className="font-mono text-[11px]">Updating module...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FlaskConical size={11} className="text-amber-400 shrink-0" />
+                      <span>{channelMismatch.actionLabel}</span>
+                    </>
+                  )}
+                </button>
               )}
-              <span className="text-white font-medium">
-                {config.owner && config.repo ? `${config.owner}/${config.repo}` : 'No Repository Selected'}
-              </span>
-              <span className="text-[#94a3b8]">•</span>
-              <span className="text-[#00f0ff] font-mono text-[11px] flex items-center gap-1">
-                <GitBranch size={11} />
-                {config.branch}
-              </span>
-              {config.owner && config.repo && connection.repo?.name?.toLowerCase() === config.repo.toLowerCase() && connection.repo?.hasPushAccess ? (
-                <span className="text-[10px] font-mono bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/40 px-1.5 py-0.2 rounded font-semibold ml-1">
-                  PUSH OK
-                </span>
-              ) : !config.owner || !config.repo ? (
-                <span className="text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-semibold ml-1">
-                  NO REPO
-                </span>
-              ) : (
-                <span className="text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-semibold ml-1">
-                  READ ONLY
-                </span>
-              )}
-            </button>
+            </div>
           )}
         </div>
       )}
@@ -1164,9 +1200,18 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                               />
                               <span className="text-xs font-semibold text-white">Scyan Display Module</span>
                               {repoPrereqs.isInstalled ? (
-                                <Chip className="bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/30 text-[10px] font-mono px-1.5 h-4">
-                                  Installed
-                                </Chip>
+                                <div className="flex items-center gap-1.5">
+                                  <Chip className="bg-[#00f0ff]/15 text-[#00f0ff] border border-[#00f0ff]/30 text-[10px] font-mono px-1.5 h-4">
+                                    Installed
+                                  </Chip>
+                                  <Chip className={`text-[10px] font-mono px-1.5 h-4 ${
+                                    repoPrereqs.moduleRevision === 'nightly'
+                                      ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30'
+                                      : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                                  }`}>
+                                    {repoPrereqs.moduleRevision === 'nightly' ? 'Nightly' : 'Stable'}
+                                  </Chip>
+                                </div>
                               ) : (
                                 <Chip className="bg-[#f2741d]/15 text-[#f2741d] border border-[#f2741d]/30 text-[10px] font-mono px-1.5 h-4">
                                   Setup Required
@@ -1175,52 +1220,91 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                             </div>
 
                             {repoPrereqs.isInstalled ? (
-                              !confirmUninstall ? (
+                              <div className="flex items-center gap-2">
                                 <Button
                                   size="sm"
                                   type="button"
-                                  onClick={() => setConfirmUninstall(true)}
-                                  isDisabled={isUninstallingStudio}
-                                  className="bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 border border-red-500/30 text-[11px] font-medium px-2.5 h-7 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                                  onClick={() => {
+                                    const targetRev = channelMismatch
+                                      ? channelMismatch.targetRevision
+                                      : repoPrereqs.moduleRevision === 'nightly'
+                                      ? 'main'
+                                      : 'nightly';
+                                    onSwitchChannel?.(targetRev);
+                                  }}
+                                  isDisabled={isSwitchingChannel || isUninstallingStudio}
+                                  className={`text-[11px] font-semibold px-2.5 h-7 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer ${
+                                    channelMismatch
+                                      ? 'bg-amber-500 hover:bg-amber-400 text-black font-bold shadow-[0_0_10px_rgba(245,158,11,0.3)]'
+                                      : 'bg-[#19202f] hover:bg-[#232c3f] text-[#94a3b8] hover:text-white border border-[#2d3748]'
+                                  }`}
                                 >
-                                  <Trash2 size={11} />
-                                  <span>Uninstall Module</span>
+                                  {isSwitchingChannel ? (
+                                    <>
+                                      <RefreshCw size={11} className="animate-spin" />
+                                      <span>Switching...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <FlaskConical size={11} />
+                                      <span>
+                                        {channelMismatch
+                                          ? channelMismatch.actionLabel
+                                          : repoPrereqs.moduleRevision === 'nightly'
+                                          ? 'Move to Stable'
+                                          : 'Move to Nightly'}
+                                      </span>
+                                    </>
+                                  )}
                                 </Button>
-                              ) : (
-                                <div className="flex items-center gap-1.5">
+
+                                {!confirmUninstall ? (
                                   <Button
                                     size="sm"
                                     type="button"
-                                    onClick={() => setConfirmUninstall(false)}
-                                    isDisabled={isUninstallingStudio}
-                                    className="bg-[#19202f] hover:bg-[#232c3f] text-[#94a3b8] hover:text-white border border-[#2d3748] text-[10px] font-medium px-2 h-6 rounded-md transition-colors cursor-pointer"
+                                    onClick={() => setConfirmUninstall(true)}
+                                    isDisabled={isUninstallingStudio || isSwitchingChannel}
+                                    className="bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 border border-red-500/30 text-[11px] font-medium px-2.5 h-7 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
                                   >
-                                    Cancel
+                                    <Trash2 size={11} />
+                                    <span>Uninstall Module</span>
                                   </Button>
-                                  <Button
-                                    size="sm"
-                                    type="button"
-                                    onClick={() => {
-                                      setConfirmUninstall(false);
-                                      onUninstallStudio?.();
-                                    }}
-                                    isDisabled={isUninstallingStudio}
-                                    className="bg-red-600 hover:bg-red-500 text-white font-bold text-[10px] px-2.5 h-6 rounded-md transition-colors flex items-center gap-1 cursor-pointer"
-                                  >
-                                    {isUninstallingStudio ? (
-                                      <>
-                                        <RefreshCw size={10} className="animate-spin" />
-                                        <span>Uninstalling...</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Trash2 size={10} />
-                                        <span>Confirm Uninstall</span>
-                                      </>
-                                    )}
-                                  </Button>
-                                </div>
-                              )
+                                ) : (
+                                  <div className="flex items-center gap-1.5">
+                                    <Button
+                                      size="sm"
+                                      type="button"
+                                      onClick={() => setConfirmUninstall(false)}
+                                      isDisabled={isUninstallingStudio || isSwitchingChannel}
+                                      className="bg-[#19202f] hover:bg-[#232c3f] text-[#94a3b8] hover:text-white border border-[#2d3748] text-[10px] font-medium px-2 h-6 rounded-md transition-colors cursor-pointer"
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      type="button"
+                                      onClick={() => {
+                                        setConfirmUninstall(false);
+                                        onUninstallStudio?.();
+                                      }}
+                                      isDisabled={isUninstallingStudio || isSwitchingChannel}
+                                      className="bg-red-600 hover:bg-red-500 text-white font-bold text-[10px] px-2.5 h-6 rounded-md transition-colors flex items-center gap-1 cursor-pointer"
+                                    >
+                                      {isUninstallingStudio ? (
+                                        <>
+                                          <RefreshCw size={10} className="animate-spin" />
+                                          <span>Uninstalling...</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Trash2 size={10} />
+                                          <span>Confirm Uninstall</span>
+                                        </>
+                                      )}
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
                             ) : (
                               <Button
                                 size="sm"
@@ -1241,11 +1325,23 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                             )}
                           </div>
 
+                          {channelMismatch && repoPrereqs.isInstalled && (
+                            <div className="flex items-center justify-between bg-amber-500/10 border border-amber-500/30 rounded-lg p-2.5 text-xs text-amber-200">
+                              <div className="flex items-start gap-2">
+                                <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
+                                <div>
+                                  <span className="font-semibold">{channelMismatch.actionLabel} Recommended: </span>
+                                  <span>{channelMismatch.description}</span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
                           <p className="text-[11px] text-[#94a3b8] leading-relaxed">
                             {repoPrereqs.isInstalled
                               ? confirmUninstall
                                 ? 'Are you sure? This will remove scyan-zmk-module from west.yml, clean custom Scyan display configs from your .conf file, and delete scyan_assets.h.'
-                                : 'Scyan display driver and assets are active in this repository. Uninstalling cleanly reverts your repository to standard ZMK display widgets.'
+                                : 'Scyan display driver and assets are active in this repository. You can switch module channels anytime without reinstalling, or cleanly uninstall to revert to standard ZMK widgets.'
                               : 'This repository does not have Scyan ZMK Studio installed yet. Click Install to inject west.yml and display configs.'}
                           </p>
                         </div>

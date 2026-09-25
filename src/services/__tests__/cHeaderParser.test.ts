@@ -263,7 +263,11 @@ static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
 
   it('correctly parses user scyan_assets.h and generates clean blocks without legacy fallbacks', async () => {
     const fs = await import('fs');
-    const userHeader = fs.readFileSync('/home/Scyan/Projects/Firmware/zmk-config/config/scyan_assets.h', 'utf8');
+    const userPath = '/home/Scyan/Projects/Firmware/zmk-config/config/scyan_assets.h';
+    if (!fs.existsSync(userPath)) {
+      return;
+    }
+    const userHeader = fs.readFileSync(userPath, 'utf8');
     const parsed = parseCHeader(userHeader);
     expect(parsed.metadata).toBeDefined();
     expect(parsed.symbolSlices.length).toBeGreaterThan(15);
@@ -517,17 +521,18 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
       idleRightBlocks: [],
       widgetInstances: {
         'animation': [
-          { id: 'inst_loop', widgetTypeId: 'animation', label: 'Looping', config: { mode: 'symbol' as const, loopSpeedMs: 150, loop: true }, slots: {} },
-          { id: 'inst_oneshot', widgetTypeId: 'animation', label: 'One Shot', config: { mode: 'symbol' as const, loopSpeedMs: 200, loop: false }, slots: {} },
+          { id: 'inst_loop', widgetTypeId: 'animation', label: 'Looping', config: { mode: 'symbol' as const, loopSpeedMs: 150, loop: true, syncAnimation: true }, slots: {} },
+          { id: 'inst_oneshot', widgetTypeId: 'animation', label: 'One Shot', config: { mode: 'symbol' as const, loopSpeedMs: 200, loop: false, syncAnimation: false }, slots: {} },
         ]
       }
     };
 
     const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
     const dts = generateDevicetreeLayouts(metadata, []);
-    // inst_loop has loop: true -> param2 = 0 (omitted or default in DTS) and param1 = 150
+    // inst_loop has loop: true -> param2 = 0, param1 = 150, mode = 1 (synced)
     expect(dts).toContain('param1 = <150>;');
-    // inst_oneshot has loop: false -> param1 = 200, param2 = 1
+    expect(dts).toContain('mode = <1>;');
+    // inst_oneshot has loop: false -> param1 = 200, param2 = 1, mode = 0
     expect(dts).toContain('param1 = <200>;');
     expect(dts).toContain('param2 = <1>;');
 
@@ -537,12 +542,13 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     expect(animInstances).toBeDefined();
     expect(animInstances?.length).toBe(2);
     expect(animInstances?.find(i => i.id === 'inst_loop')?.config.loop).toBe(true);
+    expect(animInstances?.find(i => i.id === 'inst_loop')?.config.syncAnimation).toBe(true);
     expect(animInstances?.find(i => i.id === 'inst_oneshot')?.config.loop).toBe(false);
 
     // Raw C fallback parsing (when metadata block stripped)
     const rawC = `
       static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
-          { .type = WIDGET_TYPE_LOOP, .x = 2, .y = 20, .width = 24, .height = 24, .enabled = true, .mode = 0, .param1 = 120, .param2 = 1, .param3 = 0, .symbol_count = 0, .symbol_ids = { 0 }, .text_count = 0, .text_entries = { NULL }, .custom_text = NULL, .symbol_id = 0 },
+          { .type = WIDGET_TYPE_LOOP, .x = 2, .y = 20, .width = 24, .height = 24, .enabled = true, .mode = 1, .param1 = 120, .param2 = 1, .param3 = 0, .symbol_count = 0, .symbol_ids = { 0 }, .text_count = 0, .text_entries = { NULL }, .custom_text = NULL, .symbol_id = 0 },
       };
       #define LAYOUT_LEFT_ACTIVE_COUNT 1
     `;
@@ -553,6 +559,7 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     expect(rawAnimInst).toBeDefined();
     expect(rawAnimInst?.config.loopSpeedMs).toBe(120);
     expect(rawAnimInst?.config.loop).toBe(false); // param2 == 1 -> loop: false
+    expect(rawAnimInst?.config.syncAnimation).toBe(true); // mode == 1 -> syncAnimation: true
   });
 
   it('reconciles animation blocks to natural sprite dimensions and syncs loop/animation metadata', () => {
@@ -636,6 +643,106 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     expect(block).toBeDefined();
     expect(block?.width).toBe(32);
     expect(block?.height).toBe(55);
+  });
+
+  it('correctly loads and validates 32x128 sync inspection animations (SYMBOL_SYNC_DOWN & SYMBOL_SYNC_UP)', () => {
+    const assets = getDefaultAssets();
+    const downSlices = assets.symbolSlices.filter(s => s.groupId === 'SYMBOL_SYNC_DOWN');
+    const upSlices = assets.symbolSlices.filter(s => s.groupId === 'SYMBOL_SYNC_UP');
+
+    // Both groups have 16 frames
+    expect(downSlices).toHaveLength(16);
+    expect(upSlices).toHaveLength(16);
+
+    // Each frame is 32x128
+    for (const s of [...downSlices, ...upSlices]) {
+      expect(s.width).toBe(32);
+      expect(s.height).toBe(128);
+    }
+
+    // Verify marks at heights 1 (y=0), 32 (y=31), 64 (y=63), 96 (y=95), 128 (y=127) on frame 0
+    const f0 = downSlices[0];
+    const marksY = [0, 31, 63, 95, 127];
+    for (const my of marksY) {
+      // Left mark x=0..9
+      for (let x = 0; x <= 9; x++) {
+        expect(assets.symbolsGrid.get(f0.x + x, f0.y + my)).toBe(1);
+      }
+      // Left gap x=10..14
+      for (let x = 10; x <= 14; x++) {
+        expect(assets.symbolsGrid.get(f0.x + x, f0.y + my)).toBe(0);
+      }
+      // Centered pixel at x=15 on frame 0 (my=0)
+      if (my === 0) {
+        expect(assets.symbolsGrid.get(f0.x + 15, f0.y + my)).toBe(1);
+      }
+      // Right gap x=16..20
+      for (let x = 16; x <= 20; x++) {
+        expect(assets.symbolsGrid.get(f0.x + x, f0.y + my)).toBe(0);
+      }
+      // Right mark x=21..31
+      for (let x = 21; x <= 31; x++) {
+        expect(assets.symbolsGrid.get(f0.x + x, f0.y + my)).toBe(1);
+      }
+    }
+
+    // Verify moving pixel positions along the down-up trajectory
+    const expectedY = [0, 16, 31, 47, 63, 79, 95, 111, 127, 111, 95, 79, 63, 47, 31, 16];
+    for (let i = 0; i < 16; i++) {
+      const slice = downSlices[i];
+      const py = expectedY[i];
+      expect(assets.symbolsGrid.get(slice.x + 15, slice.y + py)).toBe(1);
+    }
+
+    // Verify Devicetree generation for a sync loop block
+    const testMeta = {
+      version: 1 as const,
+      enabledScreens: ['central', 'peripheral'],
+      screenDimensions: { width: 32, height: 128 },
+      centralBlocks: [
+        {
+          id: 'test-sync',
+          widgetType: 'animation',
+          instanceId: 'inst-sync',
+          name: 'Sync',
+          x: 0,
+          y: 0,
+          width: 32,
+          height: 128,
+          enabled: true,
+          side: 'central' as const,
+        }
+      ],
+      peripheralBlocks: [],
+      idleCentralBlocks: [],
+      idlePeripheralBlocks: [],
+      widgetInstances: {
+        animation: [
+          {
+            id: 'inst-sync',
+            widgetTypeId: 'animation',
+            label: 'Sync Test',
+            config: {
+              mode: 'symbol' as const,
+              groupId: 'SYMBOL_SYNC_DOWN',
+              loopSpeedMs: 100,
+              loop: true,
+              syncAnimation: true,
+            },
+            slots: {},
+          }
+        ]
+      }
+    };
+
+    const dts = generateDevicetreeLayouts(testMeta, assets.symbolSlices);
+    expect(dts).toContain('compatible = "scyan,widget-loop";');
+    expect(dts).toContain('width = <32>;');
+    expect(dts).toContain('height = <128>;');
+    expect(dts).toContain('mode = <1>;');
+    expect(dts).toContain('param1 = <100>;');
+    expect(dts).toContain('param3 = <16>;');
+    expect(dts).toContain('symbol-id = <SYMBOL_SYNC_DOWN_01>;');
   });
 
   it('should support multi-screen setup with dynamic peripheral screens in C header export and parsing', () => {
