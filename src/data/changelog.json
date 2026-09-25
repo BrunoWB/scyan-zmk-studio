@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "2.0.6",
+        "date": "2026-09-25",
+        "commitHash": "ac0c314",
+        "changes": [
+          "perf(pixel): decouple live stroke rendering from React state and memoize atlas thumbnails"
+        ]
+      },
+      {
         "patch": "2.0.5",
         "date": "2026-09-25",
         "commitHash": "a5d77f5",
