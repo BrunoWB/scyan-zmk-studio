@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "2.0.4",
+        "date": "2026-09-25",
+        "commitHash": "6fada88",
+        "changes": [
+          "fix(atlas): fix atlas history undo/redo wiping on store sync"
+        ]
+      },
+      {
         "patch": "2.0.3",
         "date": "2026-09-25",
         "commitHash": "a140523",
