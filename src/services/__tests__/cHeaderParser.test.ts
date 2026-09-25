@@ -517,17 +517,18 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
       idleRightBlocks: [],
       widgetInstances: {
         'animation': [
-          { id: 'inst_loop', widgetTypeId: 'animation', label: 'Looping', config: { mode: 'symbol' as const, loopSpeedMs: 150, loop: true }, slots: {} },
-          { id: 'inst_oneshot', widgetTypeId: 'animation', label: 'One Shot', config: { mode: 'symbol' as const, loopSpeedMs: 200, loop: false }, slots: {} },
+          { id: 'inst_loop', widgetTypeId: 'animation', label: 'Looping', config: { mode: 'symbol' as const, loopSpeedMs: 150, loop: true, syncAnimation: true }, slots: {} },
+          { id: 'inst_oneshot', widgetTypeId: 'animation', label: 'One Shot', config: { mode: 'symbol' as const, loopSpeedMs: 200, loop: false, syncAnimation: false }, slots: {} },
         ]
       }
     };
 
     const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
     const dts = generateDevicetreeLayouts(metadata, []);
-    // inst_loop has loop: true -> param2 = 0 (omitted or default in DTS) and param1 = 150
+    // inst_loop has loop: true -> param2 = 0, param1 = 150, mode = 1 (synced)
     expect(dts).toContain('param1 = <150>;');
-    // inst_oneshot has loop: false -> param1 = 200, param2 = 1
+    expect(dts).toContain('mode = <1>;');
+    // inst_oneshot has loop: false -> param1 = 200, param2 = 1, mode = 0
     expect(dts).toContain('param1 = <200>;');
     expect(dts).toContain('param2 = <1>;');
 
@@ -537,12 +538,13 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     expect(animInstances).toBeDefined();
     expect(animInstances?.length).toBe(2);
     expect(animInstances?.find(i => i.id === 'inst_loop')?.config.loop).toBe(true);
+    expect(animInstances?.find(i => i.id === 'inst_loop')?.config.syncAnimation).toBe(true);
     expect(animInstances?.find(i => i.id === 'inst_oneshot')?.config.loop).toBe(false);
 
     // Raw C fallback parsing (when metadata block stripped)
     const rawC = `
       static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
-          { .type = WIDGET_TYPE_LOOP, .x = 2, .y = 20, .width = 24, .height = 24, .enabled = true, .mode = 0, .param1 = 120, .param2 = 1, .param3 = 0, .symbol_count = 0, .symbol_ids = { 0 }, .text_count = 0, .text_entries = { NULL }, .custom_text = NULL, .symbol_id = 0 },
+          { .type = WIDGET_TYPE_LOOP, .x = 2, .y = 20, .width = 24, .height = 24, .enabled = true, .mode = 1, .param1 = 120, .param2 = 1, .param3 = 0, .symbol_count = 0, .symbol_ids = { 0 }, .text_count = 0, .text_entries = { NULL }, .custom_text = NULL, .symbol_id = 0 },
       };
       #define LAYOUT_LEFT_ACTIVE_COUNT 1
     `;
@@ -553,6 +555,7 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     expect(rawAnimInst).toBeDefined();
     expect(rawAnimInst?.config.loopSpeedMs).toBe(120);
     expect(rawAnimInst?.config.loop).toBe(false); // param2 == 1 -> loop: false
+    expect(rawAnimInst?.config.syncAnimation).toBe(true); // mode == 1 -> syncAnimation: true
   });
 
   it('reconciles animation blocks to natural sprite dimensions and syncs loop/animation metadata', () => {

@@ -1689,6 +1689,26 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                               Duration in milliseconds each symbol frame remains on screen before cycling to the next frame.
                             </span>
                           </div>
+
+                          {/* Sync Animation Across Displays */}
+                          <div className="pt-3 border-t border-border-base/50">
+                            <label className="flex items-center justify-between cursor-pointer">
+                              <div>
+                                <span className="text-xs font-semibold text-text-main block">
+                                  Sync Animation Across Displays
+                                </span>
+                                <span className="text-[10px] text-muted block">
+                                  Locks animation frame indices deterministically to global uptime across split screens.
+                                </span>
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={inst.config?.syncAnimation ?? false}
+                                onChange={e => handleUpdateInstanceConfig(inst.id, { syncAnimation: e.target.checked })}
+                                className="toggle-switch accent-accent w-4 h-4 cursor-pointer"
+                              />
+                            </label>
+                          </div>
                         </div>
                       )}
                     </div>
