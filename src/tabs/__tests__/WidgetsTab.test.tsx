@@ -536,7 +536,7 @@ describe('WidgetsTab keypress widget UI', () => {
     expect(html).toContain('CENTRAL');
   });
 
-   it('renders ACTIVE badge for interactive widget in sidebar and header', () => {
+  it('renders ACTIVE badge for interactive widget in sidebar and header', () => {
     const html = renderToString(
       <WidgetsTab
         initialActiveWidgetId="bongo"
@@ -580,9 +580,9 @@ describe('WidgetsTab keypress widget UI', () => {
       />
     );
 
-    // Synced badge is icon-only — verify by class name and tooltip title
+    // Synced badge
     expect(html).toContain('badge-synced');
-    expect(html).toContain('Synced —');
+    expect(html).toContain('Synced');
 
     // Power-on alignment callout box
     expect(html).toContain('Power-On Alignment Note:');

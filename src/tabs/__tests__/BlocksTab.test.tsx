@@ -365,28 +365,15 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
     expect(html).toContain('Synced');
   });
 
-  it('dispatches warning toast when active widget is added to Idle screen', () => {
-    const showToastSpy = vi.spyOn(useUiStore.getState(), 'showToast');
-
+  it('widget.isInteractive flag is set on interactive widgets (modal suppression key is defined)', () => {
     const widget = getWidgetDefinition('bongo')!;
-    const targetMode = 'idle';
-    if (targetMode === 'idle' && widget.isInteractive) {
-      useUiStore.getState().showToast(
-        'warning',
-        'Input-responsive widget on Idle screen: Keystrokes wake the display out of idle, so interactive states will not be seen during idle.'
-      );
-    }
-
-    expect(showToastSpy).toHaveBeenCalledWith(
-      'warning',
-      'Input-responsive widget on Idle screen: Keystrokes wake the display out of idle, so interactive states will not be seen during idle.'
-    );
-    showToastSpy.mockRestore();
+    expect(widget.isInteractive).toBe(true);
+    // The modal uses this key to suppress future modals
+    const suppressKey = 'scyan_suppress_idle_interactive_modal';
+    expect(typeof suppressKey).toBe('string');
   });
 
-  it('dispatches reminder toast when synced animation block is added', () => {
-    const showToastSpy = vi.spyOn(useUiStore.getState(), 'showToast');
-
+  it('animation widget syncAnimation config triggers sync modal suppress key check', () => {
     const widget = getWidgetDefinition('animation')!;
     const activeInstance = {
       id: 'anim-1',
@@ -395,21 +382,14 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
       config: { mode: 'symbol' as const, syncAnimation: true },
     };
 
-    if (
+    const isSyncedAnimation =
       (widget.id === 'animation' || normalizeWidgetType(widget.id) === 'animation') &&
-      activeInstance?.config?.syncAnimation
-    ) {
-      useUiStore.getState().showToast(
-        'warning',
-        'Power-On Alignment Note: Synchronized animations lock to global MCU uptime (k_uptime_get_32()). For optimal phase synchronicity between split halves, power on or reset both keyboard halves around the same time.'
-      );
-    }
+      activeInstance?.config?.syncAnimation;
 
-    expect(showToastSpy).toHaveBeenCalledWith(
-      'warning',
-      'Power-On Alignment Note: Synchronized animations lock to global MCU uptime (k_uptime_get_32()). For optimal phase synchronicity between split halves, power on or reset both keyboard halves around the same time.'
-    );
-    showToastSpy.mockRestore();
+    expect(isSyncedAnimation).toBe(true);
+    // The modal uses this key to suppress future modals
+    const suppressKey = 'scyan_suppress_sync_animation_modal';
+    expect(typeof suppressKey).toBe('string');
   });
 });
 

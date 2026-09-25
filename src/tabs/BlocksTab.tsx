@@ -14,6 +14,8 @@ import { OledPanelColumn } from './blocks/OledPanelColumn';
 import { WidgetCatalogList } from './blocks/WidgetCatalogList';
 import { GhostDragOverlay } from './blocks/GhostDragOverlay';
 import { PeripheralMasterWarningModal } from './blocks/PeripheralMasterWarningModal';
+import { PlacementWarningModal } from './blocks/PlacementWarningModal';
+import type { PlacementWarningType } from './blocks/PlacementWarningModal';
 import { SideSettingsPanel } from '../components/ScreenSizePopover';
 import { trackEvent } from '../services/analytics';
 import { remapBlockCoordinates } from '../services/blocksLayout';
@@ -1096,6 +1098,82 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     setWarningModalState(null);
   }, []);
 
+  // Placement warning modal for idle-interactive / sync-animation
+  const [placementModalState, setPlacementModalState] = useState<{
+    isOpen: boolean;
+    type: PlacementWarningType;
+    widgetName: string;
+    blockId: string;
+    side: string;
+    targetMode: 'active' | 'idle';
+  } | null>(null);
+
+  const checkPlacementWarning = useCallback(
+    (
+      widget: DisplayWidgetDefinition,
+      side: string,
+      blockId: string,
+      targetMode: 'active' | 'idle',
+      activeInstance: { config?: { syncAnimation?: boolean } } | null | undefined,
+    ) => {
+      if (targetMode === 'idle' && widget.isInteractive) {
+        const key = 'scyan_suppress_idle_interactive_modal';
+        const isSuppressed = typeof window !== 'undefined' && localStorage.getItem(key) === 'true';
+        if (!isSuppressed) {
+          setPlacementModalState({ isOpen: true, type: 'idle-interactive', widgetName: widget.name, blockId, side, targetMode });
+          return;
+        }
+      }
+      if (
+        (widget.id === 'animation' || normalizeWidgetType(widget.id) === 'animation') &&
+        activeInstance?.config?.syncAnimation
+      ) {
+        const key = 'scyan_suppress_sync_animation_modal';
+        const isSuppressed = typeof window !== 'undefined' && localStorage.getItem(key) === 'true';
+        if (!isSuppressed) {
+          setPlacementModalState({ isOpen: true, type: 'sync-animation', widgetName: widget.name, blockId, side, targetMode });
+        }
+      }
+    },
+    []
+  );
+
+  const handleDismissPlacementModal = useCallback((dontShowAgain: boolean) => {
+    if (dontShowAgain && placementModalState && typeof window !== 'undefined') {
+      const key = placementModalState.type === 'idle-interactive'
+        ? 'scyan_suppress_idle_interactive_modal'
+        : 'scyan_suppress_sync_animation_modal';
+      localStorage.setItem(key, 'true');
+    }
+    setPlacementModalState(null);
+  }, [placementModalState]);
+
+  const handleRemovePlacementWidget = useCallback(
+    (dontShowAgain: boolean) => {
+      if (dontShowAgain && placementModalState && typeof window !== 'undefined') {
+        const key = placementModalState.type === 'idle-interactive'
+          ? 'scyan_suppress_idle_interactive_modal'
+          : 'scyan_suppress_sync_animation_modal';
+        localStorage.setItem(key, 'true');
+      }
+      if (placementModalState) {
+        const { blockId, side, targetMode } = placementModalState;
+        const cfg = getSideConfig(side);
+        if (targetMode === 'active') {
+          cfg.onBlocksChange(cfg.blocks.filter((b) => b.id !== blockId));
+        } else {
+          cfg.onIdleBlocksChange(cfg.idleBlocks.filter((b) => b.id !== blockId));
+        }
+        if (selectedBlockId === blockId) {
+          setSelectedBlockId(null);
+          setSelectedBlockSide(null);
+        }
+      }
+      setPlacementModalState(null);
+    },
+    [placementModalState, getSideConfig, selectedBlockId]
+  );
+
   const handleRemoveWarningWidget = useCallback(
     (dontShowAgain: boolean) => {
       if (dontShowAgain && typeof window !== 'undefined') {
@@ -1203,23 +1281,9 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       if (side !== 'central' && side !== 'left') {
         checkPeripheralMasterWarning(widget, side, newBlock.id, targetMode);
       }
-      if (targetMode === 'idle' && widget.isInteractive) {
-        showToast(
-          'warning',
-          'Input-responsive widget on Idle screen: Keystrokes wake the display out of idle, so interactive states will not be seen during idle.'
-        );
-      }
-      if (
-        (widget.id === 'animation' || normalizeWidgetType(widget.id) === 'animation') &&
-        activeInstance?.config?.syncAnimation
-      ) {
-        showToast(
-          'warning',
-          'Power-On Alignment Note: Synchronized animations lock to global MCU uptime (k_uptime_get_32()). For optimal phase synchronicity between split halves, power on or reset both keyboard halves around the same time.'
-        );
-      }
+      checkPlacementWarning(widget, side, newBlock.id, targetMode, activeInstance);
     },
-    [getSideConfig, getScreenMode, instances, symbolSlices, fontGlyphs, fontMappings, checkPeripheralMasterWarning, showToast]
+    [getSideConfig, getScreenMode, instances, symbolSlices, fontGlyphs, fontMappings, checkPeripheralMasterWarning, checkPlacementWarning]
   );
 
   // Window listeners during active ghost drag
@@ -1323,21 +1387,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         if (side !== 'central' && side !== 'left') {
           checkPeripheralMasterWarning(active.widget, side, newBlock.id, targetMode);
         }
-        if (targetMode === 'idle' && active.widget.isInteractive) {
-          showToast(
-            'warning',
-            'Input-responsive widget on Idle screen: Keystrokes wake the display out of idle, so interactive states will not be seen during idle.'
-          );
-        }
-        if (
-          (active.widget.id === 'animation' || normalizeWidgetType(active.widget.id) === 'animation') &&
-          activeInstance?.config?.syncAnimation
-        ) {
-          showToast(
-            'warning',
-            'Power-On Alignment Note: Synchronized animations lock to global MCU uptime (k_uptime_get_32()). For optimal phase synchronicity between split halves, power on or reset both keyboard halves around the same time.'
-          );
-        }
+        checkPlacementWarning(active.widget, side, newBlock.id, targetMode, activeInstance);
       }
 
       dragStateRef.current = null;
@@ -1362,7 +1412,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     fontGlyphs,
     fontMappings,
     checkPeripheralMasterWarning,
-    showToast,
+    checkPlacementWarning,
   ]);
 
   const totalDisplays = effectiveEnabledScreens.length;
@@ -1712,6 +1762,17 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
             widgetName={warningModalState.widgetName}
             onDismiss={handleDismissWarningModal}
             onRemove={handleRemoveWarningWidget}
+          />
+        )}
+
+        {/* Idle-Interactive / Sync-Animation Placement Warning Modal */}
+        {placementModalState && (
+          <PlacementWarningModal
+            isOpen={placementModalState.isOpen}
+            type={placementModalState.type}
+            widgetName={placementModalState.widgetName}
+            onDismiss={handleDismissPlacementModal}
+            onRemove={handleRemovePlacementWidget}
           />
         )}
 
