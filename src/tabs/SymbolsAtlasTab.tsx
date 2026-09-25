@@ -385,13 +385,11 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
       {/* Center/Left: Bwpx Monochrome Canvas Editor */}
       <div className="atlas-editor-pane">
         <BwpxEditor
+          isAtlas={true}
           initialWidth={128}
           initialHeight={34}
           initialGrid={symbolsGrid}
           onGridChange={onSymbolsGridChange}
-          title="SYMBOLS ATLAS (INFINITE 1BPP)"
-          showLogo={false}
-          showNewButton={false}
           showPresets={false}
           colorMode="monochrome"
           defaultPixelColor="#ffffff"

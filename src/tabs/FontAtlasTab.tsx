@@ -424,13 +424,11 @@ export const FontAtlasTab: React.FC<FontAtlasTabProps> = ({
 
         <div className="font-canvas-flex">
           <BwpxEditor
+            isAtlas={true}
             initialWidth={fontGrid.width}
             initialHeight={fontGrid.height}
             initialGrid={fontGrid}
             onGridChange={onFontGridChange}
-            title="FONT & CHARACTER ATLAS (1BPP)"
-            showLogo={false}
-            showNewButton={false}
             showPresets={false}
             colorMode="monochrome"
             defaultPixelColor="#ffffff"
