@@ -150,5 +150,120 @@ describe('OledPanelColumn right-click context menu and block removal', () => {
     const hitEmpty = hitTest(110, 136, sampleBlocks);
     expect(hitEmpty).toBeNull();
   });
+
+  it('renders amber warning badge on block overlay for interactive widget on Idle screen', () => {
+    const idleBlocks: LayoutBlock[] = [
+      {
+        id: 'block-bongo-idle',
+        widgetType: 'bongo',
+        name: 'Bongo Cat',
+        x: 0,
+        y: 10,
+        width: 32,
+        height: 23,
+        enabled: true,
+      },
+    ];
+
+    const htmlIdle = renderToString(
+      <OledPanelColumn
+        side="central"
+        screenKind="idle"
+        title="Central Screen"
+        blocks={idleBlocks}
+        onBlocksChange={() => {}}
+        onClearScreen={() => {}}
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText=""
+        isDropTarget={false}
+        dropTargetY={null}
+        draggedWidget={null}
+        selectedBlockId={null}
+        onSelectBlock={() => {}}
+        onRegisterScreenElement={() => {}}
+      />
+    );
+
+    expect(htmlIdle).toContain('Input-responsive widget on Idle screen: Keystrokes wake the display out of idle, so interactive states will not be seen during idle.');
+
+    const htmlActive = renderToString(
+      <OledPanelColumn
+        side="central"
+        screenKind="active"
+        title="Central Screen"
+        blocks={idleBlocks}
+        onBlocksChange={() => {}}
+        onClearScreen={() => {}}
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText=""
+        isDropTarget={false}
+        dropTargetY={null}
+        draggedWidget={null}
+        selectedBlockId={null}
+        onSelectBlock={() => {}}
+        onRegisterScreenElement={() => {}}
+      />
+    );
+
+    expect(htmlActive).not.toContain('Input-responsive widget on Idle screen');
+  });
+
+  it('renders cyan indicator badge on block overlay for split-synchronized animation block', () => {
+    const animBlocks: LayoutBlock[] = [
+      {
+        id: 'block-anim-sync',
+        widgetType: 'animation',
+        instanceId: 'anim-inst-1',
+        name: 'Synced Animation',
+        x: 0,
+        y: 0,
+        width: 32,
+        height: 32,
+        enabled: true,
+      },
+    ];
+
+    const instances = {
+      animation: [
+        {
+          id: 'anim-inst-1',
+          widgetTypeId: 'animation',
+          label: 'Looping Art',
+          config: {
+            mode: 'symbol' as const,
+            syncAnimation: true,
+          },
+        },
+      ],
+    };
+
+    const html = renderToString(
+      <OledPanelColumn
+        side="central"
+        screenKind="active"
+        title="Central Screen"
+        blocks={animBlocks}
+        instances={instances}
+        onBlocksChange={() => {}}
+        onClearScreen={() => {}}
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText=""
+        isDropTarget={false}
+        dropTargetY={null}
+        draggedWidget={null}
+        selectedBlockId={null}
+        onSelectBlock={() => {}}
+        onRegisterScreenElement={() => {}}
+      />
+    );
+
+    expect(html).toContain('Split-Synchronized Animation: Frame phase is locked to MCU uptime. Power on or reset both halves around the same time for exact synchronicity.');
+  });
 });
 

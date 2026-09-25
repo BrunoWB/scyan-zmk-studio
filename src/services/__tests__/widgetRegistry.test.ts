@@ -105,6 +105,20 @@ describe('Widget Registry - Single Source of Truth', () => {
     expect(getWidgetDefinition('non-existent')).toBeUndefined();
   });
 
+  it('correctly flags interactive input-responsive widgets via isInteractive', () => {
+    const interactiveWidgetIds = ['bongo', 'layer-banner', 'typewriter', 'keypress', 'wpm', 'wpm-chart'];
+    for (const id of interactiveWidgetIds) {
+      const widget = getWidgetDefinition(id);
+      expect(widget?.isInteractive).toBe(true);
+    }
+
+    const nonInteractiveWidgetIds = ['battery', 'connection', 'split', 'branding', 'screensaver', 'animation'];
+    for (const id of nonInteractiveWidgetIds) {
+      const widget = getWidgetDefinition(id);
+      expect(widget?.isInteractive).toBeFalsy();
+    }
+  });
+
   it('filters widgets by category and supports "all"', () => {
     const statusWidgets = getWidgetsByCategory('status');
     expect(statusWidgets.length).toBeGreaterThan(0);

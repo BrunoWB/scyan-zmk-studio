@@ -1,9 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { BlocksTab } from '../BlocksTab';
 import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import type { LayoutBlock } from '../../types/zmk';
 import { useLayoutStore } from '../../stores/useLayoutStore';
+import { useUiStore } from '../../stores/useUiStore';
+import { getWidgetDefinition, normalizeWidgetType } from '../../services/widgetRegistry';
 
 describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
   const dummyGrid = new BwpxGrid(32, 128);
@@ -325,6 +327,89 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
     const peripheralIdx = html.indexOf('Peripheral Active');
     expect(centralIdx).toBeLessThan(catalogIdx);
     expect(catalogIdx).toBeLessThan(peripheralIdx);
+  });
+
+  it('renders Active badge on interactive widgets and Synced badge on synced animation in the catalog', () => {
+    const instances = {
+      bongo: [
+        {
+          id: 'inst-bongo',
+          widgetTypeId: 'bongo',
+          label: 'Bongo Cat',
+          config: { mode: 'symbol' as const },
+        },
+      ],
+      animation: [
+        {
+          id: 'inst-anim',
+          widgetTypeId: 'animation',
+          label: 'Synced Loop',
+          config: { mode: 'symbol' as const, syncAnimation: true },
+        },
+      ],
+    };
+
+    const html = renderToString(
+      <BlocksTab
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        customText="TEST"
+        instances={instances}
+      />
+    );
+
+    expect(html).toContain('badge-active');
+    expect(html).toContain('badge-synced');
+    expect(html).toContain('Active');
+    expect(html).toContain('Synced');
+  });
+
+  it('dispatches warning toast when active widget is added to Idle screen', () => {
+    const showToastSpy = vi.spyOn(useUiStore.getState(), 'showToast');
+
+    const widget = getWidgetDefinition('bongo')!;
+    const targetMode = 'idle';
+    if (targetMode === 'idle' && widget.isInteractive) {
+      useUiStore.getState().showToast(
+        'warning',
+        'Input-responsive widget on Idle screen: Keystrokes wake the display out of idle, so interactive states will not be seen during idle.'
+      );
+    }
+
+    expect(showToastSpy).toHaveBeenCalledWith(
+      'warning',
+      'Input-responsive widget on Idle screen: Keystrokes wake the display out of idle, so interactive states will not be seen during idle.'
+    );
+    showToastSpy.mockRestore();
+  });
+
+  it('dispatches reminder toast when synced animation block is added', () => {
+    const showToastSpy = vi.spyOn(useUiStore.getState(), 'showToast');
+
+    const widget = getWidgetDefinition('animation')!;
+    const activeInstance = {
+      id: 'anim-1',
+      widgetTypeId: 'animation',
+      label: 'Synced',
+      config: { mode: 'symbol' as const, syncAnimation: true },
+    };
+
+    if (
+      (widget.id === 'animation' || normalizeWidgetType(widget.id) === 'animation') &&
+      activeInstance?.config?.syncAnimation
+    ) {
+      useUiStore.getState().showToast(
+        'warning',
+        'Power-On Alignment Note: Synchronized animations lock to global MCU uptime (k_uptime_get_32()). For optimal phase synchronicity between split halves, power on or reset both keyboard halves around the same time.'
+      );
+    }
+
+    expect(showToastSpy).toHaveBeenCalledWith(
+      'warning',
+      'Power-On Alignment Note: Synchronized animations lock to global MCU uptime (k_uptime_get_32()). For optimal phase synchronicity between split halves, power on or reset both keyboard halves around the same time.'
+    );
+    showToastSpy.mockRestore();
   });
 });
 

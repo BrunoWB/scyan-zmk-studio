@@ -164,6 +164,7 @@ export interface DisplayWidgetDefinition {
   category: WidgetCategory;
   tier: 1 | 2 | 3;
   requiresMaster?: boolean;
+  isInteractive?: boolean;
   description: string;
   defaultWidth: number;
   minWidth: number;

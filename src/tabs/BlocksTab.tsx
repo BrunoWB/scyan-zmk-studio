@@ -9,7 +9,7 @@ import {
   DEFAULT_IDLE_PERIPHERAL_BLOCKS,
 } from '../types/zmk';
 import type { DisplayWidgetDefinition, DragWidgetState } from '../types/widget';
-import { getWidgetNaturalSize, resolveWidgetInstance } from '../services/widgetRegistry';
+import { getWidgetNaturalSize, resolveWidgetInstance, normalizeWidgetType } from '../services/widgetRegistry';
 import { OledPanelColumn } from './blocks/OledPanelColumn';
 import { WidgetCatalogList } from './blocks/WidgetCatalogList';
 import { GhostDragOverlay } from './blocks/GhostDragOverlay';
@@ -202,6 +202,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
   const storeFontGlyphs = useAtlasStore((s) => s.fontGlyphs);
   const storeFontMappings = useAtlasStore((s) => s.fontMappings);
   const storeCustomText = useUiStore((s) => s.customText);
+  const showToast = useUiStore((s) => s.showToast);
 
   const storeCentralBlocks = useLayoutStore((s) => s.centralBlocks);
   const storeSetCentralBlocks = useLayoutStore((s) => s.setCentralBlocks);
@@ -1202,8 +1203,23 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
       if (side !== 'central' && side !== 'left') {
         checkPeripheralMasterWarning(widget, side, newBlock.id, targetMode);
       }
+      if (targetMode === 'idle' && widget.isInteractive) {
+        showToast(
+          'warning',
+          'Input-responsive widget on Idle screen: Keystrokes wake the display out of idle, so interactive states will not be seen during idle.'
+        );
+      }
+      if (
+        (widget.id === 'animation' || normalizeWidgetType(widget.id) === 'animation') &&
+        activeInstance?.config?.syncAnimation
+      ) {
+        showToast(
+          'warning',
+          'Power-On Alignment Note: Synchronized animations lock to global MCU uptime (k_uptime_get_32()). For optimal phase synchronicity between split halves, power on or reset both keyboard halves around the same time.'
+        );
+      }
     },
-    [getSideConfig, getScreenMode, instances, symbolSlices, fontGlyphs, fontMappings, checkPeripheralMasterWarning]
+    [getSideConfig, getScreenMode, instances, symbolSlices, fontGlyphs, fontMappings, checkPeripheralMasterWarning, showToast]
   );
 
   // Window listeners during active ghost drag
@@ -1307,6 +1323,21 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
         if (side !== 'central' && side !== 'left') {
           checkPeripheralMasterWarning(active.widget, side, newBlock.id, targetMode);
         }
+        if (targetMode === 'idle' && active.widget.isInteractive) {
+          showToast(
+            'warning',
+            'Input-responsive widget on Idle screen: Keystrokes wake the display out of idle, so interactive states will not be seen during idle.'
+          );
+        }
+        if (
+          (active.widget.id === 'animation' || normalizeWidgetType(active.widget.id) === 'animation') &&
+          activeInstance?.config?.syncAnimation
+        ) {
+          showToast(
+            'warning',
+            'Power-On Alignment Note: Synchronized animations lock to global MCU uptime (k_uptime_get_32()). For optimal phase synchronicity between split halves, power on or reset both keyboard halves around the same time.'
+          );
+        }
       }
 
       dragStateRef.current = null;
@@ -1331,6 +1362,7 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     fontGlyphs,
     fontMappings,
     checkPeripheralMasterWarning,
+    showToast,
   ]);
 
   const totalDisplays = effectiveEnabledScreens.length;

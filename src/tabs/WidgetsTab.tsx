@@ -24,7 +24,8 @@ import {
   Type as TypeIcon, Image as ImageIcon,
   Plus, Trash2, Usb, Bluetooth, Cat, Repeat, Film,
   AlignLeft, AlignCenter, AlignRight, Cpu, Keyboard,
-  ArrowRight, ArrowLeft, ArrowDown, ArrowUp
+  ArrowRight, ArrowLeft, ArrowDown, ArrowUp,
+  Zap, RefreshCw, Info
 } from 'lucide-react';
 
 import { useAtlasStore } from '../stores/useAtlasStore';
@@ -360,6 +361,12 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                               <Cpu size={9} className="shrink-0" />
                             </span>
                           )}
+                          {widget.isInteractive && (
+                            <span className="badge-active badge-active--nav" title="Interactive widget">
+                              <Zap size={9} className="shrink-0" />
+                              Active
+                            </span>
+                          )}
                           {instanceCount > 0 && (
                             <span className="instance-count-badge">{instanceCount}</span>
                           )}
@@ -404,6 +411,12 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
               <span className="badge-master" title="Requires Central half in ZMK split">
                 <Cpu size={10} className="shrink-0" />
                 CENTRAL
+              </span>
+            )}
+            {activeWidget.isInteractive && (
+              <span className="badge-active" title="Responds interactively to keystrokes or typing events">
+                <Zap size={10} className="shrink-0" />
+                ACTIVE
               </span>
             )}
           </div>
@@ -700,6 +713,12 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                   className="widget-instance-label-input flex-1 min-w-0"
                   placeholder="Instance Label..."
                 />
+                {(activeWidget.id === 'animation' || activeWidget.id === 'loop') && inst.config?.syncAnimation && (
+                  <span className="badge-synced" title="Phase-locked deterministic synchronization across split displays">
+                    <RefreshCw size={9} className="shrink-0" />
+                    Synced
+                  </span>
+                )}
                 {activeWidget.id !== 'wpm-chart' && activeWidget.id !== 'branding' && activeWidget.id !== 'typewriter' && activeWidget.id !== 'keypress' && (
                   <div className="widget-mode-radio-group" role="radiogroup" aria-label="Display Mode">
                     <button
@@ -1708,6 +1727,14 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                                 className="toggle-switch accent-accent w-4 h-4 cursor-pointer"
                               />
                             </label>
+                            {inst.config?.syncAnimation && (
+                              <div className="mt-2 text-[11px] text-cyan-300 bg-cyan-950/30 border border-cyan-800/40 rounded p-2.5 flex items-start gap-2">
+                                <Info size={14} className="text-accent shrink-0 mt-0.5" />
+                                <div>
+                                  <strong>Power-On Alignment Note:</strong> Synchronized animations lock to global MCU uptime (<code>k_uptime_get_32()</code>). For optimal phase synchronicity between split halves, power on or reset both keyboard halves around the same time.
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}

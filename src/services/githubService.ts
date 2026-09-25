@@ -1859,6 +1859,22 @@ export function updateKconfigSetting(
   return { updated, changed: true };
 }
 
+/**
+ * Removes a Kconfig setting from .conf content.
+ * Safely handles active or commented-out settings.
+ */
+export function removeKconfigSetting(
+  content: string,
+  key: string
+): { updated: string; changed: boolean } {
+  const regex = new RegExp(`^[ \\t]*(?:#\\s*)?${key}(?:=.*|\\s+is not set)(?:\\r?\\n)?`, 'gm');
+  if (!regex.test(content)) {
+    return { updated: content, changed: false };
+  }
+  const updated = content.replace(regex, '');
+  return { updated, changed: true };
+}
+
 export interface TimeoutConfig {
   screenOffTimeoutSec: number;
   peripheralScreenOffTimeoutSec?: number;
@@ -1945,7 +1961,35 @@ export function resolveConfTimeoutUpdates(
     }
   }
 
-  // If all active conf files were resolved via display assignments, return early
+  // If any conf files were handled via display assignments:
+  // Update any unhandled side-specific confs with defaults, and strip CONFIG_ZMK_IDLE_TIMEOUT from base conf files so they don't override side-specific confs in ZMK
+  if (handledPaths.size > 0) {
+    const unhandledConfs = activeConfFiles.filter((f) => !handledPaths.has(f.path));
+    for (const conf of unhandledConfs) {
+      const lower = conf.path.toLowerCase();
+      const isLeft = lower.includes('_central') || lower.includes('-central') || lower.includes('_left') || lower.includes('-left');
+      const isRight = lower.includes('_peripheral') || lower.includes('-peripheral') || lower.includes('_right') || lower.includes('-right');
+
+      if (isLeft) {
+        const res = updateKconfigSetting(conf.content, 'CONFIG_ZMK_IDLE_TIMEOUT', leftTimeoutMs);
+        if (res.changed) {
+          updates.push({ path: conf.path, content: res.updated });
+        }
+      } else if (isRight) {
+        const res = updateKconfigSetting(conf.content, 'CONFIG_ZMK_IDLE_TIMEOUT', rightTimeoutMs);
+        if (res.changed) {
+          updates.push({ path: conf.path, content: res.updated });
+        }
+      } else {
+        const res = removeKconfigSetting(conf.content, 'CONFIG_ZMK_IDLE_TIMEOUT');
+        if (res.changed) {
+          updates.push({ path: conf.path, content: res.updated });
+        }
+      }
+    }
+    return updates;
+  }
+
   const unhandledConfs = activeConfFiles.filter((f) => !handledPaths.has(f.path));
   if (unhandledConfs.length === 0) {
     return updates;
@@ -1998,6 +2042,16 @@ export function resolveConfTimeoutUpdates(
       const res = updateKconfigSetting(rc.content, 'CONFIG_ZMK_IDLE_TIMEOUT', rightTimeoutMs);
       if (res.changed) {
         updates.push({ path: rc.path, content: res.updated });
+      }
+    }
+    if (leftConfs.length > 0) {
+      // Both left and right or specific left conf exist: strip CONFIG_ZMK_IDLE_TIMEOUT from base confs
+      // to avoid shared base confs overriding peripheral/right in ZMK
+      for (const bc of baseConfs) {
+        const res = removeKconfigSetting(bc.content, 'CONFIG_ZMK_IDLE_TIMEOUT');
+        if (res.changed) {
+          updates.push({ path: bc.path, content: res.updated });
+        }
       }
     }
   } else if (baseConfs.length > 0) {

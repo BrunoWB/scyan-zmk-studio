@@ -27,6 +27,8 @@ import {
   Settings,
   Cpu,
   Layers,
+  Zap,
+  RefreshCw,
 } from 'lucide-react';
 
 export interface OledPanelColumnProps {
@@ -695,6 +697,9 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
                 const heightPct = (blockH / V_HEIGHT) * 100;
 
                 const isPeripheralMaster = !isCentral && !!def?.requiresMaster;
+                const isIdle = screenKind === 'idle';
+                const isIdleInteractive = isIdle && !!def?.isInteractive;
+                const isSyncedAnimation = normType === 'animation' && !!activeInstance?.config?.syncAnimation;
 
                 return (
                   <div
@@ -719,20 +724,58 @@ export const OledPanelColumn: React.FC<OledPanelColumnProps> = ({
                     }}
                     onContextMenu={e => handleContextMenu(e, block)}
                   >
-                    {isPeripheralMaster && (
-                      <div
-                        className="absolute top-1 right-1 z-30 group/warn cursor-help pointer-events-auto flex items-center justify-center"
-                        title="Mounted on Peripheral: Central coordinator required"
-                        onClick={e => e.stopPropagation()}
-                      >
-                        <div className="size-4 rounded-full bg-[#f2741d] text-[#0b0d13] font-black text-[10px] flex items-center justify-center shadow-[0_0_8px_rgba(242,116,29,0.9)] border border-[#0b0d13] leading-none select-none transition-transform group-hover/warn:scale-110">
-                          !
-                        </div>
-                        {/* Hover tooltip */}
-                        <div className="pointer-events-none opacity-0 group-hover/warn:opacity-100 transition-all duration-150 transform group-hover/warn:translate-y-0 translate-y-1 absolute bottom-full right-1/2 translate-x-1/2 mb-1.5 px-2 py-1 bg-[#131722] border border-[#f2741d]/70 text-white text-[10px] font-sans font-medium rounded shadow-[0_4px_16px_rgba(0,0,0,0.9),0_0_8px_rgba(242,116,29,0.2)] whitespace-nowrap z-50">
-                          Mounted on Peripheral: Central coordinator required
-                          <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-[1px] border-4 border-transparent border-t-[#131722]" />
-                        </div>
+                    {(isPeripheralMaster || isIdleInteractive || isSyncedAnimation) && (
+                      <div className="absolute top-1 right-1 z-30 flex items-center gap-1">
+                        {isPeripheralMaster && (
+                          <div
+                            className="relative group/warn cursor-help pointer-events-auto flex items-center justify-center"
+                            title="Mounted on Peripheral: Central coordinator required"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <div className="size-4 rounded-full bg-[#f2741d] text-[#0b0d13] font-black text-[10px] flex items-center justify-center shadow-[0_0_8px_rgba(242,116,29,0.9)] border border-[#0b0d13] leading-none select-none transition-transform group-hover/warn:scale-110">
+                              !
+                            </div>
+                            {/* Hover tooltip */}
+                            <div className="pointer-events-none opacity-0 group-hover/warn:opacity-100 transition-all duration-150 transform group-hover/warn:translate-y-0 translate-y-1 absolute bottom-full right-1/2 translate-x-1/2 mb-1.5 px-2 py-1 bg-[#131722] border border-[#f2741d]/70 text-white text-[10px] font-sans font-medium rounded shadow-[0_4px_16px_rgba(0,0,0,0.9),0_0_8px_rgba(242,116,29,0.2)] whitespace-nowrap z-50">
+                              Mounted on Peripheral: Central coordinator required
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-[1px] border-4 border-transparent border-t-[#131722]" />
+                            </div>
+                          </div>
+                        )}
+
+                        {isIdleInteractive && (
+                          <div
+                            className="relative group/idle cursor-help pointer-events-auto flex items-center justify-center"
+                            title="Input-responsive widget on Idle screen: Keystrokes wake the display out of idle, so interactive states will not be seen during idle."
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <div className="size-4 rounded-full bg-[#f59e0b] text-[#0b0d13] font-black text-[10px] flex items-center justify-center shadow-[0_0_8px_rgba(245,158,11,0.9)] border border-[#0b0d13] leading-none select-none transition-transform group-hover/idle:scale-110">
+                              <Zap size={9} strokeWidth={2.5} className="fill-current" />
+                            </div>
+                            {/* Hover tooltip */}
+                            <div className="pointer-events-none opacity-0 group-hover/idle:opacity-100 transition-all duration-150 transform group-hover/idle:translate-y-0 translate-y-1 absolute bottom-full right-1/2 translate-x-1/2 mb-1.5 px-2 py-1 bg-[#131722] border border-[#f59e0b]/70 text-white text-[10px] font-sans font-medium rounded shadow-[0_4px_16px_rgba(0,0,0,0.9),0_0_8px_rgba(245,158,11,0.2)] whitespace-nowrap z-50">
+                              Input-responsive widget on Idle screen: Keystrokes wake the display out of idle, so interactive states will not be seen during idle.
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-[1px] border-4 border-transparent border-t-[#131722]" />
+                            </div>
+                          </div>
+                        )}
+
+                        {isSyncedAnimation && (
+                          <div
+                            className="relative group/sync cursor-help pointer-events-auto flex items-center justify-center"
+                            title="Split-Synchronized Animation: Frame phase is locked to MCU uptime. Power on or reset both halves around the same time for exact synchronicity."
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <div className="size-4 rounded-full bg-[#00d2ff] text-[#07090e] font-black text-[9px] flex items-center justify-center shadow-[0_0_8px_rgba(0,210,255,0.9)] border border-[#07090e] leading-none select-none transition-transform group-hover/sync:scale-110">
+                              <RefreshCw size={9} strokeWidth={2.5} />
+                            </div>
+                            {/* Hover tooltip */}
+                            <div className="pointer-events-none opacity-0 group-hover/sync:opacity-100 transition-all duration-150 transform group-hover/sync:translate-y-0 translate-y-1 absolute bottom-full right-1/2 translate-x-1/2 mb-1.5 px-2 py-1 bg-[#131722] border border-[#00d2ff]/70 text-white text-[10px] font-sans font-medium rounded shadow-[0_4px_16px_rgba(0,0,0,0.9),0_0_8px_rgba(0,210,255,0.2)] whitespace-nowrap z-50">
+                              Split-Synchronized Animation: Frame phase is locked to MCU uptime. Power on or reset both halves around the same time for exact synchronicity.
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-[1px] border-4 border-transparent border-t-[#131722]" />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

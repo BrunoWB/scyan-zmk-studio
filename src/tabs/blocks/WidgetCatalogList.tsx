@@ -12,7 +12,7 @@ import type {
   WidgetCategory,
   TypewriterState,
 } from '../../types/widget';
-import { Search, Cpu } from 'lucide-react';
+import { Search, Cpu, Zap, RefreshCw } from 'lucide-react';
 
 type FilterType = 'all' | 'tier-1' | 'tier-2' | 'tier-3' | WidgetCategory;
 
@@ -265,6 +265,18 @@ export const WidgetCatalogList: React.FC<WidgetCatalogListProps> = ({
                     {widget.requiresMaster && (
                       <span className="badge-master badge-master--nav" title="Requires Central half in ZMK split">
                         <Cpu size={9} className="shrink-0" />
+                      </span>
+                    )}
+                    {widget.isInteractive && (
+                      <span className="badge-active badge-active--tile" title="Active (interactive widget)">
+                        <Zap size={9} className="shrink-0" />
+                        Active
+                      </span>
+                    )}
+                    {inst.config?.syncAnimation && (
+                      <span className="badge-synced badge-synced--tile" title="Split-synchronized animation">
+                        <RefreshCw size={9} className="shrink-0" />
+                        Synced
                       </span>
                     )}
                   </div>

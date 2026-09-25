@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   updateKconfigSetting,
+  removeKconfigSetting,
   resolveConfUpdates,
   resolveConfTimeoutUpdates,
   injectOrUpdateOverlay,
@@ -72,6 +73,65 @@ describe('githubService Kconfig timeout synchronization', () => {
       expect(res.changed).toBe(true);
       expect(res.updated).toContain('# Note: CONFIG_ZMK_IDLE_TIMEOUT is configured below');
       expect(res.updated).toContain('CONFIG_ZMK_IDLE_TIMEOUT=25000');
+    });
+  });
+
+  describe('removeKconfigSetting', () => {
+    it('removes an active configuration line', () => {
+      const input = [
+        'CONFIG_ZMK_DISPLAY=y',
+        'CONFIG_ZMK_IDLE_TIMEOUT=60000',
+        'CONFIG_SCYAN_BONGO=y',
+      ].join('\n');
+
+      const res = removeKconfigSetting(input, 'CONFIG_ZMK_IDLE_TIMEOUT');
+      expect(res.changed).toBe(true);
+      expect(res.updated).not.toContain('CONFIG_ZMK_IDLE_TIMEOUT');
+      expect(res.updated).toContain('CONFIG_ZMK_DISPLAY=y');
+      expect(res.updated).toContain('CONFIG_SCYAN_BONGO=y');
+    });
+
+    it('removes a commented-out configuration line', () => {
+      const input = [
+        'CONFIG_ZMK_DISPLAY=y',
+        '# CONFIG_ZMK_IDLE_TIMEOUT=60000',
+        'CONFIG_SCYAN_BONGO=y',
+      ].join('\n');
+
+      const res = removeKconfigSetting(input, 'CONFIG_ZMK_IDLE_TIMEOUT');
+      expect(res.changed).toBe(true);
+      expect(res.updated).not.toContain('CONFIG_ZMK_IDLE_TIMEOUT');
+    });
+
+    it('removes a commented-out "is not set" line', () => {
+      const input = [
+        'CONFIG_ZMK_DISPLAY=y',
+        '# CONFIG_ZMK_IDLE_TIMEOUT is not set',
+        'CONFIG_SCYAN_BONGO=y',
+      ].join('\n');
+
+      const res = removeKconfigSetting(input, 'CONFIG_ZMK_IDLE_TIMEOUT');
+      expect(res.changed).toBe(true);
+      expect(res.updated).not.toContain('CONFIG_ZMK_IDLE_TIMEOUT');
+    });
+
+    it('reports no change if the setting is absent', () => {
+      const input = 'CONFIG_ZMK_DISPLAY=y\nCONFIG_SCYAN_BONGO=y\n';
+      const res = removeKconfigSetting(input, 'CONFIG_ZMK_IDLE_TIMEOUT');
+      expect(res.changed).toBe(false);
+      expect(res.updated).toBe(input);
+    });
+
+    it('preserves unrelated comments mentioning the setting name', () => {
+      const input = [
+        '# Note: CONFIG_ZMK_IDLE_TIMEOUT is configured below',
+        'CONFIG_ZMK_IDLE_TIMEOUT=60000',
+      ].join('\n');
+
+      const res = removeKconfigSetting(input, 'CONFIG_ZMK_IDLE_TIMEOUT');
+      expect(res.changed).toBe(true);
+      expect(res.updated).toContain('# Note: CONFIG_ZMK_IDLE_TIMEOUT is configured below');
+      expect(res.updated).not.toContain('CONFIG_ZMK_IDLE_TIMEOUT=60000');
     });
   });
 
@@ -181,6 +241,172 @@ describe('githubService Kconfig timeout synchronization', () => {
       expect(updates[0].path).toBe('config/corne.conf');
       expect(updates[0].content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=45000');
     });
+
+    it('strips CONFIG_ZMK_IDLE_TIMEOUT from base conf when side-specific conf files are present', () => {
+      const confFiles = [
+        {
+          path: 'config/corne.conf',
+          content: 'CONFIG_ZMK_DISPLAY=y\nCONFIG_ZMK_IDLE_TIMEOUT=60000\nCONFIG_SCYAN_BONGO=y\n',
+        },
+        {
+          path: 'config/corne_left.conf',
+          content: 'CONFIG_ZMK_IDLE_TIMEOUT=60000\n',
+        },
+        {
+          path: 'config/corne_right.conf',
+          content: 'CONFIG_ZMK_IDLE_TIMEOUT=60000\n',
+        },
+      ];
+
+      const updates = resolveConfUpdates(confFiles, {
+        screenOffTimeoutSec: 60,
+        rightScreenOffTimeoutSec: 25,
+        symmetricSettings: false,
+      });
+
+      // corne_right.conf updated to 25000
+      // corne.conf has CONFIG_ZMK_IDLE_TIMEOUT stripped to prevent overriding right in ZMK
+      const rightUpdate = updates.find(u => u.path === 'config/corne_right.conf');
+      const baseUpdate = updates.find(u => u.path === 'config/corne.conf');
+      const leftUpdate = updates.find(u => u.path === 'config/corne_left.conf');
+
+      expect(leftUpdate).toBeUndefined(); // already 60000
+      expect(rightUpdate?.content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=25000');
+      expect(baseUpdate?.content).not.toContain('CONFIG_ZMK_IDLE_TIMEOUT');
+      expect(baseUpdate?.content).toContain('CONFIG_ZMK_DISPLAY=y');
+      expect(baseUpdate?.content).toContain('CONFIG_SCYAN_BONGO=y');
+    });
+
+    it('strips CONFIG_ZMK_IDLE_TIMEOUT from base conf when displayAssignments are present', () => {
+      const confFiles = [
+        {
+          path: 'config/corne.conf',
+          content: 'CONFIG_ZMK_DISPLAY=y\nCONFIG_ZMK_IDLE_TIMEOUT=60000\n',
+        },
+        {
+          path: 'config/corne_left.conf',
+          content: 'CONFIG_ZMK_IDLE_TIMEOUT=60000\n',
+        },
+        {
+          path: 'config/corne_right.conf',
+          content: 'CONFIG_ZMK_IDLE_TIMEOUT=60000\n',
+        },
+      ];
+
+      const updates = resolveConfTimeoutUpdates(
+        confFiles,
+        {
+          screenOffTimeoutSec: 60,
+          rightScreenOffTimeoutSec: 25,
+          symmetricSettings: false,
+        },
+        {
+          displayAssignments: {
+            corne_left: 'central',
+            corne_right: 'peripheral',
+          },
+        }
+      );
+
+      const rightUpdate = updates.find(u => u.path === 'config/corne_right.conf');
+      const baseUpdate = updates.find(u => u.path === 'config/corne.conf');
+
+      expect(rightUpdate?.content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=25000');
+      expect(baseUpdate?.content).not.toContain('CONFIG_ZMK_IDLE_TIMEOUT');
+    });
+
+    it('updates unhandled side confs with default side timeouts and strips base confs when only one side is assigned', () => {
+      const confFiles = [
+        {
+          path: 'config/corne.conf',
+          content: 'CONFIG_ZMK_DISPLAY=y\nCONFIG_ZMK_IDLE_TIMEOUT=60000\n',
+        },
+        {
+          path: 'config/corne_left.conf',
+          content: 'CONFIG_ZMK_IDLE_TIMEOUT=60000\n',
+        },
+        {
+          path: 'config/corne_right.conf',
+          content: 'CONFIG_ZMK_IDLE_TIMEOUT=60000\n',
+        },
+      ];
+
+      const updates = resolveConfTimeoutUpdates(
+        confFiles,
+        {
+          screenOffTimeoutSec: 60,
+          rightScreenOffTimeoutSec: 25,
+          symmetricSettings: false,
+        },
+        {
+          displayAssignments: {
+            corne_left: 'central',
+          },
+        }
+      );
+
+      const rightUpdate = updates.find(u => u.path === 'config/corne_right.conf');
+      const baseUpdate = updates.find(u => u.path === 'config/corne.conf');
+
+      expect(rightUpdate?.content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=25000');
+      expect(baseUpdate?.content).not.toContain('CONFIG_ZMK_IDLE_TIMEOUT');
+    });
+
+    it('directly maps shields with mounted displays to their display screenOffTimeoutSec', () => {
+      const confFiles = [
+        {
+          path: 'config/corne_left.conf',
+          content: 'CONFIG_ZMK_IDLE_TIMEOUT=60000\n',
+        },
+        {
+          path: 'config/corne_right.conf',
+          content: 'CONFIG_ZMK_IDLE_TIMEOUT=60000\n',
+        },
+      ];
+
+      const updates = resolveConfTimeoutUpdates(
+        confFiles,
+        {
+          screenOffTimeoutSec: 40,
+          symmetricSettings: false,
+        },
+        {
+          displayAssignments: {
+            corne_left: 'display-1',
+            corne_right: 'display-2',
+          },
+          displays: {
+            'display-1': {
+              id: 'display-1',
+              name: 'Left',
+              dimensions: { width: 32, height: 128 },
+              rotation: 90,
+              blocks: [],
+              idleBlocks: [],
+              idleTimeoutSec: 30,
+              screenOffTimeoutSec: 40,
+              idleScreensEnabled: true,
+            },
+            'display-2': {
+              id: 'display-2',
+              name: 'Right',
+              dimensions: { width: 32, height: 128 },
+              rotation: 90,
+              blocks: [],
+              idleBlocks: [],
+              idleTimeoutSec: 15,
+              screenOffTimeoutSec: 15,
+              idleScreensEnabled: true,
+            },
+          },
+        }
+      );
+
+      expect(updates).toHaveLength(2);
+      expect(updates.find(u => u.path === 'config/corne_left.conf')?.content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=40000');
+      expect(updates.find(u => u.path === 'config/corne_right.conf')?.content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=15000');
+    });
+  });
 
   describe('injectOrUpdateOverlay', () => {
     it('creates a brand new overlay with delimited markers from empty content', () => {
@@ -406,62 +632,6 @@ describe('githubService Kconfig timeout synchronization', () => {
       expect(result).toContain(SCYAN_STUDIO_MARKER_BEGIN);
       expect(result).toContain('scyan,display-layout = &display_2_active;');
       expect(result).toContain(SCYAN_STUDIO_MARKER_END);
-    });
-  });
-
-    it('directly maps shields with mounted displays to their display screenOffTimeoutSec', () => {
-      const confFiles = [
-        {
-          path: 'config/corne_left.conf',
-          content: 'CONFIG_ZMK_IDLE_TIMEOUT=60000\n',
-        },
-        {
-          path: 'config/corne_right.conf',
-          content: 'CONFIG_ZMK_IDLE_TIMEOUT=60000\n',
-        },
-      ];
-
-      const updates = resolveConfTimeoutUpdates(
-        confFiles,
-        {
-          screenOffTimeoutSec: 40,
-          symmetricSettings: false,
-        },
-        {
-          displayAssignments: {
-            corne_left: 'display-1',
-            corne_right: 'display-2',
-          },
-          displays: {
-            'display-1': {
-              id: 'display-1',
-              name: 'Left',
-              dimensions: { width: 32, height: 128 },
-              rotation: 90,
-              blocks: [],
-              idleBlocks: [],
-              idleTimeoutSec: 30,
-              screenOffTimeoutSec: 40,
-              idleScreensEnabled: true,
-            },
-            'display-2': {
-              id: 'display-2',
-              name: 'Right',
-              dimensions: { width: 32, height: 128 },
-              rotation: 90,
-              blocks: [],
-              idleBlocks: [],
-              idleTimeoutSec: 15,
-              screenOffTimeoutSec: 15,
-              idleScreensEnabled: true,
-            },
-          },
-        }
-      );
-
-      expect(updates).toHaveLength(2);
-      expect(updates.find(u => u.path === 'config/corne_left.conf')?.content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=40000');
-      expect(updates.find(u => u.path === 'config/corne_right.conf')?.content).toContain('CONFIG_ZMK_IDLE_TIMEOUT=15000');
     });
   });
 

@@ -535,6 +535,60 @@ describe('WidgetsTab keypress widget UI', () => {
     expect(html).toContain('badge-master');
     expect(html).toContain('CENTRAL');
   });
+
+  it('renders ACTIVE badge for interactive widget in sidebar and header', () => {
+    const html = renderToString(
+      <WidgetsTab
+        initialActiveWidgetId="bongo"
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        instances={{}}
+        onInstancesChange={() => {}}
+      />
+    );
+
+    expect(html).toContain('badge-active');
+    expect(html).toContain('ACTIVE');
+    expect(html).toContain('Active');
+  });
+
+  it('renders Synced badge on animation card and callout box when syncAnimation is checked', () => {
+    const instances: WidgetInstanceMap = {
+      animation: [
+        {
+          id: 'anim-synced-inst',
+          widgetTypeId: 'animation',
+          label: 'My Synced Animation',
+          config: {
+            mode: 'symbol',
+            syncAnimation: true,
+          },
+          slots: {},
+        },
+      ],
+    };
+
+    const html = renderToString(
+      <WidgetsTab
+        initialActiveWidgetId="animation"
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        instances={instances}
+        onInstancesChange={() => {}}
+      />
+    );
+
+    // Synced badge
+    expect(html).toContain('badge-synced');
+    expect(html).toContain('Synced');
+
+    // Power-on alignment callout box
+    expect(html).toContain('Power-On Alignment Note:');
+    expect(html).toContain('k_uptime_get_32()');
+    expect(html).toContain('power on or reset both keyboard halves around the same time');
+  });
 });
 
 
