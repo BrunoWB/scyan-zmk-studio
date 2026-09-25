@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "2.0.10",
+        "date": "2026-09-25",
+        "commitHash": "83a3a64",
+        "changes": [
+          "feat: sync animations, channel migration, and layout placement modals"
+        ]
+      },
+      {
         "patch": "2.0.9",
         "date": "2026-09-25",
         "commitHash": "c6f0e04",
