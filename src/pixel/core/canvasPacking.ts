@@ -1,4 +1,4 @@
-import type { SpriteSlice } from '../../types/zmk';
+import type { SpriteSlice } from '../components/editor/types';
 import { PixelGrid as BwpxGrid } from './PixelGrid';
 
 export interface FramePlacement {
@@ -98,60 +98,84 @@ export function findAvailableSpot(
   for (const s of slices) {
     maxYExtent = Math.max(maxYExtent, s.y + s.height);
   }
-  for (const [, py] of activePixels) {
-    maxYExtent = Math.max(maxYExtent, py + 1);
+  for (const p of activePixels) {
+    maxYExtent = Math.max(maxYExtent, p[1] + 1);
   }
 
-  let foundX: number | null = null;
-  let foundY: number | null = null;
-
+  const stepX = 2;
+  const stepY = 2;
   const maxX = Math.max(0, canvasWidth - totalW);
 
-  // Scan for existing gaps on the canvas, stepping by 2px for performance & alignment
-  for (let y = 0; y <= maxYExtent; y += 2) {
-    for (let x = 0; x <= maxX; x += 2) {
-      if (
-        !collidesWithSlices(x, y, totalW, totalH, slices) &&
-        !collidesWithPixels(x, y, totalW, totalH, activePixels)
-      ) {
-        foundX = x;
-        foundY = y;
-        break;
+  // 1. First attempt: search for a free gap within the existing bounds
+  for (let candidateY = 0; candidateY <= maxYExtent - totalH; candidateY += stepY) {
+    for (let candidateX = 0; candidateX <= maxX; candidateX += stepX) {
+      let collides = false;
+
+      for (let i = 0; i < frameCount; i++) {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        const fx = candidateX + col * frameWidth;
+        const fy = candidateY + row * frameHeight;
+
+        if (
+          collidesWithSlices(fx, fy, frameWidth, frameHeight, slices) ||
+          collidesWithPixels(fx, fy, frameWidth, frameHeight, activePixels)
+        ) {
+          collides = true;
+          break;
+        }
+      }
+
+      if (!collides) {
+        return buildResult(candidateX, candidateY, frameWidth, frameHeight, frameCount, cols);
       }
     }
-    if (foundX !== null && foundY !== null) {
-      break;
-    }
   }
 
-  // If no available gap was found, place right below the lowest element with a 2px margin
-  if (foundX === null || foundY === null) {
-    foundX = 0;
-    foundY = maxYExtent > 0 ? (maxYExtent % 2 === 0 ? maxYExtent + 2 : maxYExtent + 1) : 0;
+  // 2. Second attempt: place immediately below lowest element, separated by a 2-pixel margin
+  let placeY = 0;
+  for (const s of slices) {
+    placeY = Math.max(placeY, s.y + s.height);
+  }
+  for (const p of activePixels) {
+    placeY = Math.max(placeY, p[1] + 1);
   }
 
-  // Generate frame placements
+  if (placeY > 0) {
+    placeY += 2;
+  }
+
+  return buildResult(0, placeY, frameWidth, frameHeight, frameCount, cols);
+}
+
+function buildResult(
+  startX: number,
+  startY: number,
+  frameWidth: number,
+  frameHeight: number,
+  frameCount: number,
+  cols: number
+): CanvasPackingResult {
   const frames: FramePlacement[] = [];
+  const rows = Math.ceil(frameCount / cols);
+
   for (let i = 0; i < frameCount; i++) {
     const col = i % cols;
     const row = Math.floor(i / cols);
     frames.push({
       index: i,
-      x: foundX + col * frameWidth,
-      y: foundY + row * frameHeight,
+      x: startX + col * frameWidth,
+      y: startY + row * frameHeight,
       width: frameWidth,
       height: frameHeight,
     });
   }
 
+  const w = Math.min(frameCount, cols) * frameWidth;
+  const h = rows * frameHeight;
+
   return {
     frames,
-    bounds: {
-      x: foundX,
-      y: foundY,
-      w: totalW,
-      h: totalH,
-    },
+    bounds: { x: startX, y: startY, w, h },
   };
 }
-

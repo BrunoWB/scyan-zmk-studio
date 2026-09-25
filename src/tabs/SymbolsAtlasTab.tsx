@@ -373,6 +373,9 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
           onGridChange={onSymbolsGridChange}
           title="SYMBOLS ATLAS (INFINITE 1BPP)"
           showPresets={false}
+          colorMode="monochrome"
+          defaultPixelColor="#ffffff"
+          defaultBgColor="#000000"
           slices={slices}
           selectedSliceId={selectedSliceId}
           selectedSliceIds={Array.from(selectedSliceIds)}
@@ -416,9 +419,23 @@ export const SymbolsAtlasTab: React.FC<SymbolsAtlasTabProps> = ({
             onSlicesChange(next);
           }}
           onAddSlices={(newSlices) => {
-            onSlicesChange([...slices, ...newSlices]);
-            if (newSlices.length > 0) {
-              setSelectedSliceIds(new Set(newSlices.map(s => s.id)));
+            const mappedSlices: SpriteSlice[] = newSlices.map((s, idx) => {
+              const sliceId = s.id || `SLICE_${Date.now()}_${idx}`;
+              return {
+                id: sliceId,
+                name: s.name,
+                groupId: s.groupId || sliceId,
+                groupOrder: s.groupOrder ?? (idx + 1),
+                x: s.x,
+                y: s.y,
+                width: s.width,
+                height: s.height,
+                color: s.color,
+              };
+            });
+            onSlicesChange([...slices, ...mappedSlices]);
+            if (mappedSlices.length > 0) {
+              setSelectedSliceIds(new Set(mappedSlices.map((s) => s.id)));
             }
           }}
         />

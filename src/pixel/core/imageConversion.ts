@@ -1,4 +1,6 @@
-import { PixelGrid as BwpxGrid } from './PixelGrid';
+import { BwpxGrid } from './PixelGrid';
+import { rgbToHex } from './colorUtils';
+import { quantizePixelsToPalette } from './colorQuantization';
 
 export interface ContentBoundingBox {
   x: number;
@@ -12,6 +14,10 @@ export interface ImageConversionOptions {
   invert?: boolean;
   targetWidth?: number;
   targetHeight?: number;
+  color?: string;
+  colorMode?: boolean;
+  maxColors?: number; // Adaptive palette max colors (e.g. 2 to 64, or 0/undefined for unlimited)
+  colorMap?: Map<number, string>; // Precomputed color mapping (e.g. for multi-frame unified GIF palette)
   crop?: {
     x: number;
     y: number;
@@ -21,17 +27,24 @@ export interface ImageConversionOptions {
 }
 
 /**
- * Converts ImageData to a BwpxGrid using perceptual luminance thresholding.
+ * Converts ImageData to a BwpxGrid using perceptual luminance thresholding (ITU-R BT.601),
+ * or retains RGB colors for non-transparent pixels when colorMode is true.
  */
 export function convertImageDataToGrid(
   imageData: ImageData,
   options: ImageConversionOptions
 ): BwpxGrid {
-  const { threshold, invert = false } = options;
+  const { threshold, invert = false, color, colorMode = false, maxColors, colorMap } = options;
   const width = imageData.width;
   const height = imageData.height;
   const data = imageData.data;
-  const grid = new BwpxGrid(width, height);
+  const grid = new BwpxGrid(width, height, undefined, undefined, color || '#00e5a3');
+
+  let activeColorMap = colorMap;
+  if (colorMode && !activeColorMap && maxColors && maxColors > 0) {
+    const quant = quantizePixelsToPalette(data, maxColors, 32);
+    activeColorMap = quant.colorMap;
+  }
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -41,10 +54,24 @@ export function convertImageDataToGrid(
       const b = data[idx + 2];
       const a = data[idx + 3];
 
-      // If pixel is transparent, it's considered off (0) unless inverted
+      if (colorMode) {
+        if (a >= 32) {
+          let hex: string;
+          if (activeColorMap) {
+            const key = (r << 16) | (g << 8) | b;
+            hex = activeColorMap.get(key) || rgbToHex(r, g, b);
+          } else {
+            hex = rgbToHex(r, g, b);
+          }
+          grid.set(x, y, 1, hex);
+        }
+        continue;
+      }
+
+      // If pixel is transparent, consider off unless inverted
       if (a < 64) {
         if (invert) {
-          grid.set(x, y, 1);
+          grid.set(x, y, 1, color);
         }
         continue;
       }
@@ -58,67 +85,12 @@ export function convertImageDataToGrid(
       }
 
       if (isLit) {
-        grid.set(x, y, 1);
+        grid.set(x, y, 1, color);
       }
     }
   }
 
   return grid;
-}
-
-/**
- * Helper to draw an HTMLImageElement to an offscreen canvas with optional target sizing
- * and cropping, and convert to BwpxGrid.
- */
-export function convertImageElementToGrid(
-  img: HTMLImageElement,
-  options: ImageConversionOptions
-): { grid: BwpxGrid; width: number; height: number; originalWidth: number; originalHeight: number } {
-  const naturalW = img.naturalWidth || img.width;
-  const naturalH = img.naturalHeight || img.height;
-
-  const crop = options.crop;
-  const cropX = crop ? Math.max(0, Math.min(naturalW - 1, Math.round(crop.x))) : 0;
-  const cropY = crop ? Math.max(0, Math.min(naturalH - 1, Math.round(crop.y))) : 0;
-  const cropW = crop ? Math.max(1, Math.min(naturalW - cropX, Math.round(crop.width))) : naturalW;
-  const cropH = crop ? Math.max(1, Math.min(naturalH - cropY, Math.round(crop.height))) : naturalH;
-
-  let width = options.targetWidth || cropW;
-  let height = options.targetHeight || cropH;
-
-  // Ensure positive integer dimensions
-  width = Math.max(1, Math.round(width));
-  height = Math.max(1, Math.round(height));
-
-  const offscreen = document.createElement('canvas');
-  offscreen.width = width;
-  offscreen.height = height;
-
-  const ctx = offscreen.getContext('2d');
-  if (!ctx) {
-    return {
-      grid: new BwpxGrid(width, height),
-      width,
-      height,
-      originalWidth: cropW,
-      originalHeight: cropH,
-    };
-  }
-
-  // Draw cropped image slice to offscreen canvas (handles scaling)
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, width, height);
-
-  const imgData = ctx.getImageData(0, 0, width, height);
-  const grid = convertImageDataToGrid(imgData, options);
-
-  return {
-    grid,
-    width,
-    height,
-    originalWidth: cropW,
-    originalHeight: cropH,
-  };
 }
 
 /**
@@ -308,4 +280,75 @@ export function detectContentBoundingBox(
   };
 }
 
+/**
+ * Draws an HTMLImageElement to an offscreen canvas with target sizing and cropping,
+ * then converts to BwpxGrid.
+ */
+export function convertImageElementToGrid(
+  img: HTMLImageElement,
+  options: ImageConversionOptions
+): {
+  grid: BwpxGrid;
+  width: number;
+  height: number;
+  originalWidth: number;
+  originalHeight: number;
+  hexPalette?: string[];
+} {
+  const naturalW = img.naturalWidth || img.width;
+  const naturalH = img.naturalHeight || img.height;
 
+  const crop = options.crop;
+  const cropX = crop ? Math.max(0, Math.min(naturalW - 1, Math.round(crop.x))) : 0;
+  const cropY = crop ? Math.max(0, Math.min(naturalH - 1, Math.round(crop.y))) : 0;
+  const cropW = crop ? Math.max(1, Math.min(naturalW - cropX, Math.round(crop.width))) : naturalW;
+  const cropH = crop ? Math.max(1, Math.min(naturalH - cropY, Math.round(crop.height))) : naturalH;
+
+  let width = options.targetWidth || cropW;
+  let height = options.targetHeight || cropH;
+
+  width = Math.max(1, Math.round(width));
+  height = Math.max(1, Math.round(height));
+
+  const offscreen = document.createElement('canvas');
+  offscreen.width = width;
+  offscreen.height = height;
+
+  const ctx = offscreen.getContext('2d');
+  if (!ctx) {
+    return {
+      grid: new BwpxGrid(width, height),
+      width,
+      height,
+      originalWidth: cropW,
+      originalHeight: cropH,
+    };
+  }
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, width, height);
+
+  const imgData = ctx.getImageData(0, 0, width, height);
+
+  let hexPalette: string[] | undefined;
+  let activeOptions = options;
+  if (options.colorMode && options.maxColors && options.maxColors > 0) {
+    const quant = quantizePixelsToPalette(imgData.data, options.maxColors, 32);
+    hexPalette = quant.hexPalette;
+    activeOptions = {
+      ...options,
+      colorMap: quant.colorMap,
+    };
+  }
+
+  const grid = convertImageDataToGrid(imgData, activeOptions);
+
+  return {
+    grid,
+    width,
+    height,
+    originalWidth: cropW,
+    originalHeight: cropH,
+    hexPalette,
+  };
+}

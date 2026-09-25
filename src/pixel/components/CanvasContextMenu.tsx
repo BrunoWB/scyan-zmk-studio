@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import {
   ClipboardPaste,
   Upload,
@@ -7,6 +7,9 @@ import {
   FlipVertical,
   RotateCw,
   X,
+  Copy,
+  Scissors,
+  Trash2,
 } from 'lucide-react';
 import './CanvasContextMenu.css';
 
@@ -14,7 +17,10 @@ export interface CanvasContextMenuProps {
   x: number;
   y: number;
   onClose: () => void;
+  onCut?: () => void;
+  onCopy?: () => void;
   onPaste: () => void;
+  onDelete?: () => void;
   onImportFile: () => void;
   onInvert: () => void;
   onFlipH: () => void;
@@ -28,7 +34,10 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
   x,
   y,
   onClose,
+  onCut,
+  onCopy,
   onPaste,
+  onDelete,
   onImportFile,
   onInvert,
   onFlipH,
@@ -39,7 +48,6 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
 }) => {
   const menuRef = useRef<HTMLDivElement | null>(null);
 
-  // Close on outside click or scroll or Escape
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -61,10 +69,9 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
     };
   }, [onClose]);
 
-  // Adjust menu position so it stays inside window bounds
-  const adjustedStyle = React.useMemo(() => {
+  const adjustedStyle = useMemo(() => {
     const menuWidth = 210;
-    const menuHeight = 220;
+    const menuHeight = 260;
     const padding = 10;
 
     let posX = x;
@@ -88,8 +95,36 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
       ref={menuRef}
       className="canvas-context-menu"
       style={adjustedStyle}
-      onClick={e => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
     >
+      {hasSelection && onCut && (
+        <button
+          className="context-menu-item"
+          onClick={() => {
+            onCut();
+            onClose();
+          }}
+        >
+          <Scissors size={14} />
+          <span>Cut</span>
+          <span className="context-menu-shortcut">Ctrl+X</span>
+        </button>
+      )}
+
+      {hasSelection && onCopy && (
+        <button
+          className="context-menu-item"
+          onClick={() => {
+            onCopy();
+            onClose();
+          }}
+        >
+          <Copy size={14} />
+          <span>Copy</span>
+          <span className="context-menu-shortcut">Ctrl+C</span>
+        </button>
+      )}
+
       <button
         className="context-menu-item highlight"
         onClick={() => {
@@ -98,9 +133,23 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
         }}
       >
         <ClipboardPaste size={14} />
-        <span>Paste Image</span>
+        <span>Paste</span>
         <span className="context-menu-shortcut">Ctrl+V</span>
       </button>
+
+      {hasSelection && onDelete && (
+        <button
+          className="context-menu-item"
+          onClick={() => {
+            onDelete();
+            onClose();
+          }}
+        >
+          <Trash2 size={13} />
+          <span>Clear Selection</span>
+          <span className="context-menu-shortcut">Del</span>
+        </button>
+      )}
 
       <button
         className="context-menu-item"
@@ -110,7 +159,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
         }}
       >
         <Upload size={14} />
-        <span>Import Image File...</span>
+        <span>Import Image...</span>
       </button>
 
       <div className="context-menu-divider" />
@@ -175,4 +224,3 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
     </div>
   );
 };
-

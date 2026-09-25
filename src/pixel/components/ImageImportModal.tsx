@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { PixelGrid as BwpxGrid } from '../core/PixelGrid';
-import { convertImageElementToGrid, detectContentBoundingBox, type ContentBoundingBox } from '../core/imageConversion';
+import { BwpxGrid } from '../core/PixelGrid';
+import {
+  convertImageElementToGrid,
+  detectContentBoundingBox,
+  type ContentBoundingBox,
+} from '../core/imageConversion';
 import { renderBaseCanvas } from '../core/gridRenderer';
 import {
   isGifBuffer,
   decodeGif,
   convertGifFramesToGrids,
   type DecodedGif,
-  type ConvertedGifFrame,
 } from '../core/gifDecoder';
-import { trackEvent } from '../../services/analytics';
 import {
   X,
   Sparkles,
@@ -22,13 +24,19 @@ import {
   ChevronLeft,
   ChevronRight,
   Film,
+  Upload,
   Crop,
+  Palette,
 } from 'lucide-react';
 import './ImageImportModal.css';
 
 export interface ImageImportModalProps {
   isOpen: boolean;
   imageSource: File | Blob | string | null;
+  canvasWidth?: number;
+  canvasHeight?: number;
+  pixelColor?: string;
+  bgColor?: string;
   allowColor?: boolean;
   onClose: () => void;
   onConfirm: (
@@ -40,22 +48,69 @@ export interface ImageImportModalProps {
       name?: string;
     }
   ) => void;
+  onSelectSource?: (source: File | Blob | string) => void;
 }
 
-type ScalePreset = 'original' | 'fit-34' | 'fit-32' | 'fit-64' | 'fit-16' | 'custom';
+type ScalePreset = 'original' | 'fit-canvas' | 'fit-16' | 'fit-32' | 'fit-64' | 'fit-128' | 'custom';
 
 export const ImageImportModal: React.FC<ImageImportModalProps> = ({
   isOpen,
   imageSource,
-  allowColor: _allowColor = false,
+  canvasWidth = 64,
+  canvasHeight = 64,
+  pixelColor = '#00e5a3',
+  bgColor = '#0f1013',
+  allowColor = true,
   onClose,
   onConfirm,
+  onSelectSource,
 }) => {
+  const [internalSource, setInternalSource] = useState<File | Blob | string | null>(imageSource);
+  const [isDragOver, setIsDragOver] = useState<boolean>(false);
+  const modalFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const activeSource = internalSource ?? imageSource;
+
+  const handleSelectFile = useCallback(
+    (file: File) => {
+      setInternalSource(file);
+      onSelectSource?.(file);
+    },
+    [onSelectSource]
+  );
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setInternalSource(imageSource);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [imageSource]);
+
+  const [userColorMode, setUserColorMode] = useState<boolean | null>(null);
+  const colorMode = allowColor ? (userColorMode ?? true) : false;
+  const setColorMode = useCallback((mode: boolean) => {
+    setUserColorMode(mode);
+  }, [setUserColorMode]);
+
+  const [maxColors, setMaxColors] = useState<number>(0); // 0 = Full (unlimited)
+
+  useEffect(() => {
+    if (!isOpen) {
+      const timer = setTimeout(() => {
+        setInternalSource(null);
+        setIsDragOver(false);
+        setUserColorMode(null);
+        setMaxColors(0);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
+
   const [threshold, setThreshold] = useState<number>(128);
   const [invert, setInvert] = useState<boolean>(false);
-  const [scalePreset, setScalePreset] = useState<ScalePreset>('original');
-  const [customWidth, setCustomWidth] = useState<number>(0);
-  const [customHeight, setCustomHeight] = useState<number>(0);
+  const [scalePreset, setScalePreset] = useState<ScalePreset>('fit-canvas');
+  const [customWidth, setCustomWidth] = useState<number>(canvasWidth);
+  const [customHeight, setCustomHeight] = useState<number>(canvasHeight);
   const [lockAspectRatio, setLockAspectRatio] = useState<boolean>(true);
   const [imgElement, setImgElement] = useState<HTMLImageElement | null>(null);
 
@@ -73,57 +128,62 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
     h: 0,
   });
 
-
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const refCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
-  const [imageSrcUrl, setImageSrcUrl] = useState<string | null>(null);
+  const imageSrcRef = useRef<string | null>(null);
 
   // Load image or GIF element from source
   useEffect(() => {
-    if (!isOpen || !imageSource) {
-      return;
+    if (!isOpen || !activeSource) {
+      const timer = setTimeout(() => {
+        setImgElement(null);
+        setDecodedGif(null);
+        setImageFileName('');
+        setCropRect(null);
+      }, 0);
+      return () => clearTimeout(timer);
     }
 
     let isMounted = true;
     let createdUrl: string | null = null;
 
     const loadSource = async () => {
-      let fileName = 'Anim';
+      let fileName = 'Artwork';
       let buffer: ArrayBuffer | null = null;
       let src = '';
 
-      if (imageSource instanceof File) {
-        fileName = imageSource.name.replace(/\.[^/.]+$/, '');
+      if (activeSource instanceof File) {
+        fileName = activeSource.name.replace(/\.[^/.]+$/, '');
         setImageFileName(fileName);
         try {
-          const slice = await imageSource.slice(0, 6).arrayBuffer();
+          const slice = await activeSource.slice(0, 6).arrayBuffer();
           if (isGifBuffer(slice)) {
-            buffer = await imageSource.arrayBuffer();
+            buffer = await activeSource.arrayBuffer();
           }
         } catch (e) {
-          console.warn('Error reading file buffer:', e);
+          console.warn('Failed to inspect magic bytes for GIF, proceeding with standard image loader:', e);
         }
-        src = URL.createObjectURL(imageSource);
+        src = URL.createObjectURL(activeSource);
         createdUrl = src;
-      } else if (imageSource instanceof Blob) {
-        setImageFileName('GIF Anim');
+      } else if (activeSource instanceof Blob) {
+        setImageFileName('Animation');
         try {
-          const slice = await imageSource.slice(0, 6).arrayBuffer();
+          const slice = await activeSource.slice(0, 6).arrayBuffer();
           if (isGifBuffer(slice)) {
-            buffer = await imageSource.arrayBuffer();
+            buffer = await activeSource.arrayBuffer();
           }
         } catch (e) {
           console.warn('Error reading blob buffer:', e);
         }
-        src = URL.createObjectURL(imageSource);
+        src = URL.createObjectURL(activeSource);
         createdUrl = src;
-      } else if (typeof imageSource === 'string') {
-        src = imageSource;
+      } else if (typeof activeSource === 'string') {
+        src = activeSource;
         setImageFileName('Imported Image');
-        if (imageSource.startsWith('data:image/gif') || imageSource.toLowerCase().includes('.gif')) {
+        if (activeSource.startsWith('data:image/gif') || activeSource.toLowerCase().includes('.gif')) {
           try {
-            const res = await fetch(imageSource);
+            const res = await fetch(activeSource);
             const ab = await res.arrayBuffer();
             if (isGifBuffer(ab)) {
               buffer = ab;
@@ -139,9 +199,9 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
         return;
       }
 
-      setImageSrcUrl(src);
+      imageSrcRef.current = src;
 
-      // If recognized as a valid GIF
+      // Recognized as valid GIF
       if (buffer) {
         try {
           const decoded = decodeGif(buffer);
@@ -153,9 +213,9 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
               decoded.frames.map((f) => ({ width: f.width, height: f.height, rgba: f.rgba }))
             );
             setCropRect(box || { x: 0, y: 0, w: decoded.width, h: decoded.height });
-            setCustomWidth(decoded.width);
-            setCustomHeight(decoded.height);
-            setScalePreset('original');
+            setCustomWidth(canvasWidth);
+            setCustomHeight(canvasHeight);
+            setScalePreset('fit-canvas');
             setCurrentFrameIndex(0);
             setIsPlaying(true);
             return;
@@ -168,7 +228,9 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
       // Non-GIF image fallback
       setDecodedGif(null);
       const img = new Image();
-      img.crossOrigin = 'anonymous';
+      if (src.startsWith('http://') || src.startsWith('https://')) {
+        img.crossOrigin = 'anonymous';
+      }
       img.onload = () => {
         if (!isMounted) return;
         const origW = img.naturalWidth || img.width;
@@ -191,10 +253,13 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
           console.warn('Auto-snap failed on image load:', e);
         }
         setCropRect(box || { x: 0, y: 0, w: origW, h: origH });
-        setCustomWidth(origW);
-        setCustomHeight(origH);
-        setScalePreset('original');
+        setCustomWidth(canvasWidth);
+        setCustomHeight(canvasHeight);
+        setScalePreset('fit-canvas');
         setImgElement(img);
+      };
+      img.onerror = (e) => {
+        console.error('Failed to load image source:', e);
       };
       img.src = src;
     };
@@ -206,14 +271,8 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
       if (createdUrl) {
         URL.revokeObjectURL(createdUrl);
       }
-      setImgElement(null);
-      setDecodedGif(null);
-      setImageFileName('');
-      setImageSrcUrl(null);
-      setCropRect(null);
-      setCurrentFrameIndex(0);
     };
-  }, [isOpen, imageSource]);
+  }, [isOpen, activeSource, canvasWidth, canvasHeight]);
 
   // Calculate target dimensions based on preset and custom values
   const computeTargetSize = useCallback(
@@ -227,263 +286,29 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
         };
       }
 
-      let targetH = origH;
-      if (preset === 'fit-34') targetH = 34;
-      else if (preset === 'fit-32') targetH = 32;
-      else if (preset === 'fit-64') targetH = 64;
-      else if (preset === 'fit-16') targetH = 16;
-      else return { w: origW, h: origH };
-
-      const ratio = origW / origH;
-      const targetW = Math.max(1, Math.round(targetH * ratio));
-      return { w: targetW, h: targetH };
-    },
-    []
-  );
-
-  const baseW = cropRect ? cropRect.w : originalDimensions.w;
-  const baseH = cropRect ? cropRect.h : originalDimensions.h;
-
-  const handlePresetSelect = (newPreset: ScalePreset) => {
-    setScalePreset(newPreset);
-    if (newPreset !== 'custom') {
-      const size = computeTargetSize(
-        baseW,
-        baseH,
-        newPreset,
-        customWidth,
-        customHeight
-      );
-      setCustomWidth(size.w);
-      setCustomHeight(size.h);
-    }
-  };
-
-  const handleWidthChange = (val: number) => {
-    const newW = Math.max(1, val);
-    setCustomWidth(newW);
-    setScalePreset('custom');
-    if (lockAspectRatio && baseW > 0 && baseH > 0) {
-      const ratio = baseW / baseH;
-      const newH = Math.max(1, Math.round(newW / ratio));
-      setCustomHeight(newH);
-    }
-  };
-
-  const handleHeightChange = (val: number) => {
-    const newH = Math.max(1, val);
-    setCustomHeight(newH);
-    setScalePreset('custom');
-    if (lockAspectRatio && baseW > 0 && baseH > 0) {
-      const ratio = baseW / baseH;
-      const newW = Math.max(1, Math.round(newH * ratio));
-      setCustomWidth(newW);
-    }
-  };
-
-  // Derived target dimensions based on preset and sizing
-  const targetDimensions = useMemo(() => {
-    if (originalDimensions.w === 0 || originalDimensions.h === 0) return { w: 0, h: 0 };
-    const curBaseW = cropRect ? cropRect.w : originalDimensions.w;
-    const curBaseH = cropRect ? cropRect.h : originalDimensions.h;
-    return computeTargetSize(
-      curBaseW,
-      curBaseH,
-      scalePreset,
-      customWidth,
-      customHeight
-    );
-  }, [originalDimensions, cropRect, scalePreset, customWidth, customHeight, computeTargetSize]);
-
-  // Derived GIF frames converted to 1bpp grids
-  const gifFrames = useMemo<ConvertedGifFrame[]>(() => {
-    if (!decodedGif || originalDimensions.w === 0 || originalDimensions.h === 0) return [];
-    const cropOption = cropRect
-      ? { x: cropRect.x, y: cropRect.y, width: cropRect.w, height: cropRect.h }
-      : undefined;
-    return convertGifFramesToGrids(decodedGif, {
-      threshold,
-      invert,
-      targetWidth: targetDimensions.w,
-      targetHeight: targetDimensions.h,
-      crop: cropOption,
-    });
-  }, [decodedGif, originalDimensions, cropRect, threshold, invert, targetDimensions]);
-
-  // Derived active converted grid
-  const convertedGrid = useMemo<BwpxGrid | null>(() => {
-    if (originalDimensions.w === 0 || originalDimensions.h === 0) return null;
-    const cropOption = cropRect
-      ? { x: cropRect.x, y: cropRect.y, width: cropRect.w, height: cropRect.h }
-      : undefined;
-    if (decodedGif) {
-      if (gifFrames.length === 0) return null;
-      const activeIdx = Math.min(currentFrameIndex, gifFrames.length - 1);
-      return gifFrames[activeIdx]?.grid || gifFrames[0]?.grid || null;
-    }
-    if (imgElement) {
-      const result = convertImageElementToGrid(imgElement, {
-        threshold,
-        invert,
-        targetWidth: targetDimensions.w,
-        targetHeight: targetDimensions.h,
-        crop: cropOption,
-      });
-      return result.grid;
-    }
-    return null;
-  }, [originalDimensions, cropRect, decodedGif, gifFrames, currentFrameIndex, imgElement, threshold, invert, targetDimensions]);
-
-  // GIF animation playback timer
-  useEffect(() => {
-    if (!decodedGif || gifFrames.length <= 1 || !isPlaying) return;
-
-    const currentFrame = gifFrames[currentFrameIndex] || gifFrames[0];
-    const delay = Math.max(20, currentFrame?.delayMs || 100);
-
-    const timer = window.setTimeout(() => {
-      const nextIdx = (currentFrameIndex + 1) % gifFrames.length;
-      setCurrentFrameIndex(nextIdx);
-    }, delay);
-
-    return () => window.clearTimeout(timer);
-  }, [decodedGif, gifFrames, isPlaying, currentFrameIndex]);
-
-  // Render original reference canvas for GIF frames in lockstep
-  useEffect(() => {
-    if (!decodedGif || !refCanvasRef.current) return;
-    const canvas = refCanvasRef.current;
-    const frame = decodedGif.frames[currentFrameIndex] || decodedGif.frames[0];
-    if (!frame) return;
-
-    if (canvas.width !== decodedGif.width) canvas.width = decodedGif.width;
-    if (canvas.height !== decodedGif.height) canvas.height = decodedGif.height;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const imgData =
-      typeof ImageData !== 'undefined'
-        ? new ImageData(frame.rgba as any, decodedGif.width, decodedGif.height)
-        : ({ data: frame.rgba, width: decodedGif.width, height: decodedGif.height, colorSpace: 'srgb' } as ImageData);
-
-    ctx.putImageData(imgData, 0, 0);
-  }, [decodedGif, currentFrameIndex]);
-
-  // Render preview canvas
-  const renderPreview = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const container = previewContainerRef.current;
-    const containerW = container?.clientWidth || 320;
-    const containerH = container?.clientHeight || 220;
-    canvas.width = containerW;
-    canvas.height = containerH;
-
-    if (!convertedGrid) {
-      ctx.fillStyle = '#0b0d11';
-      ctx.fillRect(0, 0, containerW, containerH);
-      return;
-    }
-
-    const fitZoom = Math.max(
-      1,
-      Math.min(
-        16,
-        Math.floor(
-          Math.min(
-            (containerW - 32) / Math.max(1, convertedGrid.width),
-            (containerH - 32) / Math.max(1, convertedGrid.height)
-          )
-        )
-      )
-    );
-    const pan = {
-      x: Math.round((containerW - convertedGrid.width * fitZoom) / 2),
-      y: Math.round((containerH - convertedGrid.height * fitZoom) / 2),
-    };
-
-    renderBaseCanvas(canvas, ctx, {
-      grid: convertedGrid,
-      zoom: fitZoom,
-      pan,
-      pixelColor: '#ffffff',
-      bgColor: '#0b0d11',
-      showAxes: false,
-      showGridLines: fitZoom >= 4,
-      frameBounds: {
-        x: 0,
-        y: 0,
-        w: convertedGrid.width,
-        h: convertedGrid.height,
-      },
-    });
-  }, [convertedGrid]);
-
-  useEffect(() => {
-    renderPreview();
-  }, [renderPreview]);
-
-  // Auto-resize canvas element to match container
-  useEffect(() => {
-    const updateSize = () => {
-      renderPreview();
-    };
-    updateSize();
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
-  }, [renderPreview]);
-
-  const handleConfirm = useCallback(() => {
-    if (decodedGif && gifFrames.length > 0) {
-      trackEvent('gif_imported', {
-        frame_count: gifFrames.length,
-        width: targetDimensions.w,
-        height: targetDimensions.h,
-      });
-      onConfirm(
-        gifFrames[0].grid,
-        targetDimensions.w,
-        targetDimensions.h,
-        {
-          frames: gifFrames.map(f => ({ grid: f.grid, delayMs: f.delayMs })),
-          name: imageFileName,
-        }
-      );
-    } else if (convertedGrid && targetDimensions.w > 0) {
-      trackEvent('image_imported', {
-        width: targetDimensions.w,
-        height: targetDimensions.h,
-      });
-      onConfirm(convertedGrid, targetDimensions.w, targetDimensions.h);
-    }
-  }, [decodedGif, gifFrames, targetDimensions, imageFileName, convertedGrid, onConfirm]);
-
-  // Handle keyboard shortcuts (Escape to close, Enter to confirm, Space to toggle play)
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      } else if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        handleConfirm();
-      } else if (e.key === ' ' && decodedGif && gifFrames.length > 1) {
-        const target = e.target as HTMLElement;
-        if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
-        e.preventDefault();
-        setIsPlaying(p => !p);
+      if (preset === 'fit-canvas') {
+        const scale = Math.min(canvasWidth / origW, canvasHeight / origH);
+        return {
+          w: Math.max(1, Math.round(origW * scale)),
+          h: Math.max(1, Math.round(origH * scale)),
+        };
       }
-    };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, handleConfirm, onClose, decodedGif, gifFrames.length]);
+      let targetMax = origH;
+      if (preset === 'fit-16') targetMax = 16;
+      else if (preset === 'fit-32') targetMax = 32;
+      else if (preset === 'fit-64') targetMax = 64;
+      else if (preset === 'fit-128') targetMax = 128;
+      else if (preset === 'original') return { w: origW, h: origH };
+
+      const scale = targetMax / Math.max(origW, origH);
+      return {
+        w: Math.max(1, Math.round(origW * scale)),
+        h: Math.max(1, Math.round(origH * scale)),
+      };
+    },
+    [canvasWidth, canvasHeight]
+  );
 
   // Reset crop to full original dimensions
   const handleResetCrop = useCallback(() => {
@@ -545,7 +370,7 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
   const dWidth = Math.max(2, Math.round((cropRect?.w || originalDimensions.w) * stagePixelScale));
   const dHeight = Math.max(2, Math.round((cropRect?.h || originalDimensions.h) * stagePixelScale));
 
-  // Interactive mouse drag handler for crop box and handles
+  // Interactive mouse drag handler for crop box and 8 handles
   const handleStartCropDrag = (
     e: React.MouseEvent,
     handleType: 'move' | 'nw' | 'ne' | 'se' | 'sw' | 'n' | 'e' | 's' | 'w'
@@ -603,52 +428,185 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
     window.addEventListener('mouseup', onMouseUp);
   };
 
+  // Synchronously compute target dimensions
+  const baseW = cropRect ? cropRect.w : originalDimensions.w;
+  const baseH = cropRect ? cropRect.h : originalDimensions.h;
+  const targetDimensions = useMemo(
+    () => computeTargetSize(baseW, baseH, scalePreset, customWidth, customHeight),
+    [baseW, baseH, scalePreset, customWidth, customHeight, computeTargetSize]
+  );
+
+  // Derive converted GIF frames
+  const gifFrames = useMemo(() => {
+    if (!isOpen || !decodedGif || decodedGif.frames.length === 0) return [];
+    return convertGifFramesToGrids(decodedGif, {
+      threshold,
+      invert,
+      targetWidth: targetDimensions.w,
+      targetHeight: targetDimensions.h,
+      color: pixelColor,
+      colorMode,
+      maxColors: maxColors > 0 ? maxColors : undefined,
+      crop: cropRect ? { x: cropRect.x, y: cropRect.y, width: cropRect.w, height: cropRect.h } : undefined,
+    });
+  }, [isOpen, decodedGif, threshold, invert, targetDimensions.w, targetDimensions.h, pixelColor, colorMode, maxColors, cropRect]);
+
+  // Derive converted static image grid and palette
+  const convertedStaticResult = useMemo(() => {
+    if (!isOpen || decodedGif || !imgElement || targetDimensions.w <= 0 || targetDimensions.h <= 0) {
+      return null;
+    }
+    return convertImageElementToGrid(imgElement, {
+      threshold,
+      invert,
+      targetWidth: targetDimensions.w,
+      targetHeight: targetDimensions.h,
+      color: pixelColor,
+      colorMode,
+      maxColors: maxColors > 0 ? maxColors : undefined,
+      crop: cropRect ? { x: cropRect.x, y: cropRect.y, width: cropRect.w, height: cropRect.h } : undefined,
+    });
+  }, [isOpen, decodedGif, imgElement, threshold, invert, targetDimensions.w, targetDimensions.h, pixelColor, colorMode, maxColors, cropRect]);
+
+  const convertedGrid = convertedStaticResult?.grid || null;
+
+  // Active palette swatches for live preview
+  const activePalette = useMemo(() => {
+    if (!colorMode) return [];
+    if (decodedGif && gifFrames.length > 0) {
+      return gifFrames[0]?.hexPalette || [];
+    }
+    return convertedStaticResult?.hexPalette || [];
+  }, [colorMode, decodedGif, gifFrames, convertedStaticResult]);
+
+  // Active grid to preview and confirm
+  const currentGrid = useMemo(() => {
+    if (decodedGif && gifFrames.length > 0) {
+      const idx = Math.min(currentFrameIndex, gifFrames.length - 1);
+      return gifFrames[idx]?.grid || null;
+    }
+    return convertedGrid;
+  }, [decodedGif, gifFrames, currentFrameIndex, convertedGrid]);
+
+  // GIF playback loop
+  useEffect(() => {
+    if (!decodedGif || !isPlaying || gifFrames.length <= 1) return;
+
+    const currentFrame = decodedGif.frames[currentFrameIndex];
+    const delay = currentFrame ? currentFrame.delayMs : 100;
+
+    const timer = setTimeout(() => {
+      setCurrentFrameIndex((prev) => (prev + 1) % gifFrames.length);
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [decodedGif, isPlaying, gifFrames.length, currentFrameIndex]);
+
+  // Render preview canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const container = previewContainerRef.current;
+    const containerW = container?.clientWidth || 320;
+    const containerH = container?.clientHeight || 220;
+    canvas.width = containerW;
+    canvas.height = containerH;
+
+    if (!currentGrid) {
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, containerW, containerH);
+      return;
+    }
+
+    const fitZoom = Math.max(
+      1,
+      Math.min(
+        16,
+        Math.floor(
+          Math.min(
+            (containerW - 32) / Math.max(1, currentGrid.width),
+            (containerH - 32) / Math.max(1, currentGrid.height)
+          )
+        )
+      )
+    );
+    const pan = {
+      x: Math.round((containerW - currentGrid.width * fitZoom) / 2),
+      y: Math.round((containerH - currentGrid.height * fitZoom) / 2),
+    };
+
+    renderBaseCanvas(canvas, ctx, {
+      grid: currentGrid,
+      zoom: fitZoom,
+      pan,
+      pixelColor,
+      bgColor,
+      monochrome: !colorMode,
+      showGridLines: fitZoom >= 4,
+      showAxes: false,
+      frameBounds: { x: 0, y: 0, w: currentGrid.width, h: currentGrid.height },
+    });
+  }, [currentGrid, pixelColor, bgColor, colorMode]);
+
+  // Render reference canvas for animated GIF preview
+  useEffect(() => {
+    if (!decodedGif || decodedGif.frames.length === 0) return;
+    const canvas = refCanvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    canvas.width = decodedGif.width;
+    canvas.height = decodedGif.height;
+
+    const frame = decodedGif.frames[currentFrameIndex];
+    if (frame) {
+      const imgData =
+        typeof ImageData !== 'undefined'
+          ? new ImageData(frame.rgba as any, frame.width, frame.height)
+          : ({ data: frame.rgba, width: frame.width, height: frame.height } as ImageData);
+      ctx.putImageData(imgData, 0, 0);
+    }
+  }, [decodedGif, currentFrameIndex]);
+
   if (!isOpen) return null;
 
   return (
     <div className="image-import-backdrop" onClick={onClose}>
-      <div className="image-import-card" onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <header className="image-import-header">
+      <div className="image-import-card" onClick={(e) => e.stopPropagation()}>
+        <div className="image-import-header">
           <h3 className="image-import-title">
-            <SlidersHorizontal size={15} />
-            <span>Tune & Import {decodedGif ? 'GIF Animation' : 'Image'}</span>
-          </h3>
-          <div className="flex items-center gap-3">
-            {originalDimensions.w > 0 && (
-              <span className="image-import-size-badge">
-                {targetDimensions.w}×{targetDimensions.h} px
+            <Sparkles size={16} />
+            <span>IMPORT IMAGE / GIF</span>
+            {decodedGif && (
+              <span className="image-import-gif-badge">
+                <Film size={11} /> {decodedGif.frames.length} FRAMES
               </span>
             )}
-            <button
-              onClick={onClose}
-              className="image-import-close"
-              title="Close (Esc)"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        </header>
+          </h3>
+          <button className="image-import-close" onClick={onClose}>
+            <X size={16} />
+          </button>
+        </div>
 
-        {/* Body: Side-by-side view */}
         <div className="image-import-body">
           <div className="image-import-previews">
-            {/* Left: Original Reference with interactive crop */}
+            {/* Left: Original / Source Image with interactive crop */}
             <div className="image-import-panel">
               <div className="image-import-panel-header">
-                <div className="flex items-center gap-2">
-                  <span>Reference (Original)</span>
-                  {decodedGif && (
-                    <span className="image-import-gif-badge">
-                      GIF • {decodedGif.frames.length} frames
-                    </span>
-                  )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>Source Image</span>
                   {(imgElement || decodedGif) && (
                     <>
                       <button
                         type="button"
-                        onClick={handleSnapToContent}
                         className="image-import-reset-crop-btn"
+                        onClick={handleSnapToContent}
                         title="Snap to Content"
                         aria-label="Snap to Content"
                       >
@@ -657,8 +615,8 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={handleResetCrop}
                         className="image-import-reset-crop-btn"
+                        onClick={handleResetCrop}
                         title="Reset Crop"
                         aria-label="Reset Crop"
                       >
@@ -668,10 +626,26 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
                     </>
                   )}
                 </div>
-                <strong>
-                  {cropRect ? `${cropRect.w}×${cropRect.h}` : `${originalDimensions.w}×${originalDimensions.h}`} px
-                  {isCropped ? ' (Crop)' : ''}
-                </strong>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {(imgElement || decodedGif) && (
+                    <button
+                      type="button"
+                      className="image-import-change-btn"
+                      onClick={() => {
+                        if (modalFileInputRef.current) {
+                          modalFileInputRef.current.value = '';
+                          modalFileInputRef.current.click();
+                        }
+                      }}
+                    >
+                      Change
+                    </button>
+                  )}
+                  <strong>
+                    {cropRect ? `${cropRect.w}×${cropRect.h}` : `${originalDimensions.w}×${originalDimensions.h}`}px
+                    {isCropped ? ' (Crop)' : ''}
+                  </strong>
+                </div>
               </div>
               <div className="image-import-original-view">
                 {originalDimensions.w > 0 ? (
@@ -688,10 +662,10 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
                         className="image-import-original-canvas"
                         style={{ width: '100%', height: '100%' }}
                       />
-                    ) : imageSrcUrl ? (
+                    ) : imgElement ? (
                       <img
-                        src={imageSrcUrl}
-                        alt="Original Reference"
+                        src={imgElement.src}
+                        alt="Original source"
                         className="image-import-original-img"
                         style={{ width: '100%', height: '100%' }}
                       />
@@ -700,7 +674,6 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
                     {/* Interactive Crop Overlay */}
                     {cropRect && (
                       <div className="image-import-crop-overlay">
-                        {/* 4 Dimmed Masks */}
                         <div
                           className="image-import-crop-mask"
                           style={{ top: 0, left: 0, right: 0, height: `${dTop}px` }}
@@ -733,7 +706,7 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
                           }}
                         />
 
-                        {/* Active Crop Box */}
+                        {/* Active Crop Box with 8 resize handles */}
                         <div
                           className="image-import-crop-box"
                           style={{
@@ -742,239 +715,385 @@ export const ImageImportModal: React.FC<ImageImportModalProps> = ({
                             width: `${dWidth}px`,
                             height: `${dHeight}px`,
                           }}
-                          onMouseDown={e => handleStartCropDrag(e, 'move')}
+                          onMouseDown={(e) => handleStartCropDrag(e, 'move')}
                           title="Drag to reposition crop area"
                         >
-                          {/* 8 Resize Handles */}
                           <div
                             className="image-import-crop-handle handle-nw"
-                            onMouseDown={e => handleStartCropDrag(e, 'nw')}
+                            onMouseDown={(e) => handleStartCropDrag(e, 'nw')}
                           />
                           <div
                             className="image-import-crop-handle handle-n"
-                            onMouseDown={e => handleStartCropDrag(e, 'n')}
+                            onMouseDown={(e) => handleStartCropDrag(e, 'n')}
                           />
                           <div
                             className="image-import-crop-handle handle-ne"
-                            onMouseDown={e => handleStartCropDrag(e, 'ne')}
+                            onMouseDown={(e) => handleStartCropDrag(e, 'ne')}
                           />
                           <div
                             className="image-import-crop-handle handle-e"
-                            onMouseDown={e => handleStartCropDrag(e, 'e')}
+                            onMouseDown={(e) => handleStartCropDrag(e, 'e')}
                           />
                           <div
                             className="image-import-crop-handle handle-se"
-                            onMouseDown={e => handleStartCropDrag(e, 'se')}
+                            onMouseDown={(e) => handleStartCropDrag(e, 'se')}
                           />
                           <div
                             className="image-import-crop-handle handle-s"
-                            onMouseDown={e => handleStartCropDrag(e, 's')}
+                            onMouseDown={(e) => handleStartCropDrag(e, 's')}
                           />
                           <div
                             className="image-import-crop-handle handle-sw"
-                            onMouseDown={e => handleStartCropDrag(e, 'sw')}
+                            onMouseDown={(e) => handleStartCropDrag(e, 'sw')}
                           />
                           <div
                             className="image-import-crop-handle handle-w"
-                            onMouseDown={e => handleStartCropDrag(e, 'w')}
+                            onMouseDown={(e) => handleStartCropDrag(e, 'w')}
                           />
                         </div>
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div className="text-xs text-slate-500">Loading original...</div>
+                  <div
+                    className={`image-import-dropzone ${isDragOver ? 'image-import-dropzone-dragover' : ''}`}
+                    onClick={() => {
+                      if (modalFileInputRef.current) {
+                        modalFileInputRef.current.value = '';
+                        modalFileInputRef.current.click();
+                      }
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setIsDragOver(true);
+                    }}
+                    onDragLeave={() => setIsDragOver(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDragOver(false);
+                      const file = e.dataTransfer.files?.[0];
+                      if (file && (file.type.startsWith('image/') || /\.(png|jpe?g|gif|bmp|webp)$/i.test(file.name))) {
+                        handleSelectFile(file);
+                      }
+                    }}
+                  >
+                    <Upload size={22} style={{ color: '#94a3b8', marginBottom: '6px' }} />
+                    <span className="text-xs text-slate-300 font-mono">Choose Image or GIF</span>
+                    <span className="text-[10px] text-slate-500 font-mono mt-0.5">or drag & drop here</span>
+                  </div>
                 )}
               </div>
             </div>
 
-            {/* Right: 1bpp Grid Preview */}
+            {/* Right: Result Preview */}
             <div className="image-import-panel">
               <div className="image-import-panel-header">
-                <span>1bpp Monochrome Preview</span>
+                <span>{colorMode ? 'Color Result' : '1bpp Monochrome Result'}</span>
                 <strong>
-                  {convertedGrid ? `${convertedGrid.countOn()} pixels lit` : '--'}
+                  {targetDimensions.w}×{targetDimensions.h}px
                 </strong>
               </div>
-              <div ref={previewContainerRef} className="image-import-grid-view">
+              <div className="image-import-grid-view" ref={previewContainerRef}>
                 <canvas ref={canvasRef} className="image-import-grid-canvas" />
               </div>
             </div>
           </div>
 
-          {/* GIF Playback controls toolbar */}
+          {/* GIF Playback Bar */}
           {decodedGif && decodedGif.frames.length > 1 && (
             <div className="image-import-playback-bar">
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setIsPlaying(p => !p)}
-                  className="image-import-play-btn"
-                  title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
-                >
-                  {isPlaying ? <Pause size={13} /> : <Play size={13} />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsPlaying(false);
-                    const nextIdx = (currentFrameIndex - 1 + gifFrames.length) % gifFrames.length;
-                    setCurrentFrameIndex(nextIdx);
-                  }}
-                  className="image-import-step-btn"
-                  title="Previous Frame"
-                >
-                  <ChevronLeft size={13} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsPlaying(false);
-                    const nextIdx = (currentFrameIndex + 1) % gifFrames.length;
-                    setCurrentFrameIndex(nextIdx);
-                  }}
-                  className="image-import-step-btn"
-                  title="Next Frame"
-                >
-                  <ChevronRight size={13} />
-                </button>
-                <span className="image-import-frame-counter">
-                  Frame <strong>{currentFrameIndex + 1}</strong> / {gifFrames.length}
-                </span>
+              <button
+                className="image-import-play-btn"
+                onClick={() => setIsPlaying(!isPlaying)}
+                title={isPlaying ? 'Pause' : 'Play'}
+              >
+                {isPlaying ? <Pause size={14} /> : <Play size={14} />}
+              </button>
+              <button
+                className="image-import-step-btn"
+                onClick={() => {
+                  setIsPlaying(false);
+                  setCurrentFrameIndex((prev) => (prev > 0 ? prev - 1 : decodedGif.frames.length - 1));
+                }}
+                title="Previous Frame"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <button
+                className="image-import-step-btn"
+                onClick={() => {
+                  setIsPlaying(false);
+                  setCurrentFrameIndex((prev) => (prev + 1) % decodedGif.frames.length);
+                }}
+                title="Next Frame"
+              >
+                <ChevronRight size={14} />
+              </button>
+
+              <div className="image-import-frame-counter">
+                Frame <strong>{currentFrameIndex + 1}</strong> / {decodedGif.frames.length}
               </div>
 
               <div className="image-import-scrubber-container">
                 <input
                   type="range"
-                  min="0"
-                  max={gifFrames.length - 1}
+                  min={0}
+                  max={decodedGif.frames.length - 1}
                   value={currentFrameIndex}
-                  onChange={e => {
+                  onChange={(e) => {
                     setIsPlaying(false);
-                    const idx = Number(e.target.value);
-                    setCurrentFrameIndex(idx);
+                    setCurrentFrameIndex(parseInt(e.target.value, 10));
                   }}
                   className="image-import-scrubber"
                 />
               </div>
 
               <div className="image-import-speed-badge">
-                <Film size={12} />
-                <span>{gifFrames[currentFrameIndex]?.delayMs || 100}ms</span>
+                {decodedGif.frames[currentFrameIndex]?.delayMs || 100}ms
               </div>
             </div>
           )}
 
-          {/* Tuning Controls */}
+          {/* Controls Section */}
           <div className="image-import-controls">
-            {/* Threshold Slider */}
-            <div className="image-import-control-row">
-              <label className="image-import-control-label">
-                <span>Threshold</span>
-                <span className="text-slate-400">0-255</span>
-              </label>
-              <div className="image-import-slider-container">
-                <input
-                  type="range"
-                  min="0"
-                  max="255"
-                  value={threshold}
-                  onChange={e => setThreshold(Number(e.target.value))}
-                  className="image-import-slider"
-                />
-                <span className="image-import-slider-val">{threshold}</span>
-              </div>
-            </div>
-
-            {/* Invert & Sizing Options */}
-            <div className="image-import-options-row">
-              <button
-                type="button"
-                onClick={() => setInvert(prev => !prev)}
-                className={`image-import-toggle-btn ${invert ? 'active' : ''}`}
-                title="Invert 1bpp black and white pixels"
-              >
-                <RefreshCw size={12} />
-                <span>Invert Pixels</span>
-              </button>
-
-              <div className="flex items-center gap-2 ml-auto flex-wrap">
-                <span className="text-xs font-mono text-slate-400">Scale:</span>
-                <select
-                  value={scalePreset}
-                  onChange={e => handlePresetSelect(e.target.value as ScalePreset)}
-                  className="image-import-select"
-                >
-                  <option value="original">
-                    Original ({baseW}×{baseH})
-                  </option>
-                  <option value="fit-34">Fit Height: 34px (ZMK Symbols)</option>
-                  <option value="fit-32">Fit Height: 32px (Corne HW)</option>
-                  <option value="fit-64">Fit Height: 64px</option>
-                  <option value="fit-16">Fit Height: 16px</option>
-                  <option value="custom">Custom Resolution</option>
-                </select>
-
-                <div className="image-import-dimension-inputs">
-                  <span className="image-import-dim-label">W</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="1024"
-                    value={customWidth || targetDimensions.w || ''}
-                    onChange={e => handleWidthChange(Number(e.target.value))}
-                    className="image-import-num-input"
-                    title="Custom width in pixels"
-                  />
+            {/* Color vs 1bpp Mode Toggle */}
+            {allowColor && (
+              <div className="image-import-control-row">
+                <div className="image-import-control-label">
+                  <SlidersHorizontal size={13} />
+                  <span>Mode</span>
+                </div>
+                <div className="image-import-mode-toggle">
                   <button
                     type="button"
-                    onClick={() => setLockAspectRatio(prev => !prev)}
-                    className={`image-import-aspect-btn ${lockAspectRatio ? 'active' : ''}`}
-                    title={lockAspectRatio ? 'Aspect ratio locked' : 'Aspect ratio unlocked'}
+                    className={`image-import-mode-btn ${colorMode ? 'active' : ''}`}
+                    onClick={() => setColorMode(true)}
                   >
-                    {lockAspectRatio ? <Link2 size={12} /> : <Unlink2 size={12} />}
+                    Color
                   </button>
-                  <span className="image-import-dim-label">H</span>
+                  <button
+                    type="button"
+                    className={`image-import-mode-btn ${!colorMode ? 'active' : ''}`}
+                    onClick={() => setColorMode(false)}
+                  >
+                    1bpp Monochrome
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Color Mode: Max Colors / Adaptive Palette Slider */}
+            {colorMode && (
+              <>
+                <div className="image-import-control-row">
+                  <div className="image-import-control-label">
+                    <Palette size={13} />
+                    <span>Max Colors</span>
+                  </div>
+                  <div className="image-import-slider-container">
+                    <input
+                      type="range"
+                      min="2"
+                      max="65"
+                      value={maxColors === 0 ? 65 : maxColors}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setMaxColors(val >= 65 ? 0 : val);
+                      }}
+                      className="image-import-slider"
+                      title="Adjust color complexity (2 to 64 colors, or Full)"
+                    />
+                    <span className="image-import-slider-val">
+                      {maxColors === 0 ? 'Full' : maxColors}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Quick Presets & Swatch Preview */}
+                <div className="image-import-color-presets-row">
+                  <div className="image-import-preset-pills">
+                    {[4, 8, 16, 32].map((k) => (
+                      <button
+                        key={k}
+                        type="button"
+                        className={`image-import-preset-pill ${maxColors === k ? 'active' : ''}`}
+                        onClick={() => setMaxColors(k)}
+                      >
+                        {k}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className={`image-import-preset-pill ${maxColors === 0 ? 'active' : ''}`}
+                      onClick={() => setMaxColors(0)}
+                    >
+                      Full
+                    </button>
+                  </div>
+
+                  {activePalette.length > 0 && (
+                    <div
+                      className="image-import-palette-preview"
+                      title={`Extracted adaptive palette (${activePalette.length} colors)`}
+                    >
+                      {activePalette.map((hex, i) => (
+                        <div
+                          key={`${hex}-${i}`}
+                          className="image-import-palette-swatch"
+                          style={{ backgroundColor: hex }}
+                          title={hex}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* Threshold Slider (1bpp Monochrome mode) */}
+            {!colorMode && (
+              <div className="image-import-control-row">
+                <div className="image-import-control-label">
+                  <SlidersHorizontal size={13} />
+                  <span>Threshold</span>
+                </div>
+                <div className="image-import-slider-container">
+                  <input
+                    type="range"
+                    min="0"
+                    max="255"
+                    value={threshold}
+                    onChange={(e) => setThreshold(Number(e.target.value))}
+                    className="image-import-slider"
+                  />
+                  <span className="image-import-slider-val">{threshold}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Options Row */}
+            <div className="image-import-options-row">
+              {!colorMode && (
+                <button
+                  type="button"
+                  className={`image-import-toggle-btn ${invert ? 'active' : ''}`}
+                  onClick={() => setInvert(!invert)}
+                >
+                  <RefreshCw size={13} />
+                  <span>Invert Lit/Dark</span>
+                </button>
+              )}
+
+              <select
+                value={scalePreset}
+                onChange={(e) => setScalePreset(e.target.value as ScalePreset)}
+                className="image-import-select"
+              >
+                <option value="fit-canvas">Fit Canvas ({canvasWidth}×{canvasHeight})</option>
+                <option value="original">Original Size ({originalDimensions.w}×{originalDimensions.h})</option>
+                <option value="fit-16">Fit 16×16 (Icon)</option>
+                <option value="fit-32">Fit 32×32 (Badge)</option>
+                <option value="fit-64">Fit 64×64 (Sprite)</option>
+                <option value="fit-128">Fit 128×128 (Large)</option>
+                <option value="custom">Custom Size...</option>
+              </select>
+
+              {scalePreset === 'custom' && (
+                <div className="image-import-dimension-inputs">
+                  <span className="image-import-dim-label">W:</span>
                   <input
                     type="number"
                     min="1"
                     max="1024"
-                    value={customHeight || targetDimensions.h || ''}
-                    onChange={e => handleHeightChange(Number(e.target.value))}
+                    value={customWidth}
+                    onChange={(e) => {
+                      const val = Math.max(1, parseInt(e.target.value, 10) || 1);
+                      setCustomWidth(val);
+                      if (lockAspectRatio && originalDimensions.w > 0) {
+                        setCustomHeight(Math.max(1, Math.round((val / originalDimensions.w) * originalDimensions.h)));
+                      }
+                    }}
                     className="image-import-num-input"
-                    title="Custom height in pixels"
                   />
+                  <span className="image-import-dim-label">H:</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="1024"
+                    value={customHeight}
+                    onChange={(e) => {
+                      const val = Math.max(1, parseInt(e.target.value, 10) || 1);
+                      setCustomHeight(val);
+                      if (lockAspectRatio && originalDimensions.h > 0) {
+                        setCustomWidth(Math.max(1, Math.round((val / originalDimensions.h) * originalDimensions.w)));
+                      }
+                    }}
+                    className="image-import-num-input"
+                  />
+                  <button
+                    className={`image-import-aspect-btn ${lockAspectRatio ? 'active' : ''}`}
+                    onClick={() => setLockAspectRatio(!lockAspectRatio)}
+                    title={lockAspectRatio ? 'Unlock Aspect Ratio' : 'Lock Aspect Ratio'}
+                  >
+                    {lockAspectRatio ? <Link2 size={13} /> : <Unlink2 size={13} />}
+                  </button>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Footer */}
-        <footer className="image-import-footer">
+        <div className="image-import-footer">
           <span className="image-import-hint">
             {decodedGif && gifFrames.length > 1
-              ? `Confirm to place all ${gifFrames.length} frames as a grouped symbol slice at an available canvas spot.`
-              : 'Confirm to add as ghost drag on canvas without altering existing drawings.'}
+              ? `Click Confirm to import all ${gifFrames.length} frames as a spritesheet`
+              : colorMode
+              ? 'Color mode preserves original RGB colors on non-transparent pixels'
+              : 'Threshold converts image brightness to 1bpp pixels'}
           </span>
           <div className="image-import-actions">
-            <button onClick={onClose} className="image-import-btn-cancel">
-              Cancel (Esc)
+            <button className="image-import-btn-cancel" onClick={onClose}>
+              Cancel
             </button>
             <button
-              onClick={handleConfirm}
-              disabled={!convertedGrid && gifFrames.length === 0}
-              className="image-import-btn-confirm"
+              className={`image-import-btn-confirm ${!currentGrid ? 'opacity-40 cursor-not-allowed' : ''}`}
+              disabled={!currentGrid}
+              onClick={() => {
+                if (currentGrid) {
+                  onConfirm(
+                    currentGrid,
+                    targetDimensions.w,
+                    targetDimensions.h,
+                    decodedGif && gifFrames.length > 0
+                      ? {
+                          frames: gifFrames.map((f) => ({ grid: f.grid, delayMs: f.delayMs })),
+                          name: imageFileName,
+                        }
+                      : undefined
+                  );
+                  onClose();
+                }
+              }}
             >
-              <Sparkles size={13} />
-              <span>
-                {decodedGif && gifFrames.length > 1
-                  ? `Place Animation on Canvas (${gifFrames.length} frames)`
-                  : 'Place on Canvas (Enter)'}
-              </span>
+              Confirm Import
             </button>
           </div>
-        </footer>
+        </div>
+
+        {/* Hidden File Input for Image Selection inside modal */}
+        <input
+          ref={modalFileInputRef}
+          type="file"
+          accept=".png,.bmp,.jpg,.jpeg,.webp,.gif,image/png,image/bmp,image/jpeg,image/webp,image/gif"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) {
+              handleSelectFile(file);
+            }
+          }}
+          style={{ display: 'none' }}
+          aria-hidden="true"
+        />
       </div>
     </div>
   );

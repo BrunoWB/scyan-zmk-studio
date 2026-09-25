@@ -1,6 +1,5 @@
-/* oxlint-disable react/only-export-components */
 import React, { forwardRef, useEffect, useRef } from 'react';
-import type { SpriteSlice } from '../../types/zmk';
+import type { SpriteSlice } from './editor/types';
 import { renderOverlayCanvas, type RenderOverlayOptions } from '../core/gridRenderer';
 
 export interface BwpxOverlayCanvasProps {
@@ -13,7 +12,7 @@ export interface BwpxOverlayCanvasProps {
   showBrushIndicator?: boolean;
   frameBounds?: { x: number; y: number; w: number; h: number } | null;
   ghost?: {
-    pixels: [number, number][];
+    pixels: ([number, number] | [number, number, string])[];
     x: number;
     y: number;
     w: number;
@@ -28,10 +27,6 @@ export interface BwpxOverlayCanvasProps {
 
 export { renderOverlayCanvas, type RenderOverlayOptions };
 
-/**
- * BwpxOverlayCanvas renders slice bounding boxes, glyph metrics, and selection marquee
- * in an independent hardware-accelerated overlay canvas layer above the base pixel grid.
- */
 export type PixelOverlayCanvasProps = BwpxOverlayCanvasProps;
 
 export const PixelOverlayCanvas = forwardRef<HTMLCanvasElement, PixelOverlayCanvasProps>(

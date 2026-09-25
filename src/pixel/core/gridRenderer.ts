@@ -1,13 +1,14 @@
-import { PixelGrid as BwpxGrid } from './PixelGrid';
-import type { SpriteSlice } from '../../types/zmk';
+import { BwpxGrid } from './PixelGrid';
 
 export interface GhostOverlay {
-  pixels: [number, number][]; // relative coords [relX, relY]
+  pixels: ([number, number] | [number, number, string])[]; // relative coords [relX, relY, color?]
   x: number;
   y: number;
   w: number;
   h: number;
   rects?: { x: number; y: number; w: number; h: number }[];
+  showOutline?: boolean;
+  showBackdrop?: boolean;
 }
 
 export interface SelectionOverlay {
@@ -18,17 +19,29 @@ export interface SelectionOverlay {
   active: boolean;
 }
 
+export interface SliceOverlay {
+  id: string;
+  name?: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color?: string;
+}
+
 export interface RenderBaseOptions {
   grid: BwpxGrid;
   zoom: number;
   pan: { x: number; y: number };
   pixelColor?: string;
+  monochrome?: boolean;
   bgColor?: string;
   gridLineColor?: string;
   showGridLines?: boolean;
   showAxes?: boolean;
-  slices?: SpriteSlice[];
+  slices?: SliceOverlay[];
   selectedSliceId?: string;
+  selectedSliceIds?: string[];
   frameBounds?: { x: number; y: number; w: number; h: number } | null;
 }
 
@@ -37,6 +50,7 @@ export interface RenderOverlayOptions {
   pan: { x: number; y: number };
   hoverPos?: { x: number; y: number } | null;
   hoverHighlightColor?: string;
+  brushIndicatorColor?: string;
   brushSize?: number;
   showBrushIndicator?: boolean;
   frameBounds?: { x: number; y: number; w: number; h: number } | null;
@@ -51,13 +65,14 @@ export interface RenderBwpxOptions extends RenderBaseOptions {
   selection?: SelectionOverlay | null;
   hoverPos?: { x: number; y: number } | null;
   hoverHighlightColor?: string;
+  brushIndicatorColor?: string;
   brushSize?: number;
   showBrushIndicator?: boolean;
 }
 
 /**
  * Renders the persistent base layer: background, grid lines, axes, frame bounds, pixels, slices.
- * This should ONLY be re-rendered when grid data, viewport (pan/zoom), or slices change.
+ * Re-renders only when grid data, viewport (pan/zoom), or color theme changes.
  */
 export function renderBaseCanvas(
   canvas: HTMLCanvasElement,
@@ -68,10 +83,11 @@ export function renderBaseCanvas(
     grid,
     zoom,
     pan,
-    pixelColor = '#ffffff',
-    bgColor = '#0b0d11',
-    gridLineColor = 'rgba(255, 255, 255, 0.04)',
-    showGridLines = zoom >= 5,
+    pixelColor = '#00e5a3',
+    monochrome = false,
+    bgColor = '#0f1013',
+    gridLineColor = 'rgba(255, 255, 255, 0.05)',
+    showGridLines = zoom >= 4,
     showAxes = true,
     slices = [],
     selectedSliceId = '',
@@ -114,7 +130,7 @@ export function renderBaseCanvas(
     ctx.restore();
   }
 
-  // 2. Coordinate Axes (X axis and Y axis crossing at 0, 0)
+  // 2. Coordinate Axes (crossing at 0, 0)
   if (showAxes) {
     const originX = panX;
     const originY = panY;
@@ -137,7 +153,7 @@ export function renderBaseCanvas(
     ctx.fill();
 
     if (zoom >= 8) {
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
       ctx.font = '10px "JetBrains Mono", monospace';
       ctx.fillText('(0, 0)', originX + 5, originY - 5);
     }
@@ -146,10 +162,10 @@ export function renderBaseCanvas(
   ctx.save();
   ctx.translate(panX, panY);
 
-  // Frame boundary (if a defined frame or image rect is specified)
+  // 3. Frame boundary
   if (frameBounds) {
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+    ctx.lineWidth = 1.5;
     const fx = Math.round(frameBounds.x * zoom);
     const fy = Math.round(frameBounds.y * zoom);
     const fw = Math.round((frameBounds.x + frameBounds.w) * zoom) - fx;
@@ -157,10 +173,15 @@ export function renderBaseCanvas(
     ctx.strokeRect(fx + 0.5, fy + 0.5, fw, fh);
   }
 
-  // 3. Active pixels
-  ctx.fillStyle = pixelColor;
-  grid.forEachPixel((x, y) => {
+  // 4. Active pixels
+  let currentFillStyle: string | null = null;
+  grid.forEachPixel((x, y, color) => {
     if (x >= startGridX && x <= endGridX && y >= startGridY && y <= endGridY) {
+      const c = monochrome ? pixelColor : (color || pixelColor);
+      if (c !== currentFillStyle) {
+        ctx.fillStyle = c;
+        currentFillStyle = c;
+      }
       const px = Math.round(x * zoom);
       const py = Math.round(y * zoom);
       const pw = Math.round((x + 1) * zoom) - px;
@@ -169,7 +190,7 @@ export function renderBaseCanvas(
     }
   });
 
-  // 4. Sprite Slices Overlay
+  // 5. Slices Overlay (if any)
   if (slices && slices.length > 0) {
     if (zoom >= 6) {
       ctx.font = '10px "JetBrains Mono", monospace';
@@ -177,13 +198,18 @@ export function renderBaseCanvas(
     const labelMarginTop = zoom >= 6 ? 18 : 0;
     const labelWidthMargin = zoom >= 6 ? 220 : 0;
 
-    slices.forEach(s => {
+    const selectedIdsSet = new Set<string>();
+    if (selectedSliceId) selectedIdsSet.add(selectedSliceId);
+    if (options.selectedSliceIds) {
+      options.selectedSliceIds.forEach((id) => selectedIdsSet.add(id));
+    }
+
+    slices.forEach((s) => {
       const sx = Math.round(s.x * zoom);
       const sy = Math.round(s.y * zoom);
       const sw = Math.round((s.x + s.width) * zoom) - sx;
       const sh = Math.round((s.y + s.height) * zoom) - sy;
 
-      // Viewport culling: skip any slice completely outside the canvas viewport
       if (
         panX + sx + Math.max(sw, labelWidthMargin) < -10 ||
         panX + sx > canvas.width + 10 ||
@@ -193,8 +219,8 @@ export function renderBaseCanvas(
         return;
       }
 
-      const isSelected = selectedSliceId === s.id;
-      ctx.strokeStyle = isSelected ? '#c084fc' : (s.color || 'rgba(168, 85, 247, 0.45)');
+      const isSelected = selectedIdsSet.has(s.id);
+      ctx.strokeStyle = isSelected ? '#c084fc' : s.color || 'rgba(168, 85, 247, 0.45)';
       ctx.lineWidth = isSelected ? 2 : 1;
       if (!isSelected) {
         ctx.setLineDash([3, 3]);
@@ -207,7 +233,6 @@ export function renderBaseCanvas(
       ctx.shadowBlur = 0;
       ctx.setLineDash([]);
 
-      // Slice badge label
       if (zoom >= 6) {
         const label = `${s.name || ''} (${s.width}×${s.height})`;
         const textWidth = ctx.measureText(label).width;
@@ -225,7 +250,6 @@ export function renderBaseCanvas(
 /**
  * Renders ephemeral user interaction feedback: cursor hover highlight, brush indicator,
  * ghost placement overlay, and selection marquee.
- * Extremely fast (<0.1ms), does not redraw base pixels or grid lines.
  */
 export function renderOverlayCanvas(
   canvas: HTMLCanvasElement,
@@ -237,12 +261,13 @@ export function renderOverlayCanvas(
     pan,
     hoverPos = null,
     hoverHighlightColor = 'rgba(255, 255, 255, 0.04)',
+    brushIndicatorColor = 'rgba(0, 229, 163, 0.8)',
     brushSize = 1,
     showBrushIndicator = false,
     frameBounds = null,
     ghost = null,
     selection = null,
-    bgColor = '#0b0d11',
+    bgColor = '#0f1013',
   } = options;
 
   ctx.imageSmoothingEnabled = false;
@@ -261,20 +286,22 @@ export function renderOverlayCanvas(
     const rowH = Math.round((hoverPos.y + 1) * zoom) - Math.round(hoverPos.y * zoom);
 
     const xMin = frameBounds ? Math.max(0, panX + Math.round(frameBounds.x * zoom)) : 0;
-    const xMax = frameBounds ? Math.min(canvas.width, panX + Math.round((frameBounds.x + frameBounds.w) * zoom)) : canvas.width;
+    const xMax = frameBounds
+      ? Math.min(canvas.width, panX + Math.round((frameBounds.x + frameBounds.w) * zoom))
+      : canvas.width;
     const yMin = frameBounds ? Math.max(0, panY + Math.round(frameBounds.y * zoom)) : 0;
-    const yMax = frameBounds ? Math.min(canvas.height, panY + Math.round((frameBounds.y + frameBounds.h) * zoom)) : canvas.height;
+    const yMax = frameBounds
+      ? Math.min(canvas.height, panY + Math.round((frameBounds.y + frameBounds.h) * zoom))
+      : canvas.height;
 
     ctx.fillStyle = hoverHighlightColor;
 
-    // Highlight column
     const drawColX = Math.max(xMin, colX);
     const drawColW = Math.min(colX + colW, xMax) - drawColX;
     if (drawColW > 0 && yMax > yMin) {
       ctx.fillRect(drawColX, yMin, drawColW, yMax - yMin);
     }
 
-    // Highlight row
     const drawRowY = Math.max(yMin, rowY);
     const drawRowH = Math.min(rowY + rowH, yMax) - drawRowY;
     if (drawRowH > 0 && xMax > xMin) {
@@ -285,32 +312,41 @@ export function renderOverlayCanvas(
   ctx.save();
   ctx.translate(panX, panY);
 
-  // 2. Ghost image preview during drag or placement
+  // 2. Ghost preview during drag or placement
   if (ghost) {
     const targetX = ghost.x;
     const targetY = ghost.y;
 
-    ctx.fillStyle = bgColor;
-    if (ghost.rects && ghost.rects.length > 0) {
-      ghost.rects.forEach(r => {
-        const rx = Math.round(r.x * zoom);
-        const ry = Math.round(r.y * zoom);
-        const rw = Math.round((r.x + r.w) * zoom) - rx;
-        const rh = Math.round((r.y + r.h) * zoom) - ry;
-        ctx.fillRect(rx, ry, rw, rh);
-      });
-    } else {
-      const gx = Math.round(targetX * zoom);
-      const gy = Math.round(targetY * zoom);
-      const gw = Math.round((targetX + ghost.w) * zoom) - gx;
-      const gh = Math.round((targetY + ghost.h) * zoom) - gy;
-      ctx.fillRect(gx, gy, gw, gh);
+    if (ghost.showBackdrop) {
+      ctx.fillStyle = bgColor;
+      if (ghost.rects && ghost.rects.length > 0) {
+        ghost.rects.forEach((r) => {
+          const rx = Math.round(r.x * zoom);
+          const ry = Math.round(r.y * zoom);
+          const rw = Math.round((r.x + r.w) * zoom) - rx;
+          const rh = Math.round((r.y + r.h) * zoom) - ry;
+          ctx.fillRect(rx, ry, rw, rh);
+        });
+      } else {
+        const gx = Math.round(targetX * zoom);
+        const gy = Math.round(targetY * zoom);
+        const gw = Math.round((targetX + ghost.w) * zoom) - gx;
+        const gh = Math.round((targetY + ghost.h) * zoom) - gy;
+        ctx.fillRect(gx, gy, gw, gh);
+      }
     }
 
-    ctx.fillStyle = 'rgba(192, 132, 252, 0.7)';
-    ctx.shadowColor = '#c084fc';
-    ctx.shadowBlur = 10;
-    ghost.pixels.forEach(([relX, relY]) => {
+    let lastGhostColor: string | null = null;
+    ctx.shadowBlur = 4;
+    ghost.pixels.forEach((p) => {
+      const relX = p[0];
+      const relY = p[1];
+      const color = p[2] || 'rgba(56, 189, 248, 0.85)';
+      if (color !== lastGhostColor) {
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        lastGhostColor = color;
+      }
       const gpx = Math.round((targetX + relX) * zoom);
       const gpy = Math.round((targetY + relY) * zoom);
       const gpw = Math.round((targetX + relX + 1) * zoom) - gpx;
@@ -319,29 +355,30 @@ export function renderOverlayCanvas(
     });
     ctx.shadowBlur = 0;
 
-    // Ghost marquee
-    ctx.strokeStyle = '#c084fc';
-    ctx.fillStyle = 'rgba(192, 132, 252, 0.12)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([4, 4]);
-    if (ghost.rects && ghost.rects.length > 0) {
-      ghost.rects.forEach(r => {
-        const rx = Math.round(r.x * zoom);
-        const ry = Math.round(r.y * zoom);
-        const rw = Math.round((r.x + r.w) * zoom) - rx;
-        const rh = Math.round((r.y + r.h) * zoom) - ry;
-        ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh);
-        ctx.fillRect(rx, ry, rw, rh);
-      });
-    } else {
-      const gx = Math.round(targetX * zoom);
-      const gy = Math.round(targetY * zoom);
-      const gw = Math.round((targetX + ghost.w) * zoom) - gx;
-      const gh = Math.round((targetY + ghost.h) * zoom) - gy;
-      ctx.strokeRect(gx + 0.5, gy + 0.5, gw, gh);
-      ctx.fillRect(gx, gy, gw, gh);
+    if (ghost.showOutline) {
+      ctx.strokeStyle = '#38bdf8';
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      if (ghost.rects && ghost.rects.length > 0) {
+        ghost.rects.forEach((r) => {
+          const rx = Math.round(r.x * zoom);
+          const ry = Math.round(r.y * zoom);
+          const rw = Math.round((r.x + r.w) * zoom) - rx;
+          const rh = Math.round((r.y + r.h) * zoom) - ry;
+          ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh);
+          ctx.fillRect(rx, ry, rw, rh);
+        });
+      } else {
+        const gx = Math.round(targetX * zoom);
+        const gy = Math.round(targetY * zoom);
+        const gw = Math.round((targetX + ghost.w) * zoom) - gx;
+        const gh = Math.round((targetY + ghost.h) * zoom) - gy;
+        ctx.strokeRect(gx + 0.5, gy + 0.5, gw, gh);
+        ctx.fillRect(gx, gy, gw, gh);
+      }
+      ctx.setLineDash([]);
     }
-    ctx.setLineDash([]);
   }
 
   // 3. Selection Marquee
@@ -352,7 +389,7 @@ export function renderOverlayCanvas(
     const mh = Math.round((selection.y + selection.h) * zoom) - my;
 
     ctx.strokeStyle = '#38bdf8';
-    ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.1)';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
     ctx.strokeRect(mx + 0.5, my + 0.5, mw, mh);
@@ -363,7 +400,7 @@ export function renderOverlayCanvas(
   // 4. Hover brush indicator
   if (hoverPos && showBrushIndicator) {
     const half = Math.floor(brushSize / 2);
-    ctx.strokeStyle = 'rgba(0, 229, 163, 0.6)';
+    ctx.strokeStyle = brushIndicatorColor;
     ctx.lineWidth = 1;
     const bx = Math.round((hoverPos.x - half) * zoom);
     const by = Math.round((hoverPos.y - half) * zoom);
@@ -376,7 +413,7 @@ export function renderOverlayCanvas(
 }
 
 /**
- * Shared grid canvas renderer (combined base + overlay) for backward compatibility
+ * Combined renderer for backward compatibility.
  */
 export function renderBwpxCanvas(
   canvas: HTMLCanvasElement,
@@ -384,9 +421,5 @@ export function renderBwpxCanvas(
   options: RenderBwpxOptions
 ): void {
   renderBaseCanvas(canvas, ctx, options);
-  renderOverlayCanvas(canvas, ctx, {
-    ...options,
-    clearCanvas: false,
-    bgColor: options.bgColor,
-  });
+  renderOverlayCanvas(canvas, ctx, { ...options, clearCanvas: false });
 }

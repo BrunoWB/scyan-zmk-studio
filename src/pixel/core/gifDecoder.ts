@@ -1,6 +1,7 @@
 import { GifReader } from 'omggif';
-import { PixelGrid as BwpxGrid } from './PixelGrid';
+import { BwpxGrid } from './PixelGrid';
 import { convertImageDataToGrid, type ImageConversionOptions } from './imageConversion';
+import { quantizePixelsToPalette } from './colorQuantization';
 
 export interface DecodedGifFrame {
   index: number;
@@ -21,6 +22,7 @@ export interface ConvertedGifFrame {
   index: number;
   delayMs: number;
   grid: BwpxGrid;
+  hexPalette?: string[];
 }
 
 /**
@@ -40,8 +42,7 @@ export function isGifBuffer(buffer: ArrayBuffer | Uint8Array): boolean {
 }
 
 /**
- * Fast, crisp nearest-neighbor scaler for RGBA buffers.
- * Preserves exact pixel boundaries without blur or smoothing.
+ * Fast nearest-neighbor scaler for RGBA buffers preserving pixel boundaries.
  */
 export function scaleRgbaNearestNeighbor(
   srcData: Uint8ClampedArray | Uint8Array,
@@ -80,7 +81,6 @@ export function scaleRgbaNearestNeighbor(
 
 /**
  * Decodes an animated or static GIF buffer into an array of fully composited RGBA frames.
- * Respects GIF disposal methods (0/1 keep, 2 restore background, 3 restore previous).
  */
 export function decodeGif(buffer: ArrayBuffer | Uint8Array): DecodedGif {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
@@ -98,20 +98,16 @@ export function decodeGif(buffer: ArrayBuffer | Uint8Array): DecodedGif {
   for (let i = 0; i < numFrames; i++) {
     const info = reader.frameInfo(i);
 
-    // Save copy of current canvas if disposal mode requires restoring previous
     if (info.disposal === 3) {
       previousCanvasCopy = new Uint8ClampedArray(canvasRgba);
     }
 
-    // Decode and composite frame pixels onto working canvas
     reader.decodeAndBlitFrameRGBA(i, canvasRgba);
 
-    // Record delay (delay is in 1/100ths sec; standard browser minimum fallback is 100ms for delay <= 1)
     const delayHundredths = info.delay !== null && info.delay !== undefined && info.delay > 1 ? info.delay : 10;
     const delayMs = Math.max(20, delayHundredths * 10);
     totalDurationMs += delayMs;
 
-    // Capture the composed state for this frame
     frames.push({
       index: i,
       delayMs,
@@ -120,9 +116,7 @@ export function decodeGif(buffer: ArrayBuffer | Uint8Array): DecodedGif {
       rgba: new Uint8ClampedArray(canvasRgba),
     });
 
-    // Handle frame disposal for the NEXT frame's starting canvas
     if (info.disposal === 2) {
-      // Restore background: clear frame's sub-rectangle to transparent [0, 0, 0, 0]
       const fx = Math.max(0, info.x);
       const fy = Math.max(0, info.y);
       const fw = Math.min(width - fx, info.width);
@@ -133,7 +127,6 @@ export function decodeGif(buffer: ArrayBuffer | Uint8Array): DecodedGif {
         canvasRgba.fill(0, rowStart, rowStart + fw * 4);
       }
     } else if (info.disposal === 3 && previousCanvasCopy) {
-      // Restore previous canvas
       canvasRgba.set(previousCanvasCopy);
     }
   }
@@ -147,8 +140,7 @@ export function decodeGif(buffer: ArrayBuffer | Uint8Array): DecodedGif {
 }
 
 /**
- * Fast, crisp nearest-neighbor scaler with sub-rectangle cropping for RGBA buffers.
- * Extracts [cropX, cropY, cropW, cropH] and rescales to [dstW, dstH].
+ * Nearest-neighbor scaler with sub-rectangle cropping for RGBA buffers.
  */
 export function cropAndScaleRgbaNearestNeighbor(
   srcData: Uint8ClampedArray | Uint8Array,
@@ -204,10 +196,9 @@ export function convertGifFramesToGrids(
   const targetW = Math.max(1, Math.round(options.targetWidth || baseW));
   const targetH = Math.max(1, Math.round(options.targetHeight || baseH));
 
-  return decodedGif.frames.map(frame => {
-    let scaledRgba: Uint8ClampedArray;
+  const scaledBuffers = decodedGif.frames.map((frame) => {
     if (crop) {
-      scaledRgba = cropAndScaleRgbaNearestNeighbor(
+      return cropAndScaleRgbaNearestNeighbor(
         frame.rgba,
         frame.width,
         frame.height,
@@ -219,12 +210,22 @@ export function convertGifFramesToGrids(
         targetH
       );
     } else if (targetW === frame.width && targetH === frame.height) {
-      scaledRgba = frame.rgba;
+      return frame.rgba;
     } else {
-      scaledRgba = scaleRgbaNearestNeighbor(frame.rgba, frame.width, frame.height, targetW, targetH);
+      return scaleRgbaNearestNeighbor(frame.rgba, frame.width, frame.height, targetW, targetH);
     }
+  });
 
-    // Create ImageData (or duck-typed object for environments without native ImageData)
+  let activeColorMap = options.colorMap;
+  let hexPalette: string[] | undefined;
+  if (options.colorMode && !activeColorMap && options.maxColors && options.maxColors > 0) {
+    const quant = quantizePixelsToPalette(scaledBuffers, options.maxColors, 32);
+    activeColorMap = quant.colorMap;
+    hexPalette = quant.hexPalette;
+  }
+
+  return decodedGif.frames.map((frame, idx) => {
+    const scaledRgba = scaledBuffers[idx];
     const imgData =
       typeof ImageData !== 'undefined'
         ? new ImageData(scaledRgba as any, targetW, targetH)
@@ -240,13 +241,117 @@ export function convertGifFramesToGrids(
       invert: options.invert,
       targetWidth: targetW,
       targetHeight: targetH,
+      color: options.color,
+      colorMode: options.colorMode,
+      maxColors: options.maxColors,
+      colorMap: activeColorMap,
     });
 
     return {
       index: frame.index,
       delayMs: frame.delayMs,
       grid,
+      hexPalette,
     };
   });
 }
 
+export interface CompactTableLayout {
+  cols: number;
+  rows: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Calculates a compact 2D table layout (columns x rows) for animation frames.
+ * Compacts the frames as a table rather than a single row, optimizing to fit within
+ * the canvas dimensions while keeping the aspect ratio balanced and minimizing empty slots.
+ */
+export function calculateCompactTableLayout(
+  frameCount: number,
+  frameWidth: number,
+  frameHeight: number,
+  canvasWidth?: number,
+  canvasHeight?: number
+): CompactTableLayout {
+  if (frameCount <= 1) {
+    return {
+      cols: 1,
+      rows: 1,
+      width: Math.max(1, frameWidth),
+      height: Math.max(1, frameHeight),
+    };
+  }
+
+  let bestCols = 1;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  // Prefer aspect ratio matching canvas, or square (1.0) if not specified
+  const targetRatio =
+    canvasWidth && canvasHeight && canvasHeight > 0
+      ? Math.min(2.0, Math.max(0.5, canvasWidth / canvasHeight))
+      : 1.0;
+
+  for (let cols = 1; cols <= frameCount; cols++) {
+    const rows = Math.ceil(frameCount / cols);
+    const sheetW = cols * frameWidth;
+    const sheetH = rows * frameHeight;
+    const wastedCells = cols * rows - frameCount;
+
+    // 1. Canvas overflow penalty
+    let overflowPenalty = 0;
+    if (canvasWidth && canvasHeight) {
+      const overflowW = Math.max(0, sheetW - canvasWidth);
+      const overflowH = Math.max(0, sheetH - canvasHeight);
+      const totalOverflow = overflowW * 1.5 + overflowH;
+      if (totalOverflow > 0) {
+        overflowPenalty = 100000 + totalOverflow * 1000;
+      }
+    }
+
+    // 2. Single row penalty: strongly discourage a single row when multiple frames exist
+    let singleRowPenalty = 0;
+    if (frameCount >= 3 && rows === 1) {
+      singleRowPenalty = 20000;
+    } else if (
+      frameCount === 2 &&
+      rows === 1 &&
+      canvasWidth &&
+      sheetW > canvasWidth &&
+      canvasHeight &&
+      sheetH * 2 <= canvasHeight
+    ) {
+      singleRowPenalty = 10000;
+    }
+
+    // 3. Wasted cells penalty (empty slots in the grid)
+    const wastedPenalty = wastedCells * 25;
+
+    // 4. Aspect ratio penalty (prefer compact, balanced aspect ratio)
+    const sheetRatio = sheetW / Math.max(1, sheetH);
+    const ratioDiff = Math.abs(Math.log(sheetRatio / targetRatio));
+    const ratioPenalty = ratioDiff * 40;
+
+    // 5. Avoid single column for N >= 3 if not forced by width
+    let singleColPenalty = 0;
+    if (frameCount >= 3 && cols === 1) {
+      singleColPenalty = 15000;
+    }
+
+    const score = overflowPenalty + singleRowPenalty + wastedPenalty + ratioPenalty + singleColPenalty;
+
+    if (score < bestScore) {
+      bestScore = score;
+      bestCols = cols;
+    }
+  }
+
+  const finalRows = Math.ceil(frameCount / bestCols);
+  return {
+    cols: bestCols,
+    rows: finalRows,
+    width: bestCols * frameWidth,
+    height: finalRows * frameHeight,
+  };
+}

@@ -23,24 +23,8 @@ import {
 } from 'lucide-react';
 import { ShapeToolButton } from './ShapeToolButton';
 
-export type ToolType =
-  | 'pencil'
-  | 'eraser'
-  | 'bucket'
-  | 'select'
-  | 'move'
-  | 'line'
-  | 'rect'
-  | 'filled-rect'
-  | 'ellipse'
-  | 'filled-ellipse'
-  | 'triangle'
-  | 'filled-triangle'
-  | 'diamond'
-  | 'star'
-  | 'arrow'
-  | 'filled-arrow'
-  | 'plus';
+import type { ToolType } from './editor/types';
+export type { ToolType };
 
 export interface BwpxEditorToolbarProps {
   canUndo: boolean;

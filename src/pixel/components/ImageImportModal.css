@@ -2,7 +2,7 @@
 .image-import-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.78);
+  background: rgba(0, 0, 0, 0.8);
   backdrop-filter: blur(5px);
   display: flex;
   align-items: center;
@@ -15,7 +15,7 @@
   background: #14171d;
   border: 1px solid #242934;
   border-radius: 10px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.75);
   width: 100%;
   max-width: 820px;
   display: flex;
@@ -48,7 +48,7 @@
   font-family: 'JetBrains Mono', monospace;
   font-weight: 700;
   font-size: 13px;
-  color: var(--accent, #00d2ff);
+  color: var(--accent, #00e5a3);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -163,8 +163,8 @@
 
 .image-import-crop-box {
   position: absolute;
-  border: 1.5px dashed var(--accent, #00d2ff);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), inset 0 0 12px rgba(0, 210, 255, 0.08);
+  border: 1.5px dashed var(--accent, #00e5a3);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), inset 0 0 12px rgba(0, 229, 163, 0.1);
   cursor: move;
   pointer-events: auto;
 }
@@ -174,7 +174,7 @@
   width: 8px;
   height: 8px;
   background: #ffffff;
-  border: 1.5px solid var(--accent, #00d2ff);
+  border: 1.5px solid var(--accent, #00e5a3);
   border-radius: 1px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
   pointer-events: auto;
@@ -191,9 +191,9 @@
 .image-import-crop-handle.handle-e  { top: calc(50% - 4px); right: -4px; cursor: ew-resize; }
 
 .image-import-reset-crop-btn {
-  background: rgba(0, 210, 255, 0.1);
-  border: 1px solid rgba(0, 210, 255, 0.3);
-  color: var(--accent, #00d2ff);
+  background: rgba(0, 229, 163, 0.1);
+  border: 1px solid rgba(0, 229, 163, 0.3);
+  color: var(--accent, #00e5a3);
   font-size: 10px;
   font-family: 'JetBrains Mono', monospace;
   padding: 1px 6px;
@@ -206,8 +206,8 @@
 }
 
 .image-import-reset-crop-btn:hover {
-  background: rgba(0, 210, 255, 0.2);
-  border-color: var(--accent, #00d2ff);
+  background: rgba(0, 229, 163, 0.2);
+  border-color: var(--accent, #00e5a3);
 }
 
 .image-import-grid-view {
@@ -259,7 +259,7 @@
 
 .image-import-slider {
   flex: 1;
-  accent-color: var(--accent, #00d2ff);
+  accent-color: var(--accent, #00e5a3);
   height: 6px;
   border-radius: 3px;
   cursor: pointer;
@@ -269,9 +269,76 @@
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   font-weight: 700;
-  color: var(--accent, #00d2ff);
+  color: var(--accent, #00e5a3);
   min-width: 32px;
   text-align: right;
+}
+
+.image-import-color-presets-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-left: 124px;
+}
+
+@media (max-width: 640px) {
+  .image-import-color-presets-row {
+    padding-left: 0;
+  }
+}
+
+.image-import-preset-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.image-import-preset-pill {
+  background: #151922;
+  border: 1px solid #232a37;
+  color: #94a3b8;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.image-import-preset-pill:hover {
+  background: #1e2533;
+  color: #f1f5f9;
+  border-color: #333f54;
+}
+
+.image-import-preset-pill.active {
+  background: rgba(0, 229, 163, 0.12);
+  border-color: var(--accent, #00e5a3);
+  color: var(--accent, #00e5a3);
+}
+
+.image-import-palette-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 260px;
+  overflow-x: auto;
+  padding: 2px 4px;
+  background: #0b0d12;
+  border: 1px solid #1c222c;
+  border-radius: 4px;
+}
+
+.image-import-palette-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 .image-import-options-row {
@@ -302,9 +369,9 @@
 }
 
 .image-import-toggle-btn.active {
-  background: rgba(0, 210, 255, 0.15);
-  border-color: var(--accent, #00d2ff);
-  color: var(--accent, #00d2ff);
+  background: rgba(0, 229, 163, 0.15);
+  border-color: var(--accent, #00e5a3);
+  color: var(--accent, #00e5a3);
 }
 
 .image-import-select {
@@ -320,7 +387,7 @@
 }
 
 .image-import-select:focus {
-  border-color: var(--accent, #00d2ff);
+  border-color: var(--accent, #00e5a3);
 }
 
 .image-import-dimension-inputs {
@@ -343,7 +410,7 @@
   width: 52px;
   background: #181d26;
   border: 1px solid #333c4d;
-  color: var(--accent, #00d2ff);
+  color: var(--accent, #00e5a3);
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   font-weight: 600;
@@ -354,8 +421,8 @@
 }
 
 .image-import-num-input:focus {
-  border-color: var(--accent, #00d2ff);
-  box-shadow: 0 0 0 1px rgba(0, 210, 255, 0.3);
+  border-color: var(--accent, #00e5a3);
+  box-shadow: 0 0 0 1px rgba(0, 229, 163, 0.3);
 }
 
 .image-import-aspect-btn {
@@ -377,7 +444,7 @@
 }
 
 .image-import-aspect-btn.active {
-  color: var(--accent, #00d2ff);
+  color: var(--accent, #00e5a3);
 }
 
 .image-import-footer {
@@ -421,7 +488,7 @@
   font-size: 11px;
   font-family: 'JetBrains Mono', monospace;
   border-radius: 5px;
-  background: var(--accent, #00d2ff);
+  background: var(--accent, #00e5a3);
   border: none;
   color: #0b0d10;
   font-weight: 700;
@@ -433,7 +500,7 @@
 }
 
 .image-import-btn-confirm:hover {
-  background: #38e1ff;
+  background: #10f0b0;
 }
 
 .image-import-btn-confirm:active {
@@ -469,8 +536,8 @@
 .image-import-play-btn:hover,
 .image-import-step-btn:hover {
   background: #242c3b;
-  color: var(--accent, #00d2ff);
-  border-color: rgba(0, 210, 255, 0.4);
+  color: var(--accent, #00e5a3);
+  border-color: rgba(0, 229, 163, 0.4);
 }
 
 .image-import-frame-counter {
@@ -480,7 +547,7 @@
 }
 
 .image-import-frame-counter strong {
-  color: var(--accent, #00d2ff);
+  color: var(--accent, #00e5a3);
 }
 
 .image-import-scrubber-container {
@@ -492,7 +559,7 @@
 .image-import-scrubber {
   width: 100%;
   height: 4px;
-  accent-color: var(--accent, #00d2ff);
+  accent-color: var(--accent, #00e5a3);
   cursor: pointer;
 }
 
@@ -513,9 +580,9 @@
   font-family: 'JetBrains Mono', monospace;
   font-weight: 700;
   text-transform: uppercase;
-  color: #00d2ff;
-  background: rgba(0, 210, 255, 0.12);
-  border: 1px solid rgba(0, 210, 255, 0.3);
+  color: var(--accent, #00e5a3);
+  background: rgba(0, 229, 163, 0.12);
+  border: 1px solid rgba(0, 229, 163, 0.3);
   padding: 2px 7px;
   border-radius: 4px;
   display: inline-flex;
@@ -530,4 +597,82 @@
   image-rendering: pixelated;
 }
 
+.image-import-change-btn {
+  background: #191e2a;
+  border: 1px solid #2a3344;
+  color: #94a3b8;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 1px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.image-import-change-btn:hover {
+  background: #252d3d;
+  color: #f1f5f9;
+  border-color: #3b475e;
+}
+
+.image-import-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 160px;
+  border: 1.5px dashed #283042;
+  border-radius: 6px;
+  padding: 16px;
+  cursor: pointer;
+  background: rgba(15, 18, 24, 0.6);
+  transition: border-color 0.15s ease, background 0.15s ease;
+  text-align: center;
+  user-select: none;
+}
+
+.image-import-dropzone:hover {
+  border-color: var(--accent, #00e5a3);
+  background: rgba(0, 229, 163, 0.05);
+}
+
+.image-import-dropzone-dragover {
+  border-color: var(--accent, #00e5a3);
+  background: rgba(0, 229, 163, 0.1);
+}
+
+.image-import-mode-toggle {
+  display: flex;
+  align-items: center;
+  background: #0f1115;
+  border: 1px solid #1e232d;
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+  width: fit-content;
+}
+
+.image-import-mode-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.image-import-mode-btn:hover {
+  color: #f8fafc;
+}
+
+.image-import-mode-btn.active {
+  background: var(--accent, #00e5a3);
+  color: #0b0d11;
+  font-weight: 600;
+}
 

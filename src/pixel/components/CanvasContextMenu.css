@@ -48,11 +48,11 @@
 }
 
 .context-menu-item.highlight {
-  color: var(--accent, #00d2ff);
+  color: var(--accent, #00e5a3);
 }
 
 .context-menu-item.highlight:hover {
-  background: rgba(0, 210, 255, 0.14);
+  background: rgba(0, 229, 163, 0.14);
 }
 
 .context-menu-shortcut {
@@ -66,4 +66,3 @@
   background: #242a36;
   margin: 4px 2px;
 }
-
