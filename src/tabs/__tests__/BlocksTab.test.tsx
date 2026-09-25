@@ -360,8 +360,8 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
 
     expect(html).toContain('badge-active');
     expect(html).toContain('badge-synced');
-    expect(html).toContain('Active');
-    expect(html).toContain('Synced');
+    expect(html).toContain('Active —');
+    expect(html).toContain('Synced —');
   });
 
   it('widget.isInteractive flag is set on interactive widgets (modal suppression key is defined)', () => {
