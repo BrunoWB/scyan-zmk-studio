@@ -3,6 +3,7 @@ import {
   Undo2,
   Redo2,
   Pencil,
+  Brush,
   Eraser,
   PaintBucket,
   MousePointer2,
@@ -255,14 +256,24 @@ export const PixelEditorSidebar: React.FC<{
       {/* DRAW GROUP */}
       <span className="bwpx-section-label">DRAW</span>
 
-      <button
-        type="button"
-        onClick={() => onSelectTool('pencil')}
-        className={`bwpx-tool-btn ${activeTool === 'pencil' && !isControlHeld && !isShiftHeld ? 'active' : ''}`}
-        title="Pencil (Left click draws)"
-      >
-        <Pencil size={15} />
-      </button>
+      <ShapeToolButton
+        variants={[
+          {
+            tool: 'round-pencil',
+            icon: <Brush size={15} />,
+            title: 'Round Brush (Left click draws)',
+            label: 'Round',
+          },
+          {
+            tool: 'pencil',
+            icon: <Pencil size={15} />,
+            title: 'Square Pencil (Left click draws)',
+            label: 'Square',
+          },
+        ]}
+        activeTool={activeTool}
+        setActiveTool={onSelectTool}
+      />
 
       <div className="has-tooltip">
         <button

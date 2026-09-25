@@ -240,3 +240,4 @@ describe('EditorHistory engine', () => {
     expect(state.history[0].grid.get(7, 7)).toBe(1);
   });
 });
+

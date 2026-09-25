@@ -65,4 +65,22 @@ describe('ShapeToolButton & shape algorithms in scyan-zmk-studio', () => {
     expect(endpoints.y0).toBe(10);
     expect(endpoints.y1).toBe(10);
   });
+
+  it('renders ShapeToolButton for pencil variants with round-pencil default', () => {
+    const html = renderToString(
+      <ShapeToolButton
+        variants={[
+          { tool: 'round-pencil', icon: <span>BrushIcon</span>, title: 'Round Brush', label: 'Round' },
+          { tool: 'pencil', icon: <span>PencilIcon</span>, title: 'Square Pencil', label: 'Square' },
+        ]}
+        activeTool="round-pencil"
+        setActiveTool={() => {}}
+      />
+    );
+
+    expect(html).toContain('bwpx-tool-btn');
+    expect(html).toContain('active');
+    expect(html).toContain('title="Round Brush"');
+    expect(html).toContain('BrushIcon');
+  });
 });
