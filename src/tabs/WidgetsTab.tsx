@@ -1728,7 +1728,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                               <div className="mt-2 text-[11px] text-cyan-300 bg-cyan-950/30 border border-cyan-800/40 rounded p-2.5 flex items-start gap-2">
                                 <Info size={14} className="text-accent shrink-0 mt-0.5" />
                                 <div>
-                                  <strong>Power-On Alignment Note:</strong> Synchronized animations lock to global MCU uptime (<code>k_uptime_get_32()</code>). For optimal phase synchronicity between split halves, power on or reset both keyboard halves around the same time.
+                                  <strong>Tip for Split Keyboards:</strong> To keep animations synchronized between left and right screens, turn on both battery switches or reset both halves around the same time. They'll stay in step without drifting, even after waking from sleep.
                                 </div>
                               </div>
                             )}

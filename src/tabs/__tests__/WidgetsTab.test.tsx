@@ -582,12 +582,11 @@ describe('WidgetsTab keypress widget UI', () => {
 
     // Synced badge
     expect(html).toContain('badge-synced');
-    expect(html).toContain('Synced');
+    expect(html).toContain('Synced —');
 
-    // Power-on alignment callout box
-    expect(html).toContain('Power-On Alignment Note:');
-    expect(html).toContain('k_uptime_get_32()');
-    expect(html).toContain('power on or reset both keyboard halves around the same time');
+    // Split keyboards tip callout box
+    expect(html).toContain('Tip for Split Keyboards:');
+    expect(html).toContain('turn on both battery switches or reset both halves around the same time');
   });
 });
 

@@ -70,9 +70,8 @@ describe('PlacementWarningModal Component', () => {
       />
     );
     expect(html).toContain('Split-Synchronized Animation');
-    expect(html).toContain('Loop Animation is phase-locked to MCU uptime');
-    expect(html).toContain('k_uptime_get_32()');
-    expect(html).toContain('power on or reset both keyboard halves around the same time');
+    expect(html).toContain('Loop Animation synchronized across halves');
+    expect(html).toContain('turn on both battery switches around the same time');
     expect(html).toContain('Got it');
     expect(html).toContain('Remove');
     expect(PLACEMENT_WARNING_SUPPRESS_KEYS['sync-animation']).toBe(

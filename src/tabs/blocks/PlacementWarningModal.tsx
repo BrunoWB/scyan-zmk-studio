@@ -96,24 +96,24 @@ const CONTENT: Record<
     keepGradient: 'from-[#0891b2] to-[#0e7490]',
     keepShadow: 'rgba(8,145,178,0.35)',
     title: 'Split-Synchronized Animation',
-    subtitle: (n) => `${n} is phase-locked to MCU uptime`,
+    subtitle: (n) => `${n} synchronized across halves`,
     body: (
       <>
         <p className="text-[#cbd5e1] text-xs leading-relaxed">
-          This animation uses{' '}
-          <code className="bg-[#0b0d13] px-1 py-0.5 rounded text-[#22d3ee] font-mono">
-            k_uptime_get_32()
-          </code>{' '}
-          to lock its frame phase to the global MCU clock — both halves will play the same frame at
-          the same moment, as long as their uptimes are aligned.
+          Both halves of your split keyboard play this animation in step, but they each keep track
+          of time from the moment they turn on.
         </p>
         <p className="text-[#94a3b8] text-xs leading-relaxed mt-2">
-          For optimal synchronicity,{' '}
+          To keep the left and right screens perfectly aligned,{' '}
           <span className="text-[#22d3ee] font-semibold">
-            power on or reset both keyboard halves around the same time.
-          </span>{' '}
-          If one half was already running for minutes before the other boots, the phase offset will
-          be visible.
+            turn on both battery switches around the same time
+          </span>
+          . Once powered on together, they stay in step without drifting — even after one side goes
+          to sleep and wakes back up!
+        </p>
+        <p className="text-[#94a3b8] text-xs leading-relaxed mt-2">
+          <strong className="text-white">Quick tip:</strong> If the animation ever looks out of
+          sync, simply press the reset button on both halves at the same time.
         </p>
       </>
     ),
