@@ -93,33 +93,33 @@ export const populateDefaultWidgetInstances = (
           },
           slots: {},
         };
-        const pulseExpandInst: WidgetInstance = {
-          id: 'anim-pulse-expand',
+        const syncDownInst: WidgetInstance = {
+          id: 'anim-sync-down',
           widgetTypeId: w.id,
-          label: 'Pulse (Expand)',
+          label: 'Sync (Down-Up)',
           config: {
             mode: 'symbol',
-            groupId: 'SYMBOL_PULSE_EXPAND',
+            groupId: 'SYMBOL_SYNC_DOWN',
             loopSpeedMs: 100,
             loop: true,
             syncAnimation: true,
           },
           slots: {},
         };
-        const pulseContractInst: WidgetInstance = {
-          id: 'anim-pulse-contract',
+        const syncUpInst: WidgetInstance = {
+          id: 'anim-sync-up',
           widgetTypeId: w.id,
-          label: 'Pulse (Contract Mirror)',
+          label: 'Sync (Up-Down Mirror)',
           config: {
             mode: 'symbol',
-            groupId: 'SYMBOL_PULSE_CONTRACT',
+            groupId: 'SYMBOL_SYNC_UP',
             loopSpeedMs: 100,
             loop: true,
             syncAnimation: true,
           },
           slots: {},
         };
-        defaults[w.id] = [campfireInst, duckInst, capybaraInst, pulseExpandInst, pulseContractInst];
+        defaults[w.id] = [campfireInst, duckInst, capybaraInst, syncDownInst, syncUpInst];
       } else if (w.id === 'typewriter') {
         defaults[w.id] = [
           {

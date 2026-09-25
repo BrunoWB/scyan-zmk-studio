@@ -641,6 +641,106 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     expect(block?.height).toBe(55);
   });
 
+  it('correctly loads and validates 32x128 sync inspection animations (SYMBOL_SYNC_DOWN & SYMBOL_SYNC_UP)', () => {
+    const assets = getDefaultAssets();
+    const downSlices = assets.symbolSlices.filter(s => s.groupId === 'SYMBOL_SYNC_DOWN');
+    const upSlices = assets.symbolSlices.filter(s => s.groupId === 'SYMBOL_SYNC_UP');
+
+    // Both groups have 16 frames
+    expect(downSlices).toHaveLength(16);
+    expect(upSlices).toHaveLength(16);
+
+    // Each frame is 32x128
+    for (const s of [...downSlices, ...upSlices]) {
+      expect(s.width).toBe(32);
+      expect(s.height).toBe(128);
+    }
+
+    // Verify marks at heights 1 (y=0), 32 (y=31), 64 (y=63), 96 (y=95), 128 (y=127) on frame 0
+    const f0 = downSlices[0];
+    const marksY = [0, 31, 63, 95, 127];
+    for (const my of marksY) {
+      // Left mark x=0..9
+      for (let x = 0; x <= 9; x++) {
+        expect(assets.symbolsGrid.get(f0.x + x, f0.y + my)).toBe(1);
+      }
+      // Left gap x=10..14
+      for (let x = 10; x <= 14; x++) {
+        expect(assets.symbolsGrid.get(f0.x + x, f0.y + my)).toBe(0);
+      }
+      // Centered pixel at x=15 on frame 0 (my=0)
+      if (my === 0) {
+        expect(assets.symbolsGrid.get(f0.x + 15, f0.y + my)).toBe(1);
+      }
+      // Right gap x=16..20
+      for (let x = 16; x <= 20; x++) {
+        expect(assets.symbolsGrid.get(f0.x + x, f0.y + my)).toBe(0);
+      }
+      // Right mark x=21..31
+      for (let x = 21; x <= 31; x++) {
+        expect(assets.symbolsGrid.get(f0.x + x, f0.y + my)).toBe(1);
+      }
+    }
+
+    // Verify moving pixel positions along the down-up trajectory
+    const expectedY = [0, 16, 31, 47, 63, 80, 95, 111, 127, 111, 95, 80, 63, 47, 31, 16];
+    for (let i = 0; i < 16; i++) {
+      const slice = downSlices[i];
+      const py = expectedY[i];
+      expect(assets.symbolsGrid.get(slice.x + 15, slice.y + py)).toBe(1);
+    }
+
+    // Verify Devicetree generation for a sync loop block
+    const testMeta = {
+      version: 1 as const,
+      enabledScreens: ['central', 'peripheral'],
+      screenDimensions: { width: 32, height: 128 },
+      centralBlocks: [
+        {
+          id: 'test-sync',
+          widgetType: 'animation',
+          instanceId: 'inst-sync',
+          name: 'Sync',
+          x: 0,
+          y: 0,
+          width: 32,
+          height: 128,
+          enabled: true,
+          side: 'central' as const,
+        }
+      ],
+      peripheralBlocks: [],
+      idleCentralBlocks: [],
+      idlePeripheralBlocks: [],
+      widgetInstances: {
+        animation: [
+          {
+            id: 'inst-sync',
+            widgetTypeId: 'animation',
+            label: 'Sync Test',
+            config: {
+              mode: 'symbol' as const,
+              groupId: 'SYMBOL_SYNC_DOWN',
+              loopSpeedMs: 100,
+              loop: true,
+              syncAnimation: true,
+            },
+            slots: {},
+          }
+        ]
+      }
+    };
+
+    const dts = generateDevicetreeLayouts(testMeta, assets.symbolSlices);
+    expect(dts).toContain('compatible = "scyan,widget-loop";');
+    expect(dts).toContain('width = <32>;');
+    expect(dts).toContain('height = <128>;');
+    expect(dts).toContain('mode = <1>;');
+    expect(dts).toContain('param1 = <100>;');
+    expect(dts).toContain('param3 = <16>;');
+    expect(dts).toContain('symbol-id = <SYMBOL_SYNC_DOWN_01>;');
+  });
+
   it('should support multi-screen setup with dynamic peripheral screens in C header export and parsing', () => {
     const testGrid = new BwpxGrid(16, 16);
     const symbolSlices: SpriteSlice[] = [];
