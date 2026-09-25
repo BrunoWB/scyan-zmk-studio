@@ -15,6 +15,14 @@
     ],
     "patches": [
       {
+        "patch": "2.0.3",
+        "date": "2026-09-25",
+        "commitHash": "a140523",
+        "changes": [
+          "feat(pixel): sync decoupled pixel editor with atlas slice support and monochrome default"
+        ]
+      },
+      {
         "patch": "2.0.2",
         "date": "2026-09-24",
         "commitHash": "c87ae25",
