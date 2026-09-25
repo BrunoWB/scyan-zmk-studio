@@ -1697,7 +1697,7 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
     maxWidth: 32,
     defaultHeight: 26,
     minHeight: 8,
-    maxHeight: 32,
+    maxHeight: 128,
     icon: 'film',
     associatedSliceIds: [],
     defaultPlacement: { side: 'both', defaultX: 3, defaultY: 35 },

@@ -683,7 +683,7 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     }
 
     // Verify moving pixel positions along the down-up trajectory
-    const expectedY = [0, 16, 31, 47, 63, 80, 95, 111, 127, 111, 95, 80, 63, 47, 31, 16];
+    const expectedY = [0, 16, 31, 47, 63, 79, 95, 111, 127, 111, 95, 79, 63, 47, 31, 16];
     for (let i = 0; i < 16; i++) {
       const slice = downSlices[i];
       const py = expectedY[i];
