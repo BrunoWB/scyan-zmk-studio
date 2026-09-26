@@ -714,6 +714,7 @@ export function parseCHeader(cCode: string): ParsedAssets {
                 blocks.push(parsedBlock);
 
                 if (widgetType === 'wpm-chart') {
+                  const chartType = blockMode === 1 ? 'bar' : 'line';
                   if (!metadata) metadata = { version: 1 };
                   if (!metadata.widgetInstances) metadata.widgetInstances = {};
                   if (!metadata.widgetInstances['wpm-chart'] || metadata.widgetInstances['wpm-chart'].length === 0) {
@@ -722,13 +723,14 @@ export function parseCHeader(cCode: string): ParsedAssets {
                       widgetTypeId: 'wpm-chart',
                       label: 'WPM Chart',
                       config: {
-                        mode: 'symbol',
+                        mode: chartType,
                         wpmChart: {
                           width: parsedBlock.width ?? 32,
                           height: parsedBlock.height ?? 24,
                           gridSize: param1 || 4,
                           targetSpeed: param2 || 100,
                           timeWindow: param3 || 30,
+                          chartType,
                         },
                       },
                       slots: {},
@@ -738,6 +740,12 @@ export function parseCHeader(cCode: string): ParsedAssets {
                     if (inst && inst.config && inst.config.wpmChart) {
                       if (!inst.config.wpmChart.timeWindow) {
                         inst.config.wpmChart.timeWindow = param3 || 30;
+                      }
+                      if (!inst.config.wpmChart.chartType) {
+                        inst.config.wpmChart.chartType = chartType;
+                      }
+                      if (!inst.config.mode || inst.config.mode === 'symbol') {
+                        inst.config.mode = chartType;
                       }
                     }
                   }
@@ -1489,6 +1497,7 @@ export function resolveBlockProperties(
   let param2 = 0;
   let param3 = 0;
   if (enumType === 'WIDGET_TYPE_WPM_CHART') {
+    mode = (instance?.config?.wpmChart?.chartType === 'bar' || instance?.config?.mode === 'bar') ? 1 : 0;
     param1 = instance?.config?.wpmChart?.gridSize ?? 4;
     param2 = instance?.config?.wpmChart?.targetSpeed ?? 100;
     param3 = instance?.config?.wpmChart?.timeWindow ?? 30;

@@ -20,7 +20,7 @@ import type {
   KeypressState,
 } from '../types/widget';
 import {
-  Activity, Battery, Wifi, Link2, Layers, Sparkles, Gauge, Type,
+  Activity, BarChart2, Battery, Wifi, Link2, Layers, Sparkles, Gauge, Type,
   Type as TypeIcon, Image as ImageIcon,
   Plus, Trash2, Usb, Bluetooth, Cat, Repeat, Film,
   AlignLeft, AlignCenter, AlignRight, Cpu, Keyboard,
@@ -734,6 +734,44 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                     <RefreshCw size={9} className="shrink-0" />
                   </span>
                 )}
+                {activeWidget.id === 'wpm-chart' && (
+                  <div className="widget-mode-radio-group" role="radiogroup" aria-label="Chart Style">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={(inst.config?.wpmChart?.chartType ?? (inst.config?.mode === 'bar' ? 'bar' : 'line')) !== 'bar'}
+                      className={`widget-mode-radio-btn ${(inst.config?.wpmChart?.chartType ?? (inst.config?.mode === 'bar' ? 'bar' : 'line')) !== 'bar' ? 'active' : ''}`}
+                      onClick={() => handleUpdateInstanceConfig(inst.id, {
+                        mode: 'line',
+                        wpmChart: {
+                          ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }),
+                          chartType: 'line',
+                        },
+                      })}
+                      title="Line Chart"
+                    >
+                      <Activity size={13} />
+                      <span>Line</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={(inst.config?.wpmChart?.chartType ?? (inst.config?.mode === 'bar' ? 'bar' : 'line')) === 'bar'}
+                      className={`widget-mode-radio-btn ${(inst.config?.wpmChart?.chartType ?? (inst.config?.mode === 'bar' ? 'bar' : 'line')) === 'bar' ? 'active' : ''}`}
+                      onClick={() => handleUpdateInstanceConfig(inst.id, {
+                        mode: 'bar',
+                        wpmChart: {
+                          ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }),
+                          chartType: 'bar',
+                        },
+                      })}
+                      title="Bar Chart"
+                    >
+                      <BarChart2 size={13} />
+                      <span>Bar</span>
+                    </button>
+                  </div>
+                )}
                 {activeWidget.id !== 'wpm-chart' && activeWidget.id !== 'branding' && activeWidget.id !== 'typewriter' && activeWidget.id !== 'keypress' && (
                   <div className="widget-mode-radio-group" role="radiogroup" aria-label="Display Mode">
                     <button
@@ -1428,14 +1466,91 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
 
                   {activeWidget.id === 'wpm-chart' && (
                     <div className="flex flex-col gap-2">
+                      <div>
+                        <label className="text-xs text-muted mb-1 block">Chart Style</label>
+                        <div className="button-pair" role="radiogroup" aria-label="Chart Style">
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={(inst.config?.wpmChart?.chartType ?? (inst.config?.mode === 'bar' ? 'bar' : 'line')) !== 'bar'}
+                            className={`btn-toggle ${(inst.config?.wpmChart?.chartType ?? (inst.config?.mode === 'bar' ? 'bar' : 'line')) !== 'bar' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, {
+                              mode: 'line',
+                              wpmChart: {
+                                ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }),
+                                chartType: 'line',
+                              },
+                            })}
+                          >
+                            <Activity size={13} />
+                            <span>Line</span>
+                          </button>
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={(inst.config?.wpmChart?.chartType ?? (inst.config?.mode === 'bar' ? 'bar' : 'line')) === 'bar'}
+                            className={`btn-toggle ${(inst.config?.wpmChart?.chartType ?? (inst.config?.mode === 'bar' ? 'bar' : 'line')) === 'bar' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, {
+                              mode: 'bar',
+                              wpmChart: {
+                                ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }),
+                                chartType: 'bar',
+                              },
+                            })}
+                          >
+                            <BarChart2 size={13} />
+                            <span>Bar</span>
+                          </button>
+                        </div>
+                      </div>
+
                       <label className="text-xs text-muted mb-1 block">Width ({inst.config?.wpmChart?.width ?? 32}px)</label>
-                      <input type="range" min={16} max={68} value={inst.config?.wpmChart?.width ?? 32} onChange={e => handleUpdateInstanceConfig(inst.id, { wpmChart: { ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100 }), width: parseInt(e.target.value) } })} className="w-full mb-2" />
+                      <input type="range" min={16} max={68} value={inst.config?.wpmChart?.width ?? 32} onChange={e => handleUpdateInstanceConfig(inst.id, { wpmChart: { ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }), width: parseInt(e.target.value) } })} className="w-full mb-2" />
                       
                       <label className="text-xs text-muted mb-1 block">Height ({inst.config?.wpmChart?.height ?? 24}px)</label>
-                      <input type="range" min={12} max={64} value={inst.config?.wpmChart?.height ?? 24} onChange={e => handleUpdateInstanceConfig(inst.id, { wpmChart: { ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100 }), height: parseInt(e.target.value) } })} className="w-full mb-2" />
+                      <input type="range" min={12} max={64} value={inst.config?.wpmChart?.height ?? 24} onChange={e => handleUpdateInstanceConfig(inst.id, { wpmChart: { ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }), height: parseInt(e.target.value) } })} className="w-full mb-2" />
                       
-                      <label className="text-xs text-muted mb-1 block">Grid Size ({inst.config?.wpmChart?.gridSize ?? 4}px) - 0 disables border & grid</label>
-                      <input type="range" min={0} max={12} value={inst.config?.wpmChart?.gridSize ?? 4} onChange={e => handleUpdateInstanceConfig(inst.id, { wpmChart: { ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100 }), gridSize: parseInt(e.target.value) } })} className="w-full mb-2" />
+                      <div className="flex flex-col gap-1 mb-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id={`wpm-grid-check-${inst.id}`}
+                              checked={(inst.config?.wpmChart?.gridSize ?? 4) > 0}
+                              onChange={e => {
+                                const checked = e.target.checked;
+                                handleUpdateInstanceConfig(inst.id, {
+                                  wpmChart: {
+                                    ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }),
+                                    gridSize: checked ? 4 : 0,
+                                  },
+                                });
+                              }}
+                              className="accent-accent h-4 w-4 rounded cursor-pointer"
+                            />
+                            <label htmlFor={`wpm-grid-check-${inst.id}`} className="text-xs text-text-main font-medium cursor-pointer select-none">
+                              Grid & Border
+                            </label>
+                          </div>
+                          <span className="text-xs text-muted">
+                            {(inst.config?.wpmChart?.gridSize ?? 4) > 0 ? `${inst.config?.wpmChart?.gridSize ?? 4}px` : 'Off'}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={4}
+                          max={16}
+                          disabled={(inst.config?.wpmChart?.gridSize ?? 4) === 0}
+                          value={(inst.config?.wpmChart?.gridSize ?? 4) > 0 ? (inst.config?.wpmChart?.gridSize ?? 4) : 4}
+                          onChange={e => handleUpdateInstanceConfig(inst.id, {
+                            wpmChart: {
+                              ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }),
+                              gridSize: parseInt(e.target.value),
+                            },
+                          })}
+                          className={`w-full ${(inst.config?.wpmChart?.gridSize ?? 4) === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
+                        />
+                      </div>
                       
                       <label className="text-xs text-muted mb-1 block">Target Speed</label>
                       <input type="number" min={40} max={250} value={inst.config?.wpmChart?.targetSpeed ?? 100} onChange={e => handleUpdateInstanceConfig(inst.id, { wpmChart: { ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }), targetSpeed: parseInt(e.target.value) || 100 } })} className="input-text-dark text-xs w-full mb-2" />

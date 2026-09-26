@@ -293,6 +293,62 @@ describe('Widget Registry - Single Source of Truth', () => {
     expect(gridBlock.get(24, 0)).toBe(0);
   });
 
+  it('renders wpm-chart in bar mode with bar width calculated based on time', () => {
+    // Test 1: timeWindow = 30s (default) -> bar width 2px, 1px gap
+    const gridBar30 = new BwpxGrid(32, 24);
+    renderWidgetById('wpm-chart', gridBar30, 0, {
+      ...renderContext,
+      wpm: 100,
+      activeInstanceId: 'inst_wpm_bar_30',
+      instances: {
+        'wpm-chart': [{
+          id: 'inst_wpm_bar_30',
+          widgetTypeId: 'wpm-chart',
+          label: 'WPM Bar Chart',
+          config: {
+            mode: 'bar',
+            wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30, chartType: 'bar' },
+          },
+          slots: {}
+        }]
+      }
+    });
+
+    // Rightmost bar spans x = 29..30, full height (y = 1..22)
+    expect(gridBar30.get(30, 1)).toBe(1);
+    expect(gridBar30.get(29, 1)).toBe(1);
+    expect(gridBar30.get(30, 22)).toBe(1);
+    expect(gridBar30.get(29, 22)).toBe(1);
+    // Gap at x = 28 should not be filled at top
+    expect(gridBar30.get(28, 1)).toBe(0);
+
+    // Test 2: timeWindow = 10s (short time window) -> bar width 3px (wider bars)
+    const gridBar10 = new BwpxGrid(32, 24);
+    renderWidgetById('wpm-chart', gridBar10, 0, {
+      ...renderContext,
+      wpm: 100,
+      activeInstanceId: 'inst_wpm_bar_10',
+      instances: {
+        'wpm-chart': [{
+          id: 'inst_wpm_bar_10',
+          widgetTypeId: 'wpm-chart',
+          label: 'WPM Bar Chart 10s',
+          config: {
+            mode: 'bar',
+            wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 10, chartType: 'bar' },
+          },
+          slots: {}
+        }]
+      }
+    });
+    // At 10s, bar width is 3px: x = 28..30
+    expect(gridBar10.get(30, 1)).toBe(1);
+    expect(gridBar10.get(29, 1)).toBe(1);
+    expect(gridBar10.get(28, 1)).toBe(1);
+    // Gap at x = 27
+    expect(gridBar10.get(27, 1)).toBe(0);
+  });
+
   it('marks requiresMaster correctly on central-dependent widgets', () => {
     expect(getWidgetDefinition('connection')?.requiresMaster).toBe(true);
     expect(getWidgetDefinition('caps-lock')?.requiresMaster).toBe(true);

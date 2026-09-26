@@ -5,7 +5,7 @@ export type WidgetCategory = 'status' | 'typing' | 'layer' | 'branding' | 'art';
 
 export type SlotSourceType = 'symbol' | 'text';
 
-export type WidgetMode = 'symbol' | 'font' | 'inline' | 'spot' | 'random';
+export type WidgetMode = 'symbol' | 'font' | 'inline' | 'spot' | 'random' | 'line' | 'bar';
 
 export type TextAlignment = 'left' | 'center' | 'right';
 
@@ -51,6 +51,7 @@ export interface WidgetInstanceConfig {
     gridSize: number;
     targetSpeed: number;
     timeWindow?: number;
+    chartType?: 'line' | 'bar';
   };
   bongoTapMs?: number;            // Tap duration in ms, matching CONFIG_SCYAN_BONGO_TAP_MS (default 60)
   bongoDebounceMs?: number;       // Debounce interval in ms (default 100)

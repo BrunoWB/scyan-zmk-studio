@@ -468,6 +468,41 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     expect(parsedBlock?.height).toBe(30);
   });
 
+  it('generates devicetree mode = <1> for wpm-chart in bar mode and round-trips losslessly', () => {
+    const testGrid = new BwpxGrid(16, 16);
+    const metadata = {
+      version: 1 as const,
+      leftBlocks: [
+        { id: 'b_wpm_bar', instanceId: 'w_bar_1', widgetType: 'wpm-chart', name: 'WPM Chart', x: 0, y: 56, width: 32, height: 24, enabled: true, side: 'left' as const }
+      ],
+      widgetInstances: {
+        'wpm-chart': [{
+          id: 'w_bar_1',
+          widgetTypeId: 'wpm-chart',
+          label: 'WPM Chart',
+          config: {
+            mode: 'bar' as const,
+            wpmChart: { width: 32, height: 24, gridSize: 6, targetSpeed: 120, timeWindow: 15, chartType: 'bar' as const }
+          },
+          slots: {}
+        }]
+      }
+    };
+
+    const dts = generateDevicetreeLayouts(metadata, []);
+    expect(dts).toContain('compatible = "scyan,widget-wpm-chart";');
+    expect(dts).toContain('mode = <1>;');
+    expect(dts).toContain('param1 = <6>;');
+    expect(dts).toContain('param2 = <120>;');
+    expect(dts).toContain('param3 = <15>;');
+
+    const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+    const parsed = parseCHeader(cCode);
+    const inst = parsed.metadata?.widgetInstances?.['wpm-chart']?.[0];
+    expect(inst?.config?.wpmChart?.chartType).toBe('bar');
+    expect(inst?.config?.wpmChart?.gridSize).toBe(6);
+  });
+
   it('synchronizes wpm text mode width and height from instance config to C block and metadata', () => {
     const testGrid = new BwpxGrid(16, 16);
     const metadata = {

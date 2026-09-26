@@ -590,5 +590,96 @@ describe('WidgetsTab keypress widget UI', () => {
   });
 });
 
+describe('WidgetsTab wpm-chart controls', () => {
+  const dummyGrid = new BwpxGrid(32, 128);
+
+  it('renders Line and Bar chart style radio options and grid checkbox with 4-16 range slider', () => {
+    const instances: WidgetInstanceMap = {
+      'wpm-chart': [
+        {
+          id: 'wpm-chart-inst-1',
+          widgetTypeId: 'wpm-chart',
+          label: 'WPM Chart',
+          config: {
+            mode: 'line',
+            wpmChart: {
+              width: 32,
+              height: 24,
+              gridSize: 4,
+              targetSpeed: 100,
+              timeWindow: 30,
+              chartType: 'line',
+            },
+          },
+          slots: {},
+        },
+      ],
+    };
+
+    const html = renderToString(
+      <WidgetsTab
+        initialActiveWidgetId="wpm-chart"
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        instances={instances}
+        onInstancesChange={() => {}}
+      />
+    );
+
+    // Chart Style radio buttons (both in header and body)
+    expect(html).toContain('Chart Style');
+    expect(html).toContain('Line');
+    expect(html).toContain('Bar');
+
+    // Grid checkbox and label
+    expect(html).toContain('Grid &amp; Border');
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain('id="wpm-grid-check-wpm-chart-inst-1"');
+
+    // Grid size range slider starting at 4 up to 16
+    expect(html).toContain('min="4"');
+    expect(html).toContain('max="16"');
+  });
+
+  it('shows disabled slider and Off label when grid size is 0', () => {
+    const instances: WidgetInstanceMap = {
+      'wpm-chart': [
+        {
+          id: 'wpm-chart-inst-off',
+          widgetTypeId: 'wpm-chart',
+          label: 'WPM Chart Off',
+          config: {
+            mode: 'bar',
+            wpmChart: {
+              width: 32,
+              height: 24,
+              gridSize: 0,
+              targetSpeed: 100,
+              timeWindow: 30,
+              chartType: 'bar',
+            },
+          },
+          slots: {},
+        },
+      ],
+    };
+
+    const html = renderToString(
+      <WidgetsTab
+        initialActiveWidgetId="wpm-chart"
+        symbolsGrid={dummyGrid}
+        symbolSlices={[]}
+        fontGrid={dummyGrid}
+        instances={instances}
+        onInstancesChange={() => {}}
+      />
+    );
+
+    expect(html).toContain('Off');
+    expect(html).toContain('disabled');
+  });
+});
+
 
 
