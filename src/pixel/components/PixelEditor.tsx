@@ -233,6 +233,7 @@ export const PixelEditor = forwardRef<PixelEditorHandle, PixelEditorProps>(funct
     cutSelection,
     pasteSelection,
     deleteSelection,
+    selectAll,
   } = useSelectionManager();
 
   useEffect(() => {
@@ -334,6 +335,10 @@ export const PixelEditor = forwardRef<PixelEditorHandle, PixelEditorProps>(funct
 
   const [brushSize, setBrushSize] = useState<number>(1);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
+  const hoverPosRef = useRef<{ x: number; y: number } | null>(hoverPos);
+  useEffect(() => {
+    hoverPosRef.current = hoverPos;
+  }, [hoverPos]);
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
   const drawButtonRef = useRef<number>(0);
   const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(null);
@@ -828,14 +833,17 @@ export const PixelEditor = forwardRef<PixelEditorHandle, PixelEditorProps>(funct
         }
       }
 
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      const k = e.key.toLowerCase();
+      const isCmdOrCtrl = e.ctrlKey || e.metaKey;
+
+      if (isCmdOrCtrl && k === 'z') {
         e.preventDefault();
         if (e.shiftKey) handleRedo();
         else handleUndo();
         return;
       }
 
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+      if (isCmdOrCtrl && k === 'y') {
         e.preventDefault();
         handleRedo();
         return;
@@ -847,12 +855,95 @@ export const PixelEditor = forwardRef<PixelEditorHandle, PixelEditorProps>(funct
         return;
       }
 
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || isDrawingRef.current) {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target as HTMLElement)?.isContentEditable
+      ) {
+        return;
+      }
+
+      // Copy: Cmd/Ctrl + C
+      if (isCmdOrCtrl && k === 'c') {
+        e.preventDefault();
+        copySelection(gridRef.current);
+        return;
+      }
+
+      // Cut: Cmd/Ctrl + X
+      if (isCmdOrCtrl && k === 'x') {
+        if (selection && selection.active) {
+          e.preventDefault();
+          cutSelection(gridRef.current, commitAndBroadcast);
+        }
+        return;
+      }
+
+      // Paste: Cmd/Ctrl + V
+      if (isCmdOrCtrl && k === 'v') {
+        e.preventDefault();
+        const container = containerRef.current;
+        const vpW = container?.clientWidth || 400;
+        const vpH = container?.clientHeight || 400;
+        const fallbackPos = hoverPosRef.current || {
+          x: Math.round((-pan.x + vpW / 2) / zoom - 16),
+          y: Math.round((-pan.y + vpH / 2) / zoom - 16),
+        };
+        pasteSelection(gridRef.current, commitAndBroadcast, activeDrawColor, fallbackPos).then((pasted) => {
+          if (!pasted && typeof navigator !== 'undefined' && navigator.clipboard?.read) {
+            navigator.clipboard
+              .read()
+              .then(async (clipboardItems) => {
+                for (const item of clipboardItems) {
+                  const imageType = item.types.find((t) => t.startsWith('image/'));
+                  if (imageType) {
+                    const blob = await item.getType(imageType);
+                    if (blob) {
+                      const file = new File([blob], 'pasted-image.png', { type: imageType });
+                      setImportSource(file);
+                      setIsImportModalOpen(true);
+                      break;
+                    }
+                  }
+                }
+              })
+              .catch(() => {});
+          }
+        });
+        return;
+      }
+
+      // Select All: Cmd/Ctrl + A
+      if (isCmdOrCtrl && k === 'a') {
+        e.preventDefault();
+        selectAll(gridRef.current);
+        return;
+      }
+
+      // Delete / Backspace: Clear selected pixels
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selection?.active) {
+        e.preventDefault();
+        deleteSelection(gridRef.current, commitAndBroadcast);
+        return;
+      }
+
+      // Escape: Deselect
+      if (e.key === 'Escape' && selection?.active) {
+        e.preventDefault();
+        setSelection(null);
+        return;
+      }
+
+      if (isDrawingRef.current) {
+        return;
+      }
+
+      // If any modifier (Ctrl, Meta, Alt) is pressed, do NOT trigger single-key tool shortcuts
+      if (e.ctrlKey || e.metaKey || e.altKey) {
         return;
       }
 
       // Tool shortcuts
-      const k = e.key.toLowerCase();
       if (k === 'b' || k === 'p') setActiveTool(lastPencilVariantRef.current);
       else if (k === 'e') setActiveTool('eraser');
       else if (k === 'g') setActiveTool('bucket');
@@ -886,22 +977,115 @@ export const PixelEditor = forwardRef<PixelEditorHandle, PixelEditorProps>(funct
       }
     };
 
+    const handlePaste = (e: ClipboardEvent) => {
+      if (modalContent || isImportModalOpen) return;
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target as HTMLElement)?.isContentEditable
+      ) {
+        return;
+      }
+
+      const text = e.clipboardData?.getData('text') || '';
+      const items = e.clipboardData?.items;
+      let imageFile: File | null = null;
+      if (items) {
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type.startsWith('image/')) {
+            imageFile = items[i].getAsFile();
+            break;
+          }
+        }
+      }
+
+      const container = containerRef.current;
+      const vpW = container?.clientWidth || 400;
+      const vpH = container?.clientHeight || 400;
+      const fallbackPos = hoverPosRef.current || {
+        x: Math.round((-pan.x + vpW / 2) / zoom - 16),
+        y: Math.round((-pan.y + vpH / 2) / zoom - 16),
+      };
+
+      if (text) {
+        pasteSelection(gridRef.current, commitAndBroadcast, activeDrawColor, fallbackPos, text).then(
+          (pasted) => {
+            if (!pasted && imageFile) {
+              setImportSource(imageFile);
+              setIsImportModalOpen(true);
+            }
+          }
+        );
+      } else if (imageFile) {
+        e.preventDefault();
+        setImportSource(imageFile);
+        setIsImportModalOpen(true);
+      }
+    };
+
+    const handleCopy = (e: ClipboardEvent) => {
+      if (modalContent || isImportModalOpen) return;
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target as HTMLElement)?.isContentEditable
+      ) {
+        return;
+      }
+      const json = copySelection(gridRef.current);
+      if (json && e.clipboardData) {
+        e.clipboardData.setData('text/plain', json);
+      }
+    };
+
+    const handleCut = (e: ClipboardEvent) => {
+      if (modalContent || isImportModalOpen) return;
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target as HTMLElement)?.isContentEditable
+      ) {
+        return;
+      }
+      if (selection && selection.active) {
+        const json = cutSelection(gridRef.current, commitAndBroadcast);
+        if (json && e.clipboardData) {
+          e.clipboardData.setData('text/plain', json);
+        }
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('paste', handlePaste);
+    window.addEventListener('copy', handleCopy);
+    window.addEventListener('cut', handleCut);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('paste', handlePaste);
+      window.removeEventListener('copy', handleCopy);
+      window.removeEventListener('cut', handleCut);
     };
   }, [
     modalContent,
     isImportModalOpen,
     selection,
+    activeDrawColor,
+    commitAndBroadcast,
+    copySelection,
+    cutSelection,
+    pasteSelection,
+    deleteSelection,
+    selectAll,
     handleUndo,
     handleRedo,
     setIsSpaceHeld,
     moveActiveSelection,
     setSelection,
     isStrictMonochrome,
+    pan,
+    zoom,
   ]);
 
   // Context Menu operations

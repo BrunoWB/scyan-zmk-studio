@@ -1,16 +1,16 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { BwpxGrid } from '../pixel/core/PixelGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../types/zmk';
 import {
   WIDGET_REGISTRY,
   getWidgetDefinition,
-  renderWidgetById,
   getWidgetNaturalSize,
   normalizeWidgetType,
   createDefaultWidgetInstance,
 } from '../services/widgetRegistry';
 import { formatLayerLabel } from '../services/keymapService';
-import { WidgetMiniPreview } from './blocks/WidgetCatalogList';
+import { WidgetPreviewCanvas } from '../components/widgets/WidgetPreviewCanvas';
+import { WidgetsSidebarNav } from './widgets/WidgetsSidebarNav';
 import type {
   DisplayWidgetDefinition,
   WidgetInstanceMap,
@@ -20,7 +20,7 @@ import type {
   KeypressState,
 } from '../types/widget';
 import {
-  Activity, Battery, Wifi, Link2, Layers, Sparkles, Gauge, Type,
+  Activity, BarChart2, Battery, Wifi, Link2, Layers, Sparkles, Gauge, Type,
   Type as TypeIcon, Image as ImageIcon,
   Plus, Trash2, Usb, Bluetooth, Cat, Repeat, Film,
   AlignLeft, AlignCenter, AlignRight, Cpu, Keyboard,
@@ -77,26 +77,6 @@ const WIDGET_ICONS: Record<string, React.ComponentType<{ size?: number; classNam
   keyboard: Keyboard,
 };
 
-const TIER_METADATA = {
-  1: {
-    label: 'Tier 1: Atomic Status Pills',
-    shortLabel: 'Tier 1: Status',
-    desc: 'Low-profile status indicators (Battery, USB/BLE, Split Link, Caps Lock).',
-    badgeClass: 'badge-tier-1',
-  },
-  2: {
-    label: 'Tier 2: Keymap & Typing Metrics',
-    shortLabel: 'Tier 2: Keymap/Typing',
-    desc: 'Dynamic layer banners, typing speed dials, and custom branding banners.',
-    badgeClass: 'badge-tier-2',
-  },
-  3: {
-    label: 'Tier 3: Static',
-    shortLabel: 'Tier 3: Static',
-    desc: 'Static images, text banners, and screensavers.',
-    badgeClass: 'badge-tier-3',
-  },
-} as const;
 
 export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   initialActiveWidgetId,
@@ -184,6 +164,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   const [testWpm] = useState<number>(55);
   const [testOutputMode, setTestOutputMode] = useState<'usb' | 'ble'>('usb');
   const [testBleProfile, setTestBleProfile] = useState<number>(1);
+  const [testBleState, setTestBleState] = useState<'connected' | 'reconnecting' | 'pairing' | 'handshake'>('connected');
   const [testLayer, setTestLayer] = useState<number>(0);
   const [testSplitConnected] = useState<boolean>(true);
   const [simulateMissingSymbols] = useState<boolean>(false);
@@ -204,12 +185,11 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
 
   const [testActiveKeys, setTestActiveKeys] = useState<string[]>([]);
   const [testLastKey, setTestLastKey] = useState<string>('');
-  const testKeypressStateRef = useRef<KeypressState>({});
 
-  useEffect(() => {
-    testKeypressStateRef.current.activeKeys = testActiveKeys;
-    testKeypressStateRef.current.lastKey = testLastKey;
-  }, [testActiveKeys, testLastKey]);
+  const testKeypressState = useMemo<KeypressState>(() => ({
+    activeKeys: testActiveKeys,
+    lastKey: testLastKey,
+  }), [testActiveKeys, testLastKey]);
 
   const effectiveTestLayer = testLayer < effectiveLayerNames.length ? testLayer : 0;
 
@@ -337,62 +317,17 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
           <span className="text-[10px] font-mono text-accent">{WIDGET_REGISTRY.length} total</span>
         </div>
 
-        <div className="widgets-nav-list">
-          {([1, 2, 3] as const).map(tierNum => {
-            const tierWidgets = WIDGET_REGISTRY.filter(w => w.tier === tierNum);
-            if (tierWidgets.length === 0) return null;
-
-            return (
-              <div key={tierNum} className="widget-tier-section mb-3">
-                <div className="widget-tier-section-header">
-                  <span className={`tier-badge-pill tier-${tierNum}`}>T{tierNum}</span>
-                  <span className="widget-tier-section-title">{TIER_METADATA[tierNum].label}</span>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  {tierWidgets.map(widget => {
-                    const isActive = activeWidget.id === widget.id;
-                    const instanceCount = (instances[widget.id] || []).length;
-
-                    return (
-                      <button key={widget.id} className={`widget-nav-item ${isActive ? 'active' : ''}`} onClick={() => setActiveWidgetId(widget.id)}>
-                        <div className="widget-nav-badges">
-                          {widget.requiresMaster && (
-                            <span className="badge-master badge-master--nav" title="Requires Central half in ZMK split">
-                              <Cpu size={9} className="shrink-0" />
-                            </span>
-                          )}
-                          {widget.isInteractive && (
-                            <span className="badge-active badge-active--nav" title="Active — responds interactively to keystrokes or typing events">
-                              <Zap size={9} className="shrink-0" />
-                            </span>
-                          )}
-                          {instanceCount > 0 && (
-                            <span className="instance-count-badge">{instanceCount}</span>
-                          )}
-                        </div>
-                        <div className="widget-nav-thumb-wrapper">
-                          <WidgetMiniPreview
-                            widget={widget}
-                            symbolsGrid={symbolsGrid}
-                            symbolSlices={symbolSlices}
-                            fontGrid={fontGrid}
-                            fontGlyphs={fontGlyphs}
-                            fontMappings={fontMappings}
-                            customText={customText}
-                            instances={instances}
-                          />
-                        </div>
-                        <div className="widget-nav-meta flex-1 min-w-0">
-                          <span className="widget-nav-name truncate">{widget.name}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <WidgetsSidebarNav
+          activeWidgetId={activeWidget.id}
+          onSelectWidget={setActiveWidgetId}
+          instances={instances}
+          symbolsGrid={symbolsGrid}
+          symbolSlices={symbolSlices}
+          fontGrid={fontGrid}
+          fontGlyphs={fontGlyphs}
+          fontMappings={fontMappings}
+          customText={customText}
+        />
       </div>
 
       {/* Right Content */}
@@ -563,18 +498,35 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                   </button>
                 </div>
                 {testOutputMode === 'ble' && (
-                  <div className="flex items-center gap-1.5 ml-2">
-                    <span className="text-xs text-muted">Profile:</span>
-                    {[0, 1, 2, 3, 4, 5].map(idx => (
-                      <button
-                        key={idx}
-                        type="button"
-                        className={`btn-chip !px-2 !py-0.5 text-xs ${testBleProfile === idx ? 'active' : ''}`}
-                        onClick={() => setTestBleProfile(idx)}
-                      >
-                        {idx === 0 ? 'No conn' : `P${idx}`}
-                      </button>
-                    ))}
+                  <div className="flex flex-wrap items-center gap-3 ml-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-muted">Profile:</span>
+                      {[0, 1, 2, 3, 4, 5].map(idx => (
+                        <button
+                          key={idx}
+                          type="button"
+                          className={`btn-chip !px-2 !py-0.5 text-xs ${testBleProfile === idx ? 'active' : ''}`}
+                          onClick={() => setTestBleProfile(idx)}
+                        >
+                          {idx === 0 ? 'No conn' : `P${idx}`}
+                        </button>
+                      ))}
+                    </div>
+                    {testBleProfile > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted">State:</span>
+                        {(['connected', 'reconnecting', 'pairing', 'handshake'] as const).map(st => (
+                          <button
+                            key={st}
+                            type="button"
+                            className={`btn-chip !px-2 !py-0.5 text-xs capitalize ${testBleState === st ? 'active' : ''}`}
+                            onClick={() => setTestBleState(st)}
+                          >
+                            {st === 'pairing' ? 'Pairing' : st}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -618,7 +570,6 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                       onClick={() => {
                         setTestActiveKeys([]);
                         setTestLastKey('');
-                        testKeypressStateRef.current.lastSymbolId = undefined;
                       }}
                       className="text-[11px] text-muted hover:text-accent cursor-pointer"
                     >
@@ -716,6 +667,44 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                     <RefreshCw size={9} className="shrink-0" />
                   </span>
                 )}
+                {activeWidget.id === 'wpm-chart' && (
+                  <div className="widget-mode-radio-group" role="radiogroup" aria-label="Chart Style">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={(inst.config?.wpmChart?.chartType ?? (inst.config?.mode === 'bar' ? 'bar' : 'line')) !== 'bar'}
+                      className={`widget-mode-radio-btn ${(inst.config?.wpmChart?.chartType ?? (inst.config?.mode === 'bar' ? 'bar' : 'line')) !== 'bar' ? 'active' : ''}`}
+                      onClick={() => handleUpdateInstanceConfig(inst.id, {
+                        mode: 'line',
+                        wpmChart: {
+                          ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }),
+                          chartType: 'line',
+                        },
+                      })}
+                      title="Line Chart"
+                    >
+                      <Activity size={13} />
+                      <span>Line</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={(inst.config?.wpmChart?.chartType ?? (inst.config?.mode === 'bar' ? 'bar' : 'line')) === 'bar'}
+                      className={`widget-mode-radio-btn ${(inst.config?.wpmChart?.chartType ?? (inst.config?.mode === 'bar' ? 'bar' : 'line')) === 'bar' ? 'active' : ''}`}
+                      onClick={() => handleUpdateInstanceConfig(inst.id, {
+                        mode: 'bar',
+                        wpmChart: {
+                          ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }),
+                          chartType: 'bar',
+                        },
+                      })}
+                      title="Bar Chart"
+                    >
+                      <BarChart2 size={13} />
+                      <span>Bar</span>
+                    </button>
+                  </div>
+                )}
                 {activeWidget.id !== 'wpm-chart' && activeWidget.id !== 'branding' && activeWidget.id !== 'typewriter' && activeWidget.id !== 'keypress' && (
                   <div className="widget-mode-radio-group" role="radiogroup" aria-label="Display Mode">
                     <button
@@ -807,6 +796,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                       testWpm={testWpm}
                       testOutputMode={testOutputMode}
                       testBleProfile={testBleProfile}
+                      testBleState={testBleState}
                       testLayer={effectiveTestLayer}
                       layerNames={effectiveLayerNames}
                       testSplitConnected={testSplitConnected}
@@ -819,7 +809,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                       testTypewriterRandomLetters={testTypewriterRandomLetters}
                       testActiveKeys={testActiveKeys}
                       testLastKey={testLastKey}
-                      testKeypressState={testKeypressStateRef.current}
+                      testKeypressState={testKeypressState}
                     />
                   </div>
                   <span className="text-[10px] font-mono text-muted tracking-wider uppercase mt-2 select-none">
@@ -1409,14 +1399,91 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
 
                   {activeWidget.id === 'wpm-chart' && (
                     <div className="flex flex-col gap-2">
+                      <div>
+                        <label className="text-xs text-muted mb-1 block">Chart Style</label>
+                        <div className="button-pair" role="radiogroup" aria-label="Chart Style">
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={(inst.config?.wpmChart?.chartType ?? (inst.config?.mode === 'bar' ? 'bar' : 'line')) !== 'bar'}
+                            className={`btn-toggle ${(inst.config?.wpmChart?.chartType ?? (inst.config?.mode === 'bar' ? 'bar' : 'line')) !== 'bar' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, {
+                              mode: 'line',
+                              wpmChart: {
+                                ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }),
+                                chartType: 'line',
+                              },
+                            })}
+                          >
+                            <Activity size={13} />
+                            <span>Line</span>
+                          </button>
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={(inst.config?.wpmChart?.chartType ?? (inst.config?.mode === 'bar' ? 'bar' : 'line')) === 'bar'}
+                            className={`btn-toggle ${(inst.config?.wpmChart?.chartType ?? (inst.config?.mode === 'bar' ? 'bar' : 'line')) === 'bar' ? 'active' : ''}`}
+                            onClick={() => handleUpdateInstanceConfig(inst.id, {
+                              mode: 'bar',
+                              wpmChart: {
+                                ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }),
+                                chartType: 'bar',
+                              },
+                            })}
+                          >
+                            <BarChart2 size={13} />
+                            <span>Bar</span>
+                          </button>
+                        </div>
+                      </div>
+
                       <label className="text-xs text-muted mb-1 block">Width ({inst.config?.wpmChart?.width ?? 32}px)</label>
-                      <input type="range" min={16} max={68} value={inst.config?.wpmChart?.width ?? 32} onChange={e => handleUpdateInstanceConfig(inst.id, { wpmChart: { ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100 }), width: parseInt(e.target.value) } })} className="w-full mb-2" />
+                      <input type="range" min={16} max={68} value={inst.config?.wpmChart?.width ?? 32} onChange={e => handleUpdateInstanceConfig(inst.id, { wpmChart: { ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }), width: parseInt(e.target.value) } })} className="w-full mb-2" />
                       
                       <label className="text-xs text-muted mb-1 block">Height ({inst.config?.wpmChart?.height ?? 24}px)</label>
-                      <input type="range" min={12} max={64} value={inst.config?.wpmChart?.height ?? 24} onChange={e => handleUpdateInstanceConfig(inst.id, { wpmChart: { ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100 }), height: parseInt(e.target.value) } })} className="w-full mb-2" />
+                      <input type="range" min={12} max={64} value={inst.config?.wpmChart?.height ?? 24} onChange={e => handleUpdateInstanceConfig(inst.id, { wpmChart: { ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }), height: parseInt(e.target.value) } })} className="w-full mb-2" />
                       
-                      <label className="text-xs text-muted mb-1 block">Grid Size ({inst.config?.wpmChart?.gridSize ?? 4}px) - 0 disables border & grid</label>
-                      <input type="range" min={0} max={12} value={inst.config?.wpmChart?.gridSize ?? 4} onChange={e => handleUpdateInstanceConfig(inst.id, { wpmChart: { ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100 }), gridSize: parseInt(e.target.value) } })} className="w-full mb-2" />
+                      <div className="flex flex-col gap-1 mb-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id={`wpm-grid-check-${inst.id}`}
+                              checked={(inst.config?.wpmChart?.gridSize ?? 4) > 0}
+                              onChange={e => {
+                                const checked = e.target.checked;
+                                handleUpdateInstanceConfig(inst.id, {
+                                  wpmChart: {
+                                    ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }),
+                                    gridSize: checked ? 4 : 0,
+                                  },
+                                });
+                              }}
+                              className="accent-accent h-4 w-4 rounded cursor-pointer"
+                            />
+                            <label htmlFor={`wpm-grid-check-${inst.id}`} className="text-xs text-text-main font-medium cursor-pointer select-none">
+                              Grid & Border
+                            </label>
+                          </div>
+                          <span className="text-xs text-muted">
+                            {(inst.config?.wpmChart?.gridSize ?? 4) > 0 ? `${inst.config?.wpmChart?.gridSize ?? 4}px` : 'Off'}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={4}
+                          max={16}
+                          disabled={(inst.config?.wpmChart?.gridSize ?? 4) === 0}
+                          value={(inst.config?.wpmChart?.gridSize ?? 4) > 0 ? (inst.config?.wpmChart?.gridSize ?? 4) : 4}
+                          onChange={e => handleUpdateInstanceConfig(inst.id, {
+                            wpmChart: {
+                              ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }),
+                              gridSize: parseInt(e.target.value),
+                            },
+                          })}
+                          className={`w-full ${(inst.config?.wpmChart?.gridSize ?? 4) === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
+                        />
+                      </div>
                       
                       <label className="text-xs text-muted mb-1 block">Target Speed</label>
                       <input type="number" min={40} max={250} value={inst.config?.wpmChart?.targetSpeed ?? 100} onChange={e => handleUpdateInstanceConfig(inst.id, { wpmChart: { ...(inst.config?.wpmChart || { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 }), targetSpeed: parseInt(e.target.value) || 100 } })} className="input-text-dark text-xs w-full mb-2" />
@@ -1439,33 +1506,132 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                         </div>
                       )}
                       
-                      {activeWidget.id === 'connection' && (
-                        <div className="flex flex-col gap-3">
-                          <div>
-                            <label className="text-xs text-muted mb-1 block">USB Symbol (1 slice)</label>
-                            <select value={inst.config?.groupId || ''} onChange={e => handleUpdateInstanceConfig(inst.id, { groupId: e.target.value })} className="select-dark text-xs w-full">
-                              <option value="">-- Select Symbol / Group (1 slice) --</option>
-                              {symbolSlices.filter(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length === 1).map(s => <option key={s.groupId} value={s.groupId}>{s.name || s.id}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="text-xs text-muted mb-1 block">Bluetooth Profile Symbols (1 slice each)</label>
-                            {['No connection', 'P1', 'P2', 'P3', 'P4', 'P5'].map((label, idx) => (
-                              <div key={idx} className="flex items-center gap-2 mb-1">
-                                <span className="text-[10px] w-24 text-muted">{label}</span>
-                                <select value={inst.config?.groupIds?.[idx] || ''} onChange={e => {
-                                  const newIds = [...(inst.config?.groupIds || [])];
-                                  newIds[idx] = e.target.value;
-                                  handleUpdateInstanceConfig(inst.id, { groupIds: newIds });
-                                }} className="select-dark text-xs flex-1">
-                                  <option value="">-- Select Symbol / Group (1 slice) --</option>
-                                  {symbolSlices.filter(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length === 1).map(s => <option key={s.groupId} value={s.groupId}>{s.name || s.id}</option>)}
+                      {activeWidget.id === 'connection' && (() => {
+                        const groupOptions = symbolSlices.filter(s => s.groupOrder === 1).map(s => {
+                          const count = symbolSlices.filter(m => m.groupId === s.groupId).length;
+                          return {
+                            groupId: s.groupId,
+                            label: count > 1 ? `${s.name || s.id} (${count} frames)` : (s.name || s.id),
+                          };
+                        });
+
+                        return (
+                          <div className="flex flex-col gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div>
+                                <label className="text-xs text-muted mb-1 block">USB Symbol (1 to N frames)</label>
+                                <select
+                                  value={inst.config?.groupId || 'SYMBOL_USB'}
+                                  onChange={e => handleUpdateInstanceConfig(inst.id, { groupId: e.target.value })}
+                                  className="select-dark text-xs w-full"
+                                >
+                                  <option value="">-- Select Symbol / Group --</option>
+                                  {groupOptions.map(g => <option key={g.groupId} value={g.groupId}>{g.label}</option>)}
                                 </select>
                               </div>
-                            ))}
+                              <div>
+                                <label className="text-xs text-muted mb-1 block">Disconnected / No Conn (1 to N frames)</label>
+                                <select
+                                  value={inst.config?.groupIds?.[0] || 'SYMBOL_NO_CONN'}
+                                  onChange={e => {
+                                    const newIds = [...(inst.config?.groupIds || ['SYMBOL_NO_CONN', 'SYMBOL_BLUETOOTH_9659_SUB_1', 'SYMBOL_BLUETOOTH_9659_SUB_2', 'SYMBOL_BLUETOOTH_9659_SUB_3', 'SYMBOL_BLUETOOTH_9659_SUB_4', 'SYMBOL_BLUETOOTH_9659_SUB_5'])];
+                                    newIds[0] = e.target.value;
+                                    handleUpdateInstanceConfig(inst.id, { groupIds: newIds });
+                                  }}
+                                  className="select-dark text-xs w-full"
+                                >
+                                  <option value="">-- Select Symbol / Group --</option>
+                                  {groupOptions.map(g => <option key={g.groupId} value={g.groupId}>{g.label}</option>)}
+                                </select>
+                              </div>
+                            </div>
+
+                            <div className="border-t border-border-main/50 pt-3">
+                              <label className="text-xs font-semibold text-text-main mb-2 block">Bluetooth Profile States (P1–P5 / A–E)</label>
+                              <div className="flex flex-col gap-3">
+                                {[1, 2, 3, 4, 5].map(p => {
+                                  const letter = String.fromCharCode(64 + p);
+                                  const defaultConn = `SYMBOL_BLUETOOTH_9659_SUB_${p}`;
+                                  const defaultReconn = `GROUP_BT_RECONNECT_${letter}`;
+                                  const defaultPair = `GROUP_BT_PAIR_${letter}`;
+                                  const defaultHand = `SYMBOL_HANDSHAKE_${letter}`;
+
+                                  return (
+                                    <div key={p} className="p-2.5 rounded border border-border-main/40 bg-surface/30 flex flex-col gap-2">
+                                      <span className="text-xs font-semibold text-accent">Profile {p} (Slot {letter})</span>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                        <div>
+                                          <span className="text-[10px] text-muted block mb-0.5">Connected (1 to N frames)</span>
+                                          <select
+                                            value={inst.config?.groupIds?.[p] || defaultConn}
+                                            onChange={e => {
+                                              const newIds = [...(inst.config?.groupIds || ['SYMBOL_NO_CONN', 'SYMBOL_BLUETOOTH_9659_SUB_1', 'SYMBOL_BLUETOOTH_9659_SUB_2', 'SYMBOL_BLUETOOTH_9659_SUB_3', 'SYMBOL_BLUETOOTH_9659_SUB_4', 'SYMBOL_BLUETOOTH_9659_SUB_5'])];
+                                              newIds[p] = e.target.value;
+                                              handleUpdateInstanceConfig(inst.id, { groupIds: newIds });
+                                            }}
+                                            className="select-dark text-xs w-full"
+                                          >
+                                            <option value="">-- Select Symbol / Group --</option>
+                                            {groupOptions.map(g => <option key={g.groupId} value={g.groupId}>{g.label}</option>)}
+                                          </select>
+                                        </div>
+
+                                        <div>
+                                          <span className="text-[10px] text-muted block mb-0.5">Reconnecting (1 to N frames)</span>
+                                          <select
+                                            value={inst.config?.reconnectGroupIds?.[p - 1] || defaultReconn}
+                                            onChange={e => {
+                                              const newRecon = [...(inst.config?.reconnectGroupIds || ['GROUP_BT_RECONNECT_A', 'GROUP_BT_RECONNECT_B', 'GROUP_BT_RECONNECT_C', 'GROUP_BT_RECONNECT_D', 'GROUP_BT_RECONNECT_E'])];
+                                              newRecon[p - 1] = e.target.value;
+                                              handleUpdateInstanceConfig(inst.id, { reconnectGroupIds: newRecon });
+                                            }}
+                                            className="select-dark text-xs w-full"
+                                          >
+                                            <option value="">-- Select Symbol / Group --</option>
+                                            {groupOptions.map(g => <option key={g.groupId} value={g.groupId}>{g.label}</option>)}
+                                          </select>
+                                        </div>
+
+                                        <div>
+                                          <span className="text-[10px] text-muted block mb-0.5">Pairing / Open (1 to N frames)</span>
+                                          <select
+                                            value={inst.config?.pairingGroupIds?.[p - 1] || defaultPair}
+                                            onChange={e => {
+                                              const newPair = [...(inst.config?.pairingGroupIds || ['GROUP_BT_PAIR_A', 'GROUP_BT_PAIR_B', 'GROUP_BT_PAIR_C', 'GROUP_BT_PAIR_D', 'GROUP_BT_PAIR_E'])];
+                                              newPair[p - 1] = e.target.value;
+                                              handleUpdateInstanceConfig(inst.id, { pairingGroupIds: newPair });
+                                            }}
+                                            className="select-dark text-xs w-full"
+                                          >
+                                            <option value="">-- Select Symbol / Group --</option>
+                                            {groupOptions.map(g => <option key={g.groupId} value={g.groupId}>{g.label}</option>)}
+                                          </select>
+                                        </div>
+
+                                        <div>
+                                          <span className="text-[10px] text-muted block mb-0.5">Handshake (1 to N frames)</span>
+                                          <select
+                                            value={inst.config?.handshakeGroupIds?.[p - 1] || defaultHand}
+                                            onChange={e => {
+                                              const newHand = [...(inst.config?.handshakeGroupIds || ['SYMBOL_HANDSHAKE_A', 'SYMBOL_HANDSHAKE_B', 'SYMBOL_HANDSHAKE_C', 'SYMBOL_HANDSHAKE_D', 'SYMBOL_HANDSHAKE_E'])];
+                                              newHand[p - 1] = e.target.value;
+                                              handleUpdateInstanceConfig(inst.id, { handshakeGroupIds: newHand });
+                                            }}
+                                            className="select-dark text-xs w-full"
+                                          >
+                                            <option value="">-- Select Symbol / Group --</option>
+                                            {groupOptions.map(g => <option key={g.groupId} value={g.groupId}>{g.label}</option>)}
+                                          </select>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
                       
                       {activeWidget.id === 'split' && (
                         <div>
@@ -2129,6 +2295,7 @@ interface InstancePreviewProps {
   testWpm: number;
   testOutputMode: 'usb' | 'ble';
   testBleProfile: number;
+  testBleState?: 'connected' | 'reconnecting' | 'pairing' | 'handshake' | 'disconnected';
   testLayer: number;
   layerNames?: string[];
   testSplitConnected: boolean;
@@ -2144,178 +2311,11 @@ interface InstancePreviewProps {
   testKeypressState?: KeypressState;
 }
 
-const InstancePreview: React.FC<InstancePreviewProps> = ({
-  widget, instance, symbolsGrid, symbolSlices, fontGrid, fontGlyphs, fontMappings,
-  customText, testBattery, testWpm, testOutputMode, testBleProfile, testLayer, layerNames, testSplitConnected, simulateMissingSymbols,
-  testBongoState = 0,
-  testTypewriterText,
-  testTypewriterLastChar,
-  testTypewriterLastTimestamp,
-  testTypewriterRandomPos,
-  testTypewriterRandomLetters,
-  testActiveKeys,
-  testLastKey,
-  testKeypressState,
-}) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const startTimeRef = useRef<number>(0);
-  const [animTimestamp, setAnimTimestamp] = useState<number>(0);
-
-  useEffect(() => {
-    if (widget.id !== 'animation' && widget.id !== 'loop' && widget.id !== 'typewriter') return;
-    const speedMs = widget.id === 'typewriter' ? 30 : Math.max(20, instance.config?.loopSpeedMs ?? 250);
-    startTimeRef.current = Date.now();
-    const timer = setInterval(() => {
-      const now = Date.now();
-      const elapsed = now - startTimeRef.current;
-      if (widget.id === 'typewriter') {
-        const cleaning = instance.config?.typewriterCleaning ?? 0;
-        if (cleaning > 0) {
-          const fadeSec = instance.config?.typewriterFadeTime ?? 0.15;
-          const bankCount = (testTypewriterRandomLetters && testTypewriterRandomLetters.length > 0) ? testTypewriterRandomLetters.length : 4;
-          const totalCycleMs = (bankCount + 1) * cleaning * 1000 + fadeSec * 1000 + 1000;
-          if (elapsed > totalCycleMs) {
-            startTimeRef.current = now;
-            setAnimTimestamp(0);
-            return;
-          }
-        }
-      }
-      setAnimTimestamp(elapsed);
-    }, speedMs);
-    return () => clearInterval(timer);
-  }, [
-    widget.id,
-    instance.id,
-    instance.config?.loopSpeedMs,
-    instance.config?.loop,
-    instance.config?.groupId,
-    instance.config?.typewriterCleaning,
-    instance.config?.typewriterLetterBank,
-    instance.config?.typewriterBankSize,
-    instance.config?.typewriterFadeType,
-    instance.config?.typewriterFadeTime,
-    instance.config?.typewriterMode,
-    instance.config?.mode,
-    testTypewriterRandomLetters,
-  ]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const scale = 3;
-    const effectiveSlices = simulateMissingSymbols ? [] : symbolSlices;
-    const naturalSize = getWidgetNaturalSize(widget, effectiveSlices, instance, fontGlyphs, fontMappings);
-    const width = Math.max(naturalSize.width, 14);
-    const height = Math.max(naturalSize.height, widget.defaultHeight, 14);
-
-    canvas.width = width * scale;
-    canvas.height = height * scale;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.fillStyle = '#080b10';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const tempGrid = new BwpxGrid(width, height);
-    
-    // Create an instances map for rendering just this instance
-    const tempInstances = { [widget.id]: [instance] };
-
-    const isTypewriter = widget.id === 'typewriter';
-    const effectiveBaseTimestamp = (isTypewriter && startTimeRef.current > 0)
-      ? startTimeRef.current
-      : testTypewriterLastTimestamp;
-    const fontSize = instance.config?.fontSize || (isTypewriter && (instance.config?.typewriterMode || instance.config?.mode) === 'random' ? 'both' : 'small');
-    const charW = fontSize === 'big' ? 10 : 5;
-    const charH = fontSize === 'big' ? 10 : 5;
-    const maxOffsetX = Math.max(0, width - charW);
-    const maxOffsetY = Math.max(0, height - charH);
-
-    const effectiveLetters = isTypewriter
-      ? (testTypewriterRandomLetters || []).map(l => {
-          let lx = l.x;
-          let ly = l.y;
-          // If coordinates are legacy integer pixels generated for a 32-high box (e.g. y <= 26) but box is taller,
-          // scale them proportionally so they span the full [0, maxOffsetY]
-          if (maxOffsetY > 32 && typeof ly === 'number' && Number.isInteger(ly) && ly <= 26) {
-            ly = Math.round((ly / 26) * maxOffsetY);
-          }
-          if (maxOffsetX > 32 && typeof lx === 'number' && Number.isInteger(lx) && lx <= 26) {
-            lx = Math.round((lx / 26) * maxOffsetX);
-          }
-          return {
-            ...l,
-            x: lx,
-            y: ly,
-            timestamp: effectiveBaseTimestamp,
-          };
-        })
-      : testTypewriterRandomLetters;
-
-    renderWidgetById(widget.id, tempGrid, 0, {
-      symbolsGrid,
-      symbolSlices: effectiveSlices,
-      fontGrid,
-      fontGlyphs,
-      fontMappings,
-      battery: testBattery,
-      outputMode: testOutputMode,
-      bleProfileIndex: testBleProfile,
-      currentLayer: testLayer,
-      layerNames: layerNames && layerNames.length > 0 ? layerNames : ['DEFAULT', 'LOWER', 'RAISE', 'ADJUST'],
-      wpm: testWpm,
-      splitConnected: testSplitConnected,
-      customText,
-      instances: tempInstances,
-      activeInstanceId: instance.id,
-      bongoState: testBongoState,
-      animationTimestamp: animTimestamp,
-      blockWidth: width,
-      blockHeight: height,
-      typewriterText: testTypewriterText,
-      typewriterState: {
-        text: testTypewriterText ?? 'TYPE...',
-        lastChar: testTypewriterLastChar,
-        lastTimestamp: effectiveBaseTimestamp,
-        randomX: testTypewriterRandomPos?.x,
-        randomY: testTypewriterRandomPos?.y,
-        letterBank: effectiveLetters,
-        randomLetters: effectiveLetters,
-        randomBank: effectiveLetters,
-      },
-      activeKeys: testActiveKeys,
-      lastKey: testLastKey,
-      keypressState: testKeypressState,
-    });
-
-    ctx.fillStyle = '#00d2ff';
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        if (tempGrid.get(x, y)) {
-          ctx.fillRect(x * scale, y * scale, scale - 0.4, scale - 0.4);
-        }
-      }
-    }
-  }, [
-    widget, instance, symbolsGrid, symbolSlices, fontGrid, fontGlyphs, fontMappings,
-    customText, testBattery, testWpm, testOutputMode, testBleProfile, testLayer, layerNames, testSplitConnected, simulateMissingSymbols,
-    testBongoState, animTimestamp, testTypewriterText, testTypewriterLastChar, testTypewriterLastTimestamp, testTypewriterRandomPos, testTypewriterRandomLetters, instance.config?.typewriterLetterBank, instance.config?.typewriterBankSize,
-    instance.config?.typewriterFadeType, instance.config?.typewriterFadeTime,
-    testActiveKeys, testLastKey, testKeypressState
-  ]);
-
+const InstancePreview: React.FC<InstancePreviewProps> = (props) => {
   return (
-    <canvas
-      ref={canvasRef}
-      className="pixel-preview-canvas cursor-pointer"
-      title="Click to replay animation"
-      onClick={() => {
-        startTimeRef.current = Date.now();
-        setAnimTimestamp(0);
-      }}
+    <WidgetPreviewCanvas
+      {...props}
+      mode="instance"
     />
   );
 };

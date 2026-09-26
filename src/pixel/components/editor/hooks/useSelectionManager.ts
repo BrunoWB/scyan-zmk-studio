@@ -8,8 +8,8 @@ export function useSelectionManager() {
   const [isMovingSelection, setIsMovingSelection] = useState<boolean>(false);
   const [moveStartPos, setMoveStartPos] = useState<{ x: number; y: number } | null>(null);
 
-  const copySelection = useCallback((grid: BwpxGrid) => {
-    if (!selection || !selection.active) return;
+  const copySelection = useCallback((grid: BwpxGrid): string | undefined => {
+    if (!selection || !selection.active) return undefined;
     const sub = grid.getSubRect(selection.x, selection.y, selection.w, selection.h);
     const json = JSON.stringify({
       scyanPxClip: true,
@@ -20,16 +20,18 @@ export function useSelectionManager() {
       data: Array.from(sub.data),
     });
     navigator.clipboard.writeText(json).catch(() => {});
+    return json;
   }, [selection]);
 
   const cutSelection = useCallback(
-    (grid: BwpxGrid, commitGrid: (g: BwpxGrid) => void) => {
-      if (!selection || !selection.active) return;
-      copySelection(grid);
+    (grid: BwpxGrid, commitGrid: (g: BwpxGrid) => void): string | undefined => {
+      if (!selection || !selection.active) return undefined;
+      const json = copySelection(grid);
       const next = grid.clone();
       next.clearRect(selection);
       commitGrid(next);
       setSelection(null);
+      return json;
     },
     [copySelection, selection]
   );
@@ -39,11 +41,12 @@ export function useSelectionManager() {
       grid: BwpxGrid,
       commitGrid: (g: BwpxGrid) => void,
       activeDrawColor: string,
-      fallbackPos: { x: number; y: number }
-    ) => {
+      fallbackPos: { x: number; y: number },
+      clipboardText?: string
+    ): Promise<boolean> => {
       try {
-        const text = await navigator.clipboard.readText();
-        if (text.includes('scyanPxClip') || text.includes('bwpxClip')) {
+        const text = clipboardText ?? (await navigator.clipboard.readText());
+        if (text && (text.includes('scyanPxClip') || text.includes('bwpxClip'))) {
           const parsed = JSON.parse(text);
           if (parsed.width && parsed.height) {
             const pasteGrid = new BwpxGrid(
@@ -65,11 +68,13 @@ export function useSelectionManager() {
               h: pasteGrid.height,
               active: true,
             });
+            return true;
           }
         }
       } catch (e) {
         console.warn('Clipboard read failed:', e);
       }
+      return false;
     },
     [selection]
   );

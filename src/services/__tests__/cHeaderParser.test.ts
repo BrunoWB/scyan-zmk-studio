@@ -468,6 +468,41 @@ static const struct display_layout_block LAYOUT_LEFT_ACTIVE_BLOCKS[1] = {
     expect(parsedBlock?.height).toBe(30);
   });
 
+  it('generates devicetree mode = <1> for wpm-chart in bar mode and round-trips losslessly', () => {
+    const testGrid = new BwpxGrid(16, 16);
+    const metadata = {
+      version: 1 as const,
+      leftBlocks: [
+        { id: 'b_wpm_bar', instanceId: 'w_bar_1', widgetType: 'wpm-chart', name: 'WPM Chart', x: 0, y: 56, width: 32, height: 24, enabled: true, side: 'left' as const }
+      ],
+      widgetInstances: {
+        'wpm-chart': [{
+          id: 'w_bar_1',
+          widgetTypeId: 'wpm-chart',
+          label: 'WPM Chart',
+          config: {
+            mode: 'bar' as const,
+            wpmChart: { width: 32, height: 24, gridSize: 6, targetSpeed: 120, timeWindow: 15, chartType: 'bar' as const }
+          },
+          slots: {}
+        }]
+      }
+    };
+
+    const dts = generateDevicetreeLayouts(metadata, []);
+    expect(dts).toContain('compatible = "scyan,widget-wpm-chart";');
+    expect(dts).toContain('mode = <1>;');
+    expect(dts).toContain('param1 = <6>;');
+    expect(dts).toContain('param2 = <120>;');
+    expect(dts).toContain('param3 = <15>;');
+
+    const cCode = generateCHeader(testGrid, [], testGrid, [], metadata);
+    const parsed = parseCHeader(cCode);
+    const inst = parsed.metadata?.widgetInstances?.['wpm-chart']?.[0];
+    expect(inst?.config?.wpmChart?.chartType).toBe('bar');
+    expect(inst?.config?.wpmChart?.gridSize).toBe(6);
+  });
+
   it('synchronizes wpm text mode width and height from instance config to C block and metadata', () => {
     const testGrid = new BwpxGrid(16, 16);
     const metadata = {
@@ -1011,6 +1046,45 @@ static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
     // Ensure SYMBOL_USB is at index 0 of symbol_ids and symbol_id is SYMBOL_USB
     expect(dts).toContain('symbols = <SYMBOL_USB SYMBOL_BLUETOOTH_P1>;');
     expect(dts).toContain('symbol-id = <SYMBOL_USB>;');
+  });
+
+  it('correctly serializes multi-state symbols (disconnected, connected, reconnecting, pairing) for WIDGET_TYPE_OUTPUT_STATUS', () => {
+    const symbolSlices: SpriteSlice[] = [
+      { id: 'SYMBOL_USB', name: 'USB', groupId: 'SYMBOL_USB', groupOrder: 1, x: 0, y: 0, width: 12, height: 10, color: '#38bdf8' },
+      { id: 'SYMBOL_NO_CONN', name: 'No Conn', groupId: 'SYMBOL_NO_CONN', groupOrder: 1, x: 12, y: 0, width: 10, height: 10, color: '#ef4444' },
+      { id: 'SYMBOL_BLUETOOTH_P1', name: 'BTA', groupId: 'SYMBOL_BLUETOOTH_P1', groupOrder: 1, x: 22, y: 0, width: 10, height: 11, color: '#00d2ff' },
+      { id: 'SYMBOL_RECONNECT_A_1', name: 'R1', groupId: 'GROUP_BT_RECONNECT_A', groupOrder: 1, x: 22, y: 0, width: 10, height: 11, color: '#00d2ff' },
+      { id: 'SYMBOL_RECONNECT_A_2', name: 'R2', groupId: 'GROUP_BT_RECONNECT_A', groupOrder: 2, x: 32, y: 0, width: 10, height: 11, color: '#f59e0b' },
+      { id: 'SYMBOL_PAIR_A_1', name: 'P1', groupId: 'GROUP_BT_PAIR_A', groupOrder: 1, x: 22, y: 0, width: 10, height: 11, color: '#00d2ff' },
+      { id: 'SYMBOL_PAIR_A_2', name: 'P2', groupId: 'GROUP_BT_PAIR_A', groupOrder: 2, x: 42, y: 0, width: 10, height: 11, color: '#38bdf8' },
+    ];
+    const metadata: HeaderMetadata = {
+      version: 1,
+      centralBlocks: [
+        { id: 'block-conn', widgetType: 'connection', instanceId: 'conn-1', name: 'Output Status', x: 0, y: 0, width: 12, height: 10, enabled: true, side: 'central' }
+      ],
+      widgetInstances: {
+        connection: [
+          {
+            id: 'conn-1',
+            widgetTypeId: 'connection',
+            label: 'Connection',
+            config: {
+              mode: 'symbol',
+              groupId: 'SYMBOL_USB',
+              groupIds: ['SYMBOL_NO_CONN', 'SYMBOL_BLUETOOTH_P1'],
+              reconnectGroupIds: ['GROUP_BT_RECONNECT_A'],
+              pairingGroupIds: ['GROUP_BT_PAIR_A'],
+            },
+            slots: {},
+          }
+        ]
+      }
+    };
+
+    const dts = generateDevicetreeLayouts(metadata, symbolSlices);
+    expect(dts).toContain('compatible = "scyan,widget-output";');
+    expect(dts).toContain('symbols = <SYMBOL_USB SYMBOL_NO_CONN SYMBOL_BLUETOOTH_P1 SYMBOL_RECONNECT_A_2 SYMBOL_PAIR_A_2>;');
   });
 
   describe('Typewriter Widget Serialization & Round-Trip', () => {

@@ -795,20 +795,71 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
       const boxH = ctx.blockHeight;
       
       if (mode === 'symbol') {
+        const resolveSliceForGroup = (gid: string | undefined): SpriteSlice | undefined => {
+          if (!gid) return undefined;
+          let members = ctx.symbolSlices.filter(s => s.groupId === gid).sort((a, b) => (a.groupOrder || 1) - (b.groupOrder || 1));
+          if (members.length === 0) {
+            members = ctx.symbolSlices.filter(s => s.groupId?.toLowerCase() === gid.toLowerCase()).sort((a, b) => (a.groupOrder || 1) - (b.groupOrder || 1));
+          }
+          if (members.length === 0) {
+            const direct = ctx.symbolSlices.find(s => s.id === gid || s.name === gid);
+            if (direct) return direct;
+            return undefined;
+          }
+          if (members.length === 1) {
+            return members[0];
+          }
+          const speed = 500;
+          const tick = Math.floor((ctx.animationTimestamp ?? Date.now()) / speed) % members.length;
+          return members[tick];
+        };
+
         if (!isBle) {
-          const groupId = inst?.config?.groupId;
-          const slice = ctx.symbolSlices.find(s => (s.groupId === groupId && s.groupOrder === 1) || s.groupId === groupId || s.id === groupId);
-          if (slice) {
-            blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY, boxW, boxH);
+          const targetSlice = resolveSliceForGroup(inst?.config?.groupId || 'SYMBOL_USB');
+          if (targetSlice) {
+            blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, targetSlice.id, destX, destY, boxW, boxH);
           } else {
             renderSlot(grid, destX, destY, 'connection', 'fallback', ctx, { width: boxW, height: boxH });
           }
         } else {
           const profileIdx = ctx.bleProfileIndex ?? 1;
-          const groupId = inst?.config?.groupIds?.[profileIdx] || inst?.config?.groupIds?.[1] || inst?.config?.groupId;
-          const slice = ctx.symbolSlices.find(s => (s.groupId === groupId && s.groupOrder === 1) || s.groupId === groupId || s.id === groupId);
-          if (slice) {
-            blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY, boxW, boxH);
+          const state = ctx.bleState || (profileIdx === 0 ? 'disconnected' : 'connected');
+          
+          let targetSlice: SpriteSlice | undefined;
+
+          if (profileIdx === 0 || state === 'disconnected') {
+            targetSlice = resolveSliceForGroup(inst?.config?.groupIds?.[0] || 'SYMBOL_NO_CONN');
+          } else if (state === 'reconnecting') {
+            const letter = String.fromCharCode(64 + profileIdx);
+            targetSlice = resolveSliceForGroup(inst?.config?.reconnectGroupIds?.[profileIdx - 1] || `GROUP_BT_RECONNECT_${letter}`);
+            if (!targetSlice) {
+              targetSlice = resolveSliceForGroup(`SYMBOL_RECONNECTING_${letter}`);
+            }
+            if (!targetSlice) {
+              targetSlice = resolveSliceForGroup(inst?.config?.groupIds?.[profileIdx] || inst?.config?.groupIds?.[1] || inst?.config?.groupId);
+            }
+          } else if (state === 'pairing') {
+            const letter = String.fromCharCode(64 + profileIdx);
+            targetSlice = resolveSliceForGroup(inst?.config?.pairingGroupIds?.[profileIdx - 1] || `GROUP_BT_PAIR_${letter}`);
+            if (!targetSlice) {
+              targetSlice = resolveSliceForGroup('SYMBOL_BLUETOOTH_9659');
+            }
+            if (!targetSlice) {
+              targetSlice = resolveSliceForGroup(inst?.config?.groupIds?.[profileIdx] || inst?.config?.groupIds?.[1] || inst?.config?.groupId);
+            }
+          } else if (state === 'handshake') {
+            const letter = String.fromCharCode(64 + profileIdx);
+            targetSlice = resolveSliceForGroup(inst?.config?.handshakeGroupIds?.[profileIdx - 1] || `SYMBOL_HANDSHAKE_${letter}`);
+            if (!targetSlice) {
+              targetSlice = resolveSliceForGroup(inst?.config?.groupIds?.[profileIdx] || inst?.config?.groupIds?.[1] || inst?.config?.groupId);
+            }
+          } else {
+            // Connected (default)
+            targetSlice = resolveSliceForGroup(inst?.config?.groupIds?.[profileIdx] || inst?.config?.groupIds?.[1] || inst?.config?.groupId);
+          }
+
+          if (targetSlice) {
+            blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, targetSlice.id, destX, destY, boxW, boxH);
           } else {
             renderSlot(grid, destX, destY, 'connection', 'fallback', ctx, { width: boxW, height: boxH });
           }
@@ -821,10 +872,16 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
           drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize, { align: textAlign, boxWidth: boxW, boxHeight: boxH, verticalAlign: 'middle' });
         } else {
           const profileIdx = ctx.bleProfileIndex ?? 1;
+          const state = ctx.bleState || (profileIdx === 0 ? 'disconnected' : 'connected');
           const entries = inst?.config?.textEntries || ['USB', 'No conn', 'P1', 'P2', 'P3', 'P4', 'P5'];
-          const text = profileIdx === 0
+          let text = profileIdx === 0 || state === 'disconnected'
             ? (entries[1] || 'No conn')
             : (entries[profileIdx + 1] || entries[profileIdx] || `P${profileIdx}`);
+          if (state === 'reconnecting') {
+            text += '..';
+          } else if (state === 'pairing') {
+            text += '+';
+          }
           drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize, { align: textAlign, boxWidth: boxW, boxHeight: boxH, verticalAlign: 'middle' });
         }
       }
@@ -1136,26 +1193,91 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
         }
       }
 
-      // Draw continuous connected heartbeat / oscilloscope line
-      let prevY = -1;
-      for (let x = 0; x < chartW; x++) {
-        const val = Math.min(targetSpeed, Math.max(0, points[x]));
-        const yPlot = chartY + chartH - 1 - Math.round((val * (chartH - 1)) / targetSpeed);
+      const isBarChart = conf.chartType === 'bar' || inst?.config?.mode === 'bar';
 
-        if (prevY !== -1) {
-          const minY = Math.min(prevY, yPlot);
-          const maxY = Math.max(prevY, yPlot);
-          for (let y = minY; y <= maxY; y++) {
-            if (chartX + x >= 0 && chartX + x < grid.width && y >= 0 && y < grid.height) {
-              grid.set(chartX + x, y, 1);
+      if (isBarChart) {
+        // Calculate bar width based on time:
+        // Shorter time window (or wider chart) produces wider bars; longer time window produces narrower bars.
+        const gap = 1;
+        let barWidth = 1;
+        if (timeWindow <= 12) {
+          barWidth = Math.max(1, Math.min(5, Math.floor((chartW + 4) / 8) - gap));
+        } else if (timeWindow <= 25) {
+          barWidth = Math.max(1, Math.min(4, Math.floor((chartW + 5) / 10) - gap));
+        } else if (timeWindow <= 45) {
+          barWidth = Math.max(1, Math.min(3, Math.floor((chartW + 6) / 12) - gap));
+        } else if (timeWindow <= 75) {
+          barWidth = Math.max(1, Math.min(2, Math.floor((chartW + 8) / 16) - gap));
+        } else {
+          barWidth = 1;
+        }
+        if (barWidth < 1) barWidth = 1;
+
+        const step = barWidth + gap;
+        let barIdx = 0;
+        while (true) {
+          const barEnd = chartX + chartW - 1 - barIdx * step;
+          if (barEnd < chartX) break;
+          let barStart = barEnd - barWidth + 1;
+          if (barStart < chartX) barStart = chartX;
+
+          let val = 0;
+          if (barIdx === 0) {
+            val = currentWpm;
+          } else {
+            const barCenterX = (barStart + barEnd) / 2;
+            const ageInSeconds = ((chartX + chartW - 1 - barCenterX) * timeWindow) / Math.max(1, chartW - 1);
+            if (ctx.wpmHistory && ctx.wpmHistory.length > 0) {
+              const sampleOffset = Math.round(ageInSeconds);
+              const histIdx = ctx.wpmHistory.length - 1 - sampleOffset;
+              val = (histIdx >= 0 && histIdx < ctx.wpmHistory.length) ? ctx.wpmHistory[histIdx] : 0;
+            } else {
+              const t = (barCenterX - chartX) / Math.max(1, chartW - 1);
+              const burst1 = Math.sin(t * 5.5);
+              const burst2 = Math.cos(t * 11.0) * 0.3;
+              const cadence = Math.max(0, 0.45 + 0.4 * burst1 + burst2);
+              const ramp = 0.3 + 0.7 * t;
+              val = Math.round(currentWpm * cadence * ramp);
             }
           }
-        } else {
-          if (chartX + x >= 0 && chartX + x < grid.width && yPlot >= 0 && yPlot < grid.height) {
-            grid.set(chartX + x, yPlot, 1);
+
+          const clampedVal = Math.min(targetSpeed, Math.max(0, val));
+          const barH = clampedVal > 0 ? Math.max(1, Math.round((clampedVal * (chartH - 1)) / targetSpeed)) : 0;
+
+          if (barH > 0) {
+            for (let bx = barStart; bx <= barEnd; bx++) {
+              for (let by = chartY + chartH - 1; by >= chartY + chartH - 1 - barH; by--) {
+                if (bx >= 0 && bx < grid.width && by >= 0 && by < grid.height) {
+                  grid.set(bx, by, 1);
+                }
+              }
+            }
           }
+
+          barIdx++;
         }
-        prevY = yPlot;
+      } else {
+        // Draw continuous connected heartbeat / oscilloscope line
+        let prevY = -1;
+        for (let x = 0; x < chartW; x++) {
+          const val = Math.min(targetSpeed, Math.max(0, points[x]));
+          const yPlot = chartY + chartH - 1 - Math.round((val * (chartH - 1)) / targetSpeed);
+
+          if (prevY !== -1) {
+            const minY = Math.min(prevY, yPlot);
+            const maxY = Math.max(prevY, yPlot);
+            for (let y = minY; y <= maxY; y++) {
+              if (chartX + x >= 0 && chartX + x < grid.width && y >= 0 && y < grid.height) {
+                grid.set(chartX + x, y, 1);
+              }
+            }
+          } else {
+            if (chartX + x >= 0 && chartX + x < grid.width && yPlot >= 0 && yPlot < grid.height) {
+              grid.set(chartX + x, yPlot, 1);
+            }
+          }
+          prevY = yPlot;
+        }
       }
     },
   },
@@ -2201,8 +2323,8 @@ export function getDefaultWidgetConfig(
 
     case 'wpm-chart':
       return {
-        mode: 'symbol',
-        wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30 },
+        mode: 'line',
+        wpmChart: { width: 32, height: 24, gridSize: 4, targetSpeed: 100, timeWindow: 30, chartType: 'line' },
       };
 
     case 'typewriter':

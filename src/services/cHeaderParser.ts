@@ -714,6 +714,7 @@ export function parseCHeader(cCode: string): ParsedAssets {
                 blocks.push(parsedBlock);
 
                 if (widgetType === 'wpm-chart') {
+                  const chartType = blockMode === 1 ? 'bar' : 'line';
                   if (!metadata) metadata = { version: 1 };
                   if (!metadata.widgetInstances) metadata.widgetInstances = {};
                   if (!metadata.widgetInstances['wpm-chart'] || metadata.widgetInstances['wpm-chart'].length === 0) {
@@ -722,13 +723,14 @@ export function parseCHeader(cCode: string): ParsedAssets {
                       widgetTypeId: 'wpm-chart',
                       label: 'WPM Chart',
                       config: {
-                        mode: 'symbol',
+                        mode: chartType,
                         wpmChart: {
                           width: parsedBlock.width ?? 32,
                           height: parsedBlock.height ?? 24,
                           gridSize: param1 || 4,
                           targetSpeed: param2 || 100,
                           timeWindow: param3 || 30,
+                          chartType,
                         },
                       },
                       slots: {},
@@ -738,6 +740,12 @@ export function parseCHeader(cCode: string): ParsedAssets {
                     if (inst && inst.config && inst.config.wpmChart) {
                       if (!inst.config.wpmChart.timeWindow) {
                         inst.config.wpmChart.timeWindow = param3 || 30;
+                      }
+                      if (!inst.config.wpmChart.chartType) {
+                        inst.config.wpmChart.chartType = chartType;
+                      }
+                      if (!inst.config.mode || inst.config.mode === 'symbol') {
+                        inst.config.mode = chartType;
                       }
                     }
                   }
@@ -1489,6 +1497,7 @@ export function resolveBlockProperties(
   let param2 = 0;
   let param3 = 0;
   if (enumType === 'WIDGET_TYPE_WPM_CHART') {
+    mode = (instance?.config?.wpmChart?.chartType === 'bar' || instance?.config?.mode === 'bar') ? 1 : 0;
     param1 = instance?.config?.wpmChart?.gridSize ?? 4;
     param2 = instance?.config?.wpmChart?.targetSpeed ?? 100;
     param3 = instance?.config?.wpmChart?.timeWindow ?? 30;
@@ -1542,13 +1551,47 @@ export function resolveBlockProperties(
       symbolIds.push(usbMatch.id);
     }
     if (instance?.config?.groupIds && instance.config.groupIds.length > 0) {
-      const bleIds = instance.config.groupIds.length >= 6
-        ? instance.config.groupIds.slice(1)
-        : instance.config.groupIds;
-      for (const gid of bleIds) {
-        const match = symbolSlices.find(s => (s.groupId === gid && s.groupOrder === 1) || s.groupId === gid || s.id === gid);
-        if (match && symbolIds.length < 16) {
-          symbolIds.push(match.id);
+      if (instance.config.reconnectGroupIds && instance.config.reconnectGroupIds.length > 0) {
+        // Multi-state structure:
+        // Index 1: Disconnected
+        const discGid = instance.config.groupIds[0] || 'SYMBOL_NO_CONN';
+        const discMatch = symbolSlices.find(s => (s.groupId === discGid && s.groupOrder === 1) || s.groupId === discGid || s.id === discGid)
+          || symbolSlices.find(s => s.id === 'SYMBOL_NO_CONN' || s.groupId === 'SYMBOL_NO_CONN');
+        if (discMatch && symbolIds.length < 16) symbolIds.push(discMatch.id);
+
+        // Indices 2..6: Connected P1..P5
+        for (let i = 1; i <= 5; i++) {
+          const gid = instance.config.groupIds[i];
+          if (gid) {
+            const match = symbolSlices.find(s => (s.groupId === gid && s.groupOrder === 1) || s.groupId === gid || s.id === gid);
+            if (match && symbolIds.length < 16) symbolIds.push(match.id);
+          }
+        }
+
+        // Indices 7..11: Reconnect frame 2 for P1..P5
+        for (let i = 0; i < 5; i++) {
+          const rGid = instance.config.reconnectGroupIds[i];
+          if (rGid) {
+            const match = symbolSlices.find(s => (s.groupId === rGid && s.groupOrder === 2) || s.id === rGid)
+              || symbolSlices.find(s => s.id === ('SYMBOL_RECONNECTING_' + String.fromCharCode(65 + i)));
+            if (match && symbolIds.length < 16) symbolIds.push(match.id);
+          }
+        }
+
+        // Index 12: Pairing frame 2 (BT dots)
+        const pairGid = instance.config.pairingGroupIds?.[0] || 'GROUP_BT_PAIR_A';
+        const pairMatch = symbolSlices.find(s => (s.groupId === pairGid && s.groupOrder === 2) || s.id === pairGid)
+          || symbolSlices.find(s => s.id === 'SYMBOL_BLUETOOTH_9659' || s.name === 'BT');
+        if (pairMatch && symbolIds.length < 16) symbolIds.push(pairMatch.id);
+      } else {
+        const bleIds = instance.config.groupIds.length >= 6
+          ? instance.config.groupIds.slice(1)
+          : instance.config.groupIds;
+        for (const gid of bleIds) {
+          const match = symbolSlices.find(s => (s.groupId === gid && s.groupOrder === 1) || s.groupId === gid || s.id === gid);
+          if (match && symbolIds.length < 16) {
+            symbolIds.push(match.id);
+          }
         }
       }
     } else {

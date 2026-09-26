@@ -1,16 +1,14 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { BwpxGrid } from '../../pixel/core/PixelGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping } from '../../types/zmk';
 import {
   WIDGET_REGISTRY,
   getWidgetsByCategory,
   getWidgetsByTier,
-  resolveWidgetInstance,
 } from '../../services/widgetRegistry';
 import type {
   DisplayWidgetDefinition,
   WidgetCategory,
-  TypewriterState,
 } from '../../types/widget';
 import { Search, Cpu, Zap, RefreshCw } from 'lucide-react';
 
@@ -35,6 +33,8 @@ export interface WidgetCatalogListProps {
   onQuickAdd?: (widget: DisplayWidgetDefinition, side: 'left' | 'right' | 'dongle' | string) => void;
 }
 
+import { WidgetPreviewCanvas } from '../../components/widgets/WidgetPreviewCanvas';
+
 export const WidgetMiniPreview: React.FC<{
   widget: DisplayWidgetDefinition;
   symbolsGrid: BwpxGrid;
@@ -44,119 +44,14 @@ export const WidgetMiniPreview: React.FC<{
   fontMappings?: FontCharMapping[];
   customText: string;
   instances?: import('../../types/widget').WidgetInstanceMap;
-}> = ({
-  widget,
-  symbolsGrid,
-  symbolSlices,
-  fontGrid,
-  fontGlyphs,
-  fontMappings,
-  customText,
-  instances,
-}) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const startTimeRef = useRef<number>(0);
-  const [animTimestamp, setAnimTimestamp] = useState<number>(0);
-
-  useEffect(() => {
-    if (widget.id !== 'animation' && widget.id !== 'loop' && widget.id !== 'typewriter') return;
-    const activeInst = resolveWidgetInstance(instances, widget.id);
-    const speedMs = widget.id === 'typewriter' ? 30 : Math.max(20, activeInst?.config?.loopSpeedMs ?? 250);
-    startTimeRef.current = Date.now();
-    const timer = setInterval(() => {
-      setAnimTimestamp(Date.now() - startTimeRef.current);
-    }, speedMs);
-    return () => clearInterval(timer);
-  }, [widget.id, instances]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const scale = 2;
-    const width = 32;
-    const height = Math.max(widget.defaultHeight, 10);
-
-    canvas.width = width * scale;
-    canvas.height = height * scale;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.fillStyle = '#07090e';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const tempGrid = new BwpxGrid(width, height);
-    const startX = Math.max(0, Math.floor((width - widget.defaultWidth) / 2));
-    
-    const activeInstance = resolveWidgetInstance(instances, widget.id);
-    const activeInstanceId = activeInstance?.id;
-
-    const isTypewriter = widget.id === 'typewriter';
-    const twCleaning = activeInstance?.config?.typewriterCleaning ?? 0;
-    const twFadeSec = activeInstance?.config?.typewriterFadeTime ?? 0.15;
-    const twCycleMs = twCleaning > 0 ? (5 * twCleaning * 1000 + twFadeSec * 1000 + 1000) : 4000;
-    const previewStartTime = animTimestamp > 0 ? (Date.now() - (animTimestamp % twCycleMs)) : Date.now();
-
-    const twState: TypewriterState | undefined = isTypewriter ? {
-      text: 'TYPE',
-      lastChar: 'E',
-      lastTimestamp: previewStartTime,
-      letterBank: [
-        { char: 'T', x: 2, y: 2, fontSize: 'big', timestamp: previewStartTime },
-        { char: 'Y', x: 10, y: 4, fontSize: 'small', timestamp: previewStartTime },
-        { char: 'P', x: 18, y: 12, fontSize: 'big', timestamp: previewStartTime },
-        { char: 'E', x: 8, y: 20, fontSize: 'small', timestamp: previewStartTime },
-      ],
-      randomLetters: [
-        { char: 'T', x: 2, y: 2, fontSize: 'big', timestamp: previewStartTime },
-        { char: 'Y', x: 10, y: 4, fontSize: 'small', timestamp: previewStartTime },
-        { char: 'P', x: 18, y: 12, fontSize: 'big', timestamp: previewStartTime },
-        { char: 'E', x: 8, y: 20, fontSize: 'small', timestamp: previewStartTime },
-      ],
-    } : undefined;
-
-    widget.render(tempGrid, startX, 0, {
-      symbolsGrid,
-      symbolSlices,
-      fontGrid,
-      fontGlyphs,
-      fontMappings,
-      battery: 80,
-      outputMode: 'usb',
-      currentLayer: 0,
-      layerNames: ['QWERTY', 'LOWER', 'RAISE', 'ADJUST'],
-      wpm: 65,
-      splitConnected: true,
-      customText,
-      instances,
-      activeInstanceId,
-      animationTimestamp: animTimestamp,
-      typewriterText: isTypewriter ? 'TYPE' : undefined,
-      typewriterState: twState,
-    });
-
-    ctx.fillStyle = '#00d2ff';
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        if (tempGrid.get(x, y)) {
-          ctx.fillRect(x * scale, y * scale, scale - 0.2, scale - 0.2);
-        }
-      }
-    }
-  }, [
-    widget,
-    symbolsGrid,
-    symbolSlices,
-    fontGrid,
-    fontGlyphs,
-    fontMappings,
-    customText,
-    instances,
-    animTimestamp,
-  ]);
-
-  return <canvas ref={canvasRef} className="pixel-preview-canvas" />;
+}> = (props) => {
+  return (
+    <WidgetPreviewCanvas
+      {...props}
+      mode="thumb"
+      interactive={false}
+    />
+  );
 };
 
 export const WidgetCatalogList: React.FC<WidgetCatalogListProps> = ({
