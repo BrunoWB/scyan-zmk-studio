@@ -795,20 +795,71 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
       const boxH = ctx.blockHeight;
       
       if (mode === 'symbol') {
+        const resolveSliceForGroup = (gid: string | undefined): SpriteSlice | undefined => {
+          if (!gid) return undefined;
+          let members = ctx.symbolSlices.filter(s => s.groupId === gid).sort((a, b) => (a.groupOrder || 1) - (b.groupOrder || 1));
+          if (members.length === 0) {
+            members = ctx.symbolSlices.filter(s => s.groupId?.toLowerCase() === gid.toLowerCase()).sort((a, b) => (a.groupOrder || 1) - (b.groupOrder || 1));
+          }
+          if (members.length === 0) {
+            const direct = ctx.symbolSlices.find(s => s.id === gid || s.name === gid);
+            if (direct) return direct;
+            return undefined;
+          }
+          if (members.length === 1) {
+            return members[0];
+          }
+          const speed = 500;
+          const tick = Math.floor((ctx.animationTimestamp ?? Date.now()) / speed) % members.length;
+          return members[tick];
+        };
+
         if (!isBle) {
-          const groupId = inst?.config?.groupId;
-          const slice = ctx.symbolSlices.find(s => (s.groupId === groupId && s.groupOrder === 1) || s.groupId === groupId || s.id === groupId);
-          if (slice) {
-            blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY, boxW, boxH);
+          const targetSlice = resolveSliceForGroup(inst?.config?.groupId || 'SYMBOL_USB');
+          if (targetSlice) {
+            blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, targetSlice.id, destX, destY, boxW, boxH);
           } else {
             renderSlot(grid, destX, destY, 'connection', 'fallback', ctx, { width: boxW, height: boxH });
           }
         } else {
           const profileIdx = ctx.bleProfileIndex ?? 1;
-          const groupId = inst?.config?.groupIds?.[profileIdx] || inst?.config?.groupIds?.[1] || inst?.config?.groupId;
-          const slice = ctx.symbolSlices.find(s => (s.groupId === groupId && s.groupOrder === 1) || s.groupId === groupId || s.id === groupId);
-          if (slice) {
-            blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, slice.id, destX, destY, boxW, boxH);
+          const state = ctx.bleState || (profileIdx === 0 ? 'disconnected' : 'connected');
+          
+          let targetSlice: SpriteSlice | undefined;
+
+          if (profileIdx === 0 || state === 'disconnected') {
+            targetSlice = resolveSliceForGroup(inst?.config?.groupIds?.[0] || 'SYMBOL_NO_CONN');
+          } else if (state === 'reconnecting') {
+            const letter = String.fromCharCode(64 + profileIdx);
+            targetSlice = resolveSliceForGroup(inst?.config?.reconnectGroupIds?.[profileIdx - 1] || `GROUP_BT_RECONNECT_${letter}`);
+            if (!targetSlice) {
+              targetSlice = resolveSliceForGroup(`SYMBOL_RECONNECTING_${letter}`);
+            }
+            if (!targetSlice) {
+              targetSlice = resolveSliceForGroup(inst?.config?.groupIds?.[profileIdx] || inst?.config?.groupIds?.[1] || inst?.config?.groupId);
+            }
+          } else if (state === 'pairing') {
+            const letter = String.fromCharCode(64 + profileIdx);
+            targetSlice = resolveSliceForGroup(inst?.config?.pairingGroupIds?.[profileIdx - 1] || `GROUP_BT_PAIR_${letter}`);
+            if (!targetSlice) {
+              targetSlice = resolveSliceForGroup('SYMBOL_BLUETOOTH_9659');
+            }
+            if (!targetSlice) {
+              targetSlice = resolveSliceForGroup(inst?.config?.groupIds?.[profileIdx] || inst?.config?.groupIds?.[1] || inst?.config?.groupId);
+            }
+          } else if (state === 'handshake') {
+            const letter = String.fromCharCode(64 + profileIdx);
+            targetSlice = resolveSliceForGroup(inst?.config?.handshakeGroupIds?.[profileIdx - 1] || `SYMBOL_HANDSHAKE_${letter}`);
+            if (!targetSlice) {
+              targetSlice = resolveSliceForGroup(inst?.config?.groupIds?.[profileIdx] || inst?.config?.groupIds?.[1] || inst?.config?.groupId);
+            }
+          } else {
+            // Connected (default)
+            targetSlice = resolveSliceForGroup(inst?.config?.groupIds?.[profileIdx] || inst?.config?.groupIds?.[1] || inst?.config?.groupId);
+          }
+
+          if (targetSlice) {
+            blitSlice(grid, ctx.symbolsGrid, ctx.symbolSlices, targetSlice.id, destX, destY, boxW, boxH);
           } else {
             renderSlot(grid, destX, destY, 'connection', 'fallback', ctx, { width: boxW, height: boxH });
           }
@@ -821,10 +872,16 @@ export const WIDGET_REGISTRY: DisplayWidgetDefinition[] = [
           drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize, { align: textAlign, boxWidth: boxW, boxHeight: boxH, verticalAlign: 'middle' });
         } else {
           const profileIdx = ctx.bleProfileIndex ?? 1;
+          const state = ctx.bleState || (profileIdx === 0 ? 'disconnected' : 'connected');
           const entries = inst?.config?.textEntries || ['USB', 'No conn', 'P1', 'P2', 'P3', 'P4', 'P5'];
-          const text = profileIdx === 0
+          let text = profileIdx === 0 || state === 'disconnected'
             ? (entries[1] || 'No conn')
             : (entries[profileIdx + 1] || entries[profileIdx] || `P${profileIdx}`);
+          if (state === 'reconnecting') {
+            text += '..';
+          } else if (state === 'pairing') {
+            text += '+';
+          }
           drawText(grid, ctx.fontGrid, ctx.fontGlyphs, ctx.fontMappings, text, destX, destY, fontSize, { align: textAlign, boxWidth: boxW, boxHeight: boxH, verticalAlign: 'middle' });
         }
       }

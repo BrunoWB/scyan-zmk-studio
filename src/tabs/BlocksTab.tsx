@@ -854,40 +854,13 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     if (prev && handleIdlePeripheralBlocksChange) handleIdlePeripheralBlocksChange(prev);
   }, [handleIdlePeripheralBlocksChange, undoStacks]);
 
-  // Global Ctrl+Z handler (undoes the most recent change across all panels)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        const target = e.target as HTMLElement | null;
-        if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable) return;
-        e.preventDefault();
-        // Find the most recently modified stack and pop it
-        const stacks = [
-          { list: undoStacks.central, fn: handleUndoCentral },
-          { list: undoStacks.peripheral, fn: handleUndoPeripheral },
-          { list: undoStacks.idleCentral, fn: handleUndoIdleCentral },
-          { list: undoStacks.idlePeripheral, fn: handleUndoIdlePeripheral },
-        ];
-        // Pop the stack with the most entries (last changed)
-        let maxStack = stacks[0];
-        for (const s of stacks) {
-          if (s.list.length > maxStack.list.length) maxStack = s;
-        }
-        if (maxStack.list.length > 0) {
-          maxStack.fn();
-        }
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndoCentral, handleUndoPeripheral, handleUndoIdleCentral, handleUndoIdlePeripheral, undoStacks]);
-
   // Unified block selection state across all displays
   const [selectedBlockSide, setSelectedBlockSide] = useState<string | null>('central');
   const [selectedBlockKind, setSelectedBlockKind] = useState<'active' | 'idle'>('active');
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(
     effectiveCentralBlocks[0]?.id || null
   );
+  const copiedBlockRef = useRef<LayoutBlock | null>(null);
 
   // Screen Clear Action Handlers
   const handleClearCentral = useCallback(() => {
@@ -1053,6 +1026,129 @@ export const BlocksTab: React.FC<BlocksTabProps> = ({
     handleClearCentral,
     handleClearIdleCentral,
     getPeripheralConfig,
+  ]);
+
+  // Global shortcut handler (Undo, Copy, Cut, Paste across all panels)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isCmdOrCtrl = e.ctrlKey || e.metaKey;
+      if (!isCmdOrCtrl) return;
+
+      const target = e.target as HTMLElement | null;
+      if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable) return;
+
+      const k = e.key.toLowerCase();
+
+      // Ctrl/Cmd + Z: Undo
+      if (k === 'z') {
+        e.preventDefault();
+        const stacks = [
+          { list: undoStacks.central, fn: handleUndoCentral },
+          { list: undoStacks.peripheral, fn: handleUndoPeripheral },
+          { list: undoStacks.idleCentral, fn: handleUndoIdleCentral },
+          { list: undoStacks.idlePeripheral, fn: handleUndoIdlePeripheral },
+        ];
+        let maxStack = stacks[0];
+        for (const s of stacks) {
+          if (s.list.length > maxStack.list.length) maxStack = s;
+        }
+        if (maxStack.list.length > 0) {
+          maxStack.fn();
+        }
+        return;
+      }
+
+      // Ctrl/Cmd + C: Copy selected widget block
+      if (k === 'c') {
+        if (selectedBlockId) {
+          const sideConfig = getSideConfig(selectedBlockSide || 'central');
+          const currentList = selectedBlockKind === 'idle' ? sideConfig.idleBlocks : sideConfig.blocks;
+          const blockToCopy = currentList?.find((b) => b.id === selectedBlockId);
+          if (blockToCopy) {
+            e.preventDefault();
+            copiedBlockRef.current = JSON.parse(JSON.stringify(blockToCopy));
+            if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+              navigator.clipboard
+                .writeText(JSON.stringify({ scyanBlockClip: true, block: blockToCopy }))
+                .catch(() => {});
+            }
+          }
+        }
+        return;
+      }
+
+      // Ctrl/Cmd + X: Cut selected widget block
+      if (k === 'x') {
+        if (selectedBlockId) {
+          const sideConfig = getSideConfig(selectedBlockSide || 'central');
+          const currentList = selectedBlockKind === 'idle' ? sideConfig.idleBlocks : sideConfig.blocks;
+          const onChange = selectedBlockKind === 'idle' ? sideConfig.onIdleBlocksChange : sideConfig.onBlocksChange;
+          const blockToCopy = currentList?.find((b) => b.id === selectedBlockId);
+          if (blockToCopy && currentList && onChange) {
+            e.preventDefault();
+            copiedBlockRef.current = JSON.parse(JSON.stringify(blockToCopy));
+            if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+              navigator.clipboard
+                .writeText(JSON.stringify({ scyanBlockClip: true, block: blockToCopy }))
+                .catch(() => {});
+            }
+            onChange(currentList.filter((b) => b.id !== selectedBlockId));
+            setSelectedBlockId(null);
+          }
+        }
+        return;
+      }
+
+      // Ctrl/Cmd + V: Paste widget block into active panel
+      if (k === 'v') {
+        const pasteBlock = (blockToPaste: LayoutBlock) => {
+          const sideConfig = getSideConfig(selectedBlockSide || 'central');
+          const currentList = selectedBlockKind === 'idle' ? sideConfig.idleBlocks : sideConfig.blocks;
+          const onChange = selectedBlockKind === 'idle' ? sideConfig.onIdleBlocksChange : sideConfig.onBlocksChange;
+          if (currentList && onChange) {
+            const newId = `${blockToPaste.widgetType || 'widget'}_${Date.now()}`;
+            const newBlock: LayoutBlock = {
+              ...JSON.parse(JSON.stringify(blockToPaste)),
+              id: newId,
+              y: Math.min((blockToPaste.y ?? 0) + 8, 128 - (blockToPaste.height ?? 16)),
+            };
+            onChange([...currentList, newBlock]);
+            setSelectedBlockId(newId);
+          }
+        };
+
+        if (copiedBlockRef.current) {
+          e.preventDefault();
+          pasteBlock(copiedBlockRef.current);
+        } else if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
+          navigator.clipboard
+            .readText()
+            .then((text) => {
+              try {
+                const parsed = JSON.parse(text);
+                if (parsed.scyanBlockClip && parsed.block) {
+                  pasteBlock(parsed.block);
+                }
+              } catch {}
+            })
+            .catch(() => {});
+        }
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    getSideConfig,
+    handleUndoCentral,
+    handleUndoIdleCentral,
+    handleUndoIdlePeripheral,
+    handleUndoPeripheral,
+    selectedBlockId,
+    selectedBlockKind,
+    selectedBlockSide,
+    undoStacks,
   ]);
 
   // Drag-and-drop state from center widget catalog to OLED panels

@@ -390,5 +390,38 @@ describe('BlocksTab Multi-Screen Dynamic Layout Architecture', () => {
     const suppressKey = 'scyan_suppress_sync_animation_modal';
     expect(typeof suppressKey).toBe('string');
   });
+
+  it('supports clipboard payload format for widget block copying and pasting', () => {
+    const block: LayoutBlock = {
+      id: 'bongo_1',
+      widgetType: 'bongo',
+      name: 'Bongo Cat',
+      x: 0,
+      y: 10,
+      width: 32,
+      height: 20,
+      enabled: true,
+      side: 'central',
+    };
+
+    const payload = JSON.stringify({ scyanBlockClip: true, block });
+    const parsed = JSON.parse(payload);
+
+    expect(parsed.scyanBlockClip).toBe(true);
+    expect(parsed.block.id).toBe('bongo_1');
+    expect(parsed.block.widgetType).toBe('bongo');
+
+    // Simulating paste cloning: new id generated, y offset applied
+    const newId = `${parsed.block.widgetType || 'widget'}_${Date.now()}`;
+    const pastedBlock: LayoutBlock = {
+      ...JSON.parse(JSON.stringify(parsed.block)),
+      id: newId,
+      y: Math.min((parsed.block.y ?? 0) + 8, 128 - (parsed.block.height ?? 16)),
+    };
+
+    expect(pastedBlock.id).not.toBe(block.id);
+    expect(pastedBlock.y).toBe(18);
+    expect(pastedBlock.widgetType).toBe('bongo');
+  });
 });
 

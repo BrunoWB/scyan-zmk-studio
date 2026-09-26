@@ -184,6 +184,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   const [testWpm] = useState<number>(55);
   const [testOutputMode, setTestOutputMode] = useState<'usb' | 'ble'>('usb');
   const [testBleProfile, setTestBleProfile] = useState<number>(1);
+  const [testBleState, setTestBleState] = useState<'connected' | 'reconnecting' | 'pairing' | 'handshake'>('connected');
   const [testLayer, setTestLayer] = useState<number>(0);
   const [testSplitConnected] = useState<boolean>(true);
   const [simulateMissingSymbols] = useState<boolean>(false);
@@ -563,18 +564,35 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                   </button>
                 </div>
                 {testOutputMode === 'ble' && (
-                  <div className="flex items-center gap-1.5 ml-2">
-                    <span className="text-xs text-muted">Profile:</span>
-                    {[0, 1, 2, 3, 4, 5].map(idx => (
-                      <button
-                        key={idx}
-                        type="button"
-                        className={`btn-chip !px-2 !py-0.5 text-xs ${testBleProfile === idx ? 'active' : ''}`}
-                        onClick={() => setTestBleProfile(idx)}
-                      >
-                        {idx === 0 ? 'No conn' : `P${idx}`}
-                      </button>
-                    ))}
+                  <div className="flex flex-wrap items-center gap-3 ml-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-muted">Profile:</span>
+                      {[0, 1, 2, 3, 4, 5].map(idx => (
+                        <button
+                          key={idx}
+                          type="button"
+                          className={`btn-chip !px-2 !py-0.5 text-xs ${testBleProfile === idx ? 'active' : ''}`}
+                          onClick={() => setTestBleProfile(idx)}
+                        >
+                          {idx === 0 ? 'No conn' : `P${idx}`}
+                        </button>
+                      ))}
+                    </div>
+                    {testBleProfile > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted">State:</span>
+                        {(['connected', 'reconnecting', 'pairing', 'handshake'] as const).map(st => (
+                          <button
+                            key={st}
+                            type="button"
+                            className={`btn-chip !px-2 !py-0.5 text-xs capitalize ${testBleState === st ? 'active' : ''}`}
+                            onClick={() => setTestBleState(st)}
+                          >
+                            {st === 'pairing' ? 'Pairing' : st}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -807,6 +825,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                       testWpm={testWpm}
                       testOutputMode={testOutputMode}
                       testBleProfile={testBleProfile}
+                      testBleState={testBleState}
                       testLayer={effectiveTestLayer}
                       layerNames={effectiveLayerNames}
                       testSplitConnected={testSplitConnected}
@@ -1439,33 +1458,132 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                         </div>
                       )}
                       
-                      {activeWidget.id === 'connection' && (
-                        <div className="flex flex-col gap-3">
-                          <div>
-                            <label className="text-xs text-muted mb-1 block">USB Symbol (1 slice)</label>
-                            <select value={inst.config?.groupId || ''} onChange={e => handleUpdateInstanceConfig(inst.id, { groupId: e.target.value })} className="select-dark text-xs w-full">
-                              <option value="">-- Select Symbol / Group (1 slice) --</option>
-                              {symbolSlices.filter(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length === 1).map(s => <option key={s.groupId} value={s.groupId}>{s.name || s.id}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="text-xs text-muted mb-1 block">Bluetooth Profile Symbols (1 slice each)</label>
-                            {['No connection', 'P1', 'P2', 'P3', 'P4', 'P5'].map((label, idx) => (
-                              <div key={idx} className="flex items-center gap-2 mb-1">
-                                <span className="text-[10px] w-24 text-muted">{label}</span>
-                                <select value={inst.config?.groupIds?.[idx] || ''} onChange={e => {
-                                  const newIds = [...(inst.config?.groupIds || [])];
-                                  newIds[idx] = e.target.value;
-                                  handleUpdateInstanceConfig(inst.id, { groupIds: newIds });
-                                }} className="select-dark text-xs flex-1">
-                                  <option value="">-- Select Symbol / Group (1 slice) --</option>
-                                  {symbolSlices.filter(s => s.groupOrder === 1 && symbolSlices.filter(m => m.groupId === s.groupId).length === 1).map(s => <option key={s.groupId} value={s.groupId}>{s.name || s.id}</option>)}
+                      {activeWidget.id === 'connection' && (() => {
+                        const groupOptions = symbolSlices.filter(s => s.groupOrder === 1).map(s => {
+                          const count = symbolSlices.filter(m => m.groupId === s.groupId).length;
+                          return {
+                            groupId: s.groupId,
+                            label: count > 1 ? `${s.name || s.id} (${count} frames)` : (s.name || s.id),
+                          };
+                        });
+
+                        return (
+                          <div className="flex flex-col gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div>
+                                <label className="text-xs text-muted mb-1 block">USB Symbol (1 to N frames)</label>
+                                <select
+                                  value={inst.config?.groupId || 'SYMBOL_USB'}
+                                  onChange={e => handleUpdateInstanceConfig(inst.id, { groupId: e.target.value })}
+                                  className="select-dark text-xs w-full"
+                                >
+                                  <option value="">-- Select Symbol / Group --</option>
+                                  {groupOptions.map(g => <option key={g.groupId} value={g.groupId}>{g.label}</option>)}
                                 </select>
                               </div>
-                            ))}
+                              <div>
+                                <label className="text-xs text-muted mb-1 block">Disconnected / No Conn (1 to N frames)</label>
+                                <select
+                                  value={inst.config?.groupIds?.[0] || 'SYMBOL_NO_CONN'}
+                                  onChange={e => {
+                                    const newIds = [...(inst.config?.groupIds || ['SYMBOL_NO_CONN', 'SYMBOL_BLUETOOTH_9659_SUB_1', 'SYMBOL_BLUETOOTH_9659_SUB_2', 'SYMBOL_BLUETOOTH_9659_SUB_3', 'SYMBOL_BLUETOOTH_9659_SUB_4', 'SYMBOL_BLUETOOTH_9659_SUB_5'])];
+                                    newIds[0] = e.target.value;
+                                    handleUpdateInstanceConfig(inst.id, { groupIds: newIds });
+                                  }}
+                                  className="select-dark text-xs w-full"
+                                >
+                                  <option value="">-- Select Symbol / Group --</option>
+                                  {groupOptions.map(g => <option key={g.groupId} value={g.groupId}>{g.label}</option>)}
+                                </select>
+                              </div>
+                            </div>
+
+                            <div className="border-t border-border-main/50 pt-3">
+                              <label className="text-xs font-semibold text-text-main mb-2 block">Bluetooth Profile States (P1–P5 / A–E)</label>
+                              <div className="flex flex-col gap-3">
+                                {[1, 2, 3, 4, 5].map(p => {
+                                  const letter = String.fromCharCode(64 + p);
+                                  const defaultConn = `SYMBOL_BLUETOOTH_9659_SUB_${p}`;
+                                  const defaultReconn = `GROUP_BT_RECONNECT_${letter}`;
+                                  const defaultPair = `GROUP_BT_PAIR_${letter}`;
+                                  const defaultHand = `SYMBOL_HANDSHAKE_${letter}`;
+
+                                  return (
+                                    <div key={p} className="p-2.5 rounded border border-border-main/40 bg-surface/30 flex flex-col gap-2">
+                                      <span className="text-xs font-semibold text-accent">Profile {p} (Slot {letter})</span>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                        <div>
+                                          <span className="text-[10px] text-muted block mb-0.5">Connected (1 to N frames)</span>
+                                          <select
+                                            value={inst.config?.groupIds?.[p] || defaultConn}
+                                            onChange={e => {
+                                              const newIds = [...(inst.config?.groupIds || ['SYMBOL_NO_CONN', 'SYMBOL_BLUETOOTH_9659_SUB_1', 'SYMBOL_BLUETOOTH_9659_SUB_2', 'SYMBOL_BLUETOOTH_9659_SUB_3', 'SYMBOL_BLUETOOTH_9659_SUB_4', 'SYMBOL_BLUETOOTH_9659_SUB_5'])];
+                                              newIds[p] = e.target.value;
+                                              handleUpdateInstanceConfig(inst.id, { groupIds: newIds });
+                                            }}
+                                            className="select-dark text-xs w-full"
+                                          >
+                                            <option value="">-- Select Symbol / Group --</option>
+                                            {groupOptions.map(g => <option key={g.groupId} value={g.groupId}>{g.label}</option>)}
+                                          </select>
+                                        </div>
+
+                                        <div>
+                                          <span className="text-[10px] text-muted block mb-0.5">Reconnecting (1 to N frames)</span>
+                                          <select
+                                            value={inst.config?.reconnectGroupIds?.[p - 1] || defaultReconn}
+                                            onChange={e => {
+                                              const newRecon = [...(inst.config?.reconnectGroupIds || ['GROUP_BT_RECONNECT_A', 'GROUP_BT_RECONNECT_B', 'GROUP_BT_RECONNECT_C', 'GROUP_BT_RECONNECT_D', 'GROUP_BT_RECONNECT_E'])];
+                                              newRecon[p - 1] = e.target.value;
+                                              handleUpdateInstanceConfig(inst.id, { reconnectGroupIds: newRecon });
+                                            }}
+                                            className="select-dark text-xs w-full"
+                                          >
+                                            <option value="">-- Select Symbol / Group --</option>
+                                            {groupOptions.map(g => <option key={g.groupId} value={g.groupId}>{g.label}</option>)}
+                                          </select>
+                                        </div>
+
+                                        <div>
+                                          <span className="text-[10px] text-muted block mb-0.5">Pairing / Open (1 to N frames)</span>
+                                          <select
+                                            value={inst.config?.pairingGroupIds?.[p - 1] || defaultPair}
+                                            onChange={e => {
+                                              const newPair = [...(inst.config?.pairingGroupIds || ['GROUP_BT_PAIR_A', 'GROUP_BT_PAIR_B', 'GROUP_BT_PAIR_C', 'GROUP_BT_PAIR_D', 'GROUP_BT_PAIR_E'])];
+                                              newPair[p - 1] = e.target.value;
+                                              handleUpdateInstanceConfig(inst.id, { pairingGroupIds: newPair });
+                                            }}
+                                            className="select-dark text-xs w-full"
+                                          >
+                                            <option value="">-- Select Symbol / Group --</option>
+                                            {groupOptions.map(g => <option key={g.groupId} value={g.groupId}>{g.label}</option>)}
+                                          </select>
+                                        </div>
+
+                                        <div>
+                                          <span className="text-[10px] text-muted block mb-0.5">Handshake (1 to N frames)</span>
+                                          <select
+                                            value={inst.config?.handshakeGroupIds?.[p - 1] || defaultHand}
+                                            onChange={e => {
+                                              const newHand = [...(inst.config?.handshakeGroupIds || ['SYMBOL_HANDSHAKE_A', 'SYMBOL_HANDSHAKE_B', 'SYMBOL_HANDSHAKE_C', 'SYMBOL_HANDSHAKE_D', 'SYMBOL_HANDSHAKE_E'])];
+                                              newHand[p - 1] = e.target.value;
+                                              handleUpdateInstanceConfig(inst.id, { handshakeGroupIds: newHand });
+                                            }}
+                                            className="select-dark text-xs w-full"
+                                          >
+                                            <option value="">-- Select Symbol / Group --</option>
+                                            {groupOptions.map(g => <option key={g.groupId} value={g.groupId}>{g.label}</option>)}
+                                          </select>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
                       
                       {activeWidget.id === 'split' && (
                         <div>
@@ -2129,6 +2247,7 @@ interface InstancePreviewProps {
   testWpm: number;
   testOutputMode: 'usb' | 'ble';
   testBleProfile: number;
+  testBleState?: 'connected' | 'reconnecting' | 'pairing' | 'handshake' | 'disconnected';
   testLayer: number;
   layerNames?: string[];
   testSplitConnected: boolean;
@@ -2146,7 +2265,7 @@ interface InstancePreviewProps {
 
 const InstancePreview: React.FC<InstancePreviewProps> = ({
   widget, instance, symbolsGrid, symbolSlices, fontGrid, fontGlyphs, fontMappings,
-  customText, testBattery, testWpm, testOutputMode, testBleProfile, testLayer, layerNames, testSplitConnected, simulateMissingSymbols,
+  customText, testBattery, testWpm, testOutputMode, testBleProfile, testBleState = 'connected', testLayer, layerNames, testSplitConnected, simulateMissingSymbols,
   testBongoState = 0,
   testTypewriterText,
   testTypewriterLastChar,
@@ -2162,8 +2281,8 @@ const InstancePreview: React.FC<InstancePreviewProps> = ({
   const [animTimestamp, setAnimTimestamp] = useState<number>(0);
 
   useEffect(() => {
-    if (widget.id !== 'animation' && widget.id !== 'loop' && widget.id !== 'typewriter') return;
-    const speedMs = widget.id === 'typewriter' ? 30 : Math.max(20, instance.config?.loopSpeedMs ?? 250);
+    if (widget.id !== 'animation' && widget.id !== 'loop' && widget.id !== 'typewriter' && widget.id !== 'connection') return;
+    const speedMs = widget.id === 'connection' ? 500 : widget.id === 'typewriter' ? 30 : Math.max(20, instance.config?.loopSpeedMs ?? 250);
     startTimeRef.current = Date.now();
     const timer = setInterval(() => {
       const now = Date.now();
@@ -2264,6 +2383,7 @@ const InstancePreview: React.FC<InstancePreviewProps> = ({
       battery: testBattery,
       outputMode: testOutputMode,
       bleProfileIndex: testBleProfile,
+      bleState: testBleProfile === 0 ? 'disconnected' : testBleState,
       currentLayer: testLayer,
       layerNames: layerNames && layerNames.length > 0 ? layerNames : ['DEFAULT', 'LOWER', 'RAISE', 'ADJUST'],
       wpm: testWpm,

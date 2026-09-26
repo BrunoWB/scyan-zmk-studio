@@ -1542,13 +1542,47 @@ export function resolveBlockProperties(
       symbolIds.push(usbMatch.id);
     }
     if (instance?.config?.groupIds && instance.config.groupIds.length > 0) {
-      const bleIds = instance.config.groupIds.length >= 6
-        ? instance.config.groupIds.slice(1)
-        : instance.config.groupIds;
-      for (const gid of bleIds) {
-        const match = symbolSlices.find(s => (s.groupId === gid && s.groupOrder === 1) || s.groupId === gid || s.id === gid);
-        if (match && symbolIds.length < 16) {
-          symbolIds.push(match.id);
+      if (instance.config.reconnectGroupIds && instance.config.reconnectGroupIds.length > 0) {
+        // Multi-state structure:
+        // Index 1: Disconnected
+        const discGid = instance.config.groupIds[0] || 'SYMBOL_NO_CONN';
+        const discMatch = symbolSlices.find(s => (s.groupId === discGid && s.groupOrder === 1) || s.groupId === discGid || s.id === discGid)
+          || symbolSlices.find(s => s.id === 'SYMBOL_NO_CONN' || s.groupId === 'SYMBOL_NO_CONN');
+        if (discMatch && symbolIds.length < 16) symbolIds.push(discMatch.id);
+
+        // Indices 2..6: Connected P1..P5
+        for (let i = 1; i <= 5; i++) {
+          const gid = instance.config.groupIds[i];
+          if (gid) {
+            const match = symbolSlices.find(s => (s.groupId === gid && s.groupOrder === 1) || s.groupId === gid || s.id === gid);
+            if (match && symbolIds.length < 16) symbolIds.push(match.id);
+          }
+        }
+
+        // Indices 7..11: Reconnect frame 2 for P1..P5
+        for (let i = 0; i < 5; i++) {
+          const rGid = instance.config.reconnectGroupIds[i];
+          if (rGid) {
+            const match = symbolSlices.find(s => (s.groupId === rGid && s.groupOrder === 2) || s.id === rGid)
+              || symbolSlices.find(s => s.id === ('SYMBOL_RECONNECTING_' + String.fromCharCode(65 + i)));
+            if (match && symbolIds.length < 16) symbolIds.push(match.id);
+          }
+        }
+
+        // Index 12: Pairing frame 2 (BT dots)
+        const pairGid = instance.config.pairingGroupIds?.[0] || 'GROUP_BT_PAIR_A';
+        const pairMatch = symbolSlices.find(s => (s.groupId === pairGid && s.groupOrder === 2) || s.id === pairGid)
+          || symbolSlices.find(s => s.id === 'SYMBOL_BLUETOOTH_9659' || s.name === 'BT');
+        if (pairMatch && symbolIds.length < 16) symbolIds.push(pairMatch.id);
+      } else {
+        const bleIds = instance.config.groupIds.length >= 6
+          ? instance.config.groupIds.slice(1)
+          : instance.config.groupIds;
+        for (const gid of bleIds) {
+          const match = symbolSlices.find(s => (s.groupId === gid && s.groupOrder === 1) || s.groupId === gid || s.id === gid);
+          if (match && symbolIds.length < 16) {
+            symbolIds.push(match.id);
+          }
         }
       }
     } else {

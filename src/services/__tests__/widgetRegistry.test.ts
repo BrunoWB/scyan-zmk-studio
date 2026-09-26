@@ -810,6 +810,79 @@ describe('Widget Registry - Single Source of Truth', () => {
       expect(grid.countOn()).toBeGreaterThan(0);
     });
 
+    it('Output Status (connection) renders disconnected symbol when bleState is disconnected or profile is 0', () => {
+      const grid = new BwpxGrid(32, 20);
+      const symbolGrid = new BwpxGrid(32, 32);
+      symbolGrid.set(0, 0, 1);
+      const discContext: WidgetRenderContext = {
+        ...renderContext,
+        symbolsGrid: symbolGrid,
+        symbolSlices: [
+          { id: 'SYMBOL_NO_CONN', name: 'No Conn', groupId: 'SYMBOL_NO_CONN', groupOrder: 1, x: 0, y: 0, width: 10, height: 10, color: '#ef4444' }
+        ],
+        outputMode: 'ble',
+        bleProfileIndex: 0,
+        bleState: 'disconnected',
+        instances: {
+          connection: [
+            {
+              id: 'test-conn',
+              widgetTypeId: 'connection',
+              label: 'Output Status',
+              config: {
+                mode: 'symbol',
+                groupIds: ['SYMBOL_NO_CONN'],
+              },
+            },
+          ],
+        },
+        activeInstanceId: 'test-conn',
+      };
+      renderWidgetById('connection', grid, 0, 0, discContext);
+      expect(grid.countOn()).toBeGreaterThan(0);
+    });
+
+    it('Output Status (connection) alternates frames when bleState is reconnecting', () => {
+      const grid1 = new BwpxGrid(32, 20);
+      const grid2 = new BwpxGrid(32, 20);
+      const symbolGrid = new BwpxGrid(64, 32);
+      symbolGrid.set(0, 0, 1); // frame 1 pixel
+      symbolGrid.set(16, 5, 1); // frame 2 pixel
+      const reconnContext: WidgetRenderContext = {
+        ...renderContext,
+        symbolsGrid: symbolGrid,
+        symbolSlices: [
+          { id: 'SYMBOL_RECONNECT_A_1', name: 'R1', groupId: 'GROUP_BT_RECONNECT_A', groupOrder: 1, x: 0, y: 0, width: 10, height: 11, color: '#00d2ff' },
+          { id: 'SYMBOL_RECONNECT_A_2', name: 'R2', groupId: 'GROUP_BT_RECONNECT_A', groupOrder: 2, x: 16, y: 0, width: 10, height: 11, color: '#f59e0b' },
+        ],
+        outputMode: 'ble',
+        bleProfileIndex: 1,
+        bleState: 'reconnecting',
+        animationTimestamp: 0, // Frame 1: tick 0
+        instances: {
+          connection: [
+            {
+              id: 'test-conn',
+              widgetTypeId: 'connection',
+              label: 'Output Status',
+              config: {
+                mode: 'symbol',
+                reconnectGroupIds: ['GROUP_BT_RECONNECT_A'],
+              },
+            },
+          ],
+        },
+        activeInstanceId: 'test-conn',
+      };
+      renderWidgetById('connection', grid1, 0, 0, reconnContext);
+      expect(grid1.get(0, 0)).toBe(1);
+
+      // Frame 2 at tick 1 (500ms)
+      const reconnContext2 = { ...reconnContext, animationTimestamp: 500 };
+      renderWidgetById('connection', grid2, 0, 0, reconnContext2);
+      expect(grid2.get(0, 5)).toBe(1);
+    });
+
     it('Text (branding) widget renders flush at (destX, destY) with no artificial padding', () => {
       const grid = new BwpxGrid(32, 20);
       const textContext: WidgetRenderContext = {

@@ -39,6 +39,9 @@ export interface WidgetInstanceConfig {
   align?: TextAlignment;           // Alias for textAlign
   groupId?: string;               // For single group selection
   groupIds?: string[];            // For multi-group selection
+  reconnectGroupIds?: string[];   // Profile reconnecting group/symbol IDs (up to 5 profiles)
+  pairingGroupIds?: string[];     // Profile pairing group/symbol IDs (up to 5 profiles)
+  handshakeGroupIds?: string[];   // Profile handshake group/symbol IDs (up to 5 profiles)
   textEntries?: string[];         // Text values for 1, 2, 6, or N divisions
   fontDivisionCount?: number;     // For sliders
   targetValue?: number;           // e.g. Target WPM
@@ -135,6 +138,7 @@ export interface WidgetRenderContext {
   charging?: boolean;
   outputMode?: 'usb' | 'ble';
   bleProfileIndex?: number; // 0: no connection, 1-5: profiles P1-P5
+  bleState?: 'connected' | 'reconnecting' | 'pairing' | 'handshake' | 'disconnected';
   currentLayer?: number;
   layerNames?: string[];
   wpm?: number;

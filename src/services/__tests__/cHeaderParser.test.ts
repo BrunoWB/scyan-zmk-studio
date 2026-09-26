@@ -1013,6 +1013,45 @@ static const struct display_layout_block LAYOUT_RIGHT_ACTIVE_BLOCKS[1] = {
     expect(dts).toContain('symbol-id = <SYMBOL_USB>;');
   });
 
+  it('correctly serializes multi-state symbols (disconnected, connected, reconnecting, pairing) for WIDGET_TYPE_OUTPUT_STATUS', () => {
+    const symbolSlices: SpriteSlice[] = [
+      { id: 'SYMBOL_USB', name: 'USB', groupId: 'SYMBOL_USB', groupOrder: 1, x: 0, y: 0, width: 12, height: 10, color: '#38bdf8' },
+      { id: 'SYMBOL_NO_CONN', name: 'No Conn', groupId: 'SYMBOL_NO_CONN', groupOrder: 1, x: 12, y: 0, width: 10, height: 10, color: '#ef4444' },
+      { id: 'SYMBOL_BLUETOOTH_P1', name: 'BTA', groupId: 'SYMBOL_BLUETOOTH_P1', groupOrder: 1, x: 22, y: 0, width: 10, height: 11, color: '#00d2ff' },
+      { id: 'SYMBOL_RECONNECT_A_1', name: 'R1', groupId: 'GROUP_BT_RECONNECT_A', groupOrder: 1, x: 22, y: 0, width: 10, height: 11, color: '#00d2ff' },
+      { id: 'SYMBOL_RECONNECT_A_2', name: 'R2', groupId: 'GROUP_BT_RECONNECT_A', groupOrder: 2, x: 32, y: 0, width: 10, height: 11, color: '#f59e0b' },
+      { id: 'SYMBOL_PAIR_A_1', name: 'P1', groupId: 'GROUP_BT_PAIR_A', groupOrder: 1, x: 22, y: 0, width: 10, height: 11, color: '#00d2ff' },
+      { id: 'SYMBOL_PAIR_A_2', name: 'P2', groupId: 'GROUP_BT_PAIR_A', groupOrder: 2, x: 42, y: 0, width: 10, height: 11, color: '#38bdf8' },
+    ];
+    const metadata: HeaderMetadata = {
+      version: 1,
+      centralBlocks: [
+        { id: 'block-conn', widgetType: 'connection', instanceId: 'conn-1', name: 'Output Status', x: 0, y: 0, width: 12, height: 10, enabled: true, side: 'central' }
+      ],
+      widgetInstances: {
+        connection: [
+          {
+            id: 'conn-1',
+            widgetTypeId: 'connection',
+            label: 'Connection',
+            config: {
+              mode: 'symbol',
+              groupId: 'SYMBOL_USB',
+              groupIds: ['SYMBOL_NO_CONN', 'SYMBOL_BLUETOOTH_P1'],
+              reconnectGroupIds: ['GROUP_BT_RECONNECT_A'],
+              pairingGroupIds: ['GROUP_BT_PAIR_A'],
+            },
+            slots: {},
+          }
+        ]
+      }
+    };
+
+    const dts = generateDevicetreeLayouts(metadata, symbolSlices);
+    expect(dts).toContain('compatible = "scyan,widget-output";');
+    expect(dts).toContain('symbols = <SYMBOL_USB SYMBOL_NO_CONN SYMBOL_BLUETOOTH_P1 SYMBOL_RECONNECT_A_2 SYMBOL_PAIR_A_2>;');
+  });
+
   describe('Typewriter Widget Serialization & Round-Trip', () => {
     it('generates C code encoding WIDGET_TYPE_TYPEWRITER with mode, param1 (direction), param2 (cleaning), and param3 (fontSize)', () => {
       const testGrid = new BwpxGrid(32, 32);
