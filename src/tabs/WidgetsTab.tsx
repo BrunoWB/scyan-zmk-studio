@@ -1,16 +1,16 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { BwpxGrid } from '../pixel/core/PixelGrid';
 import type { SpriteSlice, FontGlyph, FontCharMapping, LayoutBlock } from '../types/zmk';
 import {
   WIDGET_REGISTRY,
   getWidgetDefinition,
-  renderWidgetById,
   getWidgetNaturalSize,
   normalizeWidgetType,
   createDefaultWidgetInstance,
 } from '../services/widgetRegistry';
 import { formatLayerLabel } from '../services/keymapService';
-import { WidgetMiniPreview } from './blocks/WidgetCatalogList';
+import { WidgetPreviewCanvas } from '../components/widgets/WidgetPreviewCanvas';
+import { WidgetsSidebarNav } from './widgets/WidgetsSidebarNav';
 import type {
   DisplayWidgetDefinition,
   WidgetInstanceMap,
@@ -77,26 +77,6 @@ const WIDGET_ICONS: Record<string, React.ComponentType<{ size?: number; classNam
   keyboard: Keyboard,
 };
 
-const TIER_METADATA = {
-  1: {
-    label: 'Tier 1: Atomic Status Pills',
-    shortLabel: 'Tier 1: Status',
-    desc: 'Low-profile status indicators (Battery, USB/BLE, Split Link, Caps Lock).',
-    badgeClass: 'badge-tier-1',
-  },
-  2: {
-    label: 'Tier 2: Keymap & Typing Metrics',
-    shortLabel: 'Tier 2: Keymap/Typing',
-    desc: 'Dynamic layer banners, typing speed dials, and custom branding banners.',
-    badgeClass: 'badge-tier-2',
-  },
-  3: {
-    label: 'Tier 3: Static',
-    shortLabel: 'Tier 3: Static',
-    desc: 'Static images, text banners, and screensavers.',
-    badgeClass: 'badge-tier-3',
-  },
-} as const;
 
 export const WidgetsTab: React.FC<WidgetsTabProps> = ({
   initialActiveWidgetId,
@@ -205,12 +185,11 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
 
   const [testActiveKeys, setTestActiveKeys] = useState<string[]>([]);
   const [testLastKey, setTestLastKey] = useState<string>('');
-  const testKeypressStateRef = useRef<KeypressState>({});
 
-  useEffect(() => {
-    testKeypressStateRef.current.activeKeys = testActiveKeys;
-    testKeypressStateRef.current.lastKey = testLastKey;
-  }, [testActiveKeys, testLastKey]);
+  const testKeypressState = useMemo<KeypressState>(() => ({
+    activeKeys: testActiveKeys,
+    lastKey: testLastKey,
+  }), [testActiveKeys, testLastKey]);
 
   const effectiveTestLayer = testLayer < effectiveLayerNames.length ? testLayer : 0;
 
@@ -338,62 +317,17 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
           <span className="text-[10px] font-mono text-accent">{WIDGET_REGISTRY.length} total</span>
         </div>
 
-        <div className="widgets-nav-list">
-          {([1, 2, 3] as const).map(tierNum => {
-            const tierWidgets = WIDGET_REGISTRY.filter(w => w.tier === tierNum);
-            if (tierWidgets.length === 0) return null;
-
-            return (
-              <div key={tierNum} className="widget-tier-section mb-3">
-                <div className="widget-tier-section-header">
-                  <span className={`tier-badge-pill tier-${tierNum}`}>T{tierNum}</span>
-                  <span className="widget-tier-section-title">{TIER_METADATA[tierNum].label}</span>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  {tierWidgets.map(widget => {
-                    const isActive = activeWidget.id === widget.id;
-                    const instanceCount = (instances[widget.id] || []).length;
-
-                    return (
-                      <button key={widget.id} className={`widget-nav-item ${isActive ? 'active' : ''}`} onClick={() => setActiveWidgetId(widget.id)}>
-                        <div className="widget-nav-badges">
-                          {widget.requiresMaster && (
-                            <span className="badge-master badge-master--nav" title="Requires Central half in ZMK split">
-                              <Cpu size={9} className="shrink-0" />
-                            </span>
-                          )}
-                          {widget.isInteractive && (
-                            <span className="badge-active badge-active--nav" title="Active — responds interactively to keystrokes or typing events">
-                              <Zap size={9} className="shrink-0" />
-                            </span>
-                          )}
-                          {instanceCount > 0 && (
-                            <span className="instance-count-badge">{instanceCount}</span>
-                          )}
-                        </div>
-                        <div className="widget-nav-thumb-wrapper">
-                          <WidgetMiniPreview
-                            widget={widget}
-                            symbolsGrid={symbolsGrid}
-                            symbolSlices={symbolSlices}
-                            fontGrid={fontGrid}
-                            fontGlyphs={fontGlyphs}
-                            fontMappings={fontMappings}
-                            customText={customText}
-                            instances={instances}
-                          />
-                        </div>
-                        <div className="widget-nav-meta flex-1 min-w-0">
-                          <span className="widget-nav-name truncate">{widget.name}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <WidgetsSidebarNav
+          activeWidgetId={activeWidget.id}
+          onSelectWidget={setActiveWidgetId}
+          instances={instances}
+          symbolsGrid={symbolsGrid}
+          symbolSlices={symbolSlices}
+          fontGrid={fontGrid}
+          fontGlyphs={fontGlyphs}
+          fontMappings={fontMappings}
+          customText={customText}
+        />
       </div>
 
       {/* Right Content */}
@@ -636,7 +570,6 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                       onClick={() => {
                         setTestActiveKeys([]);
                         setTestLastKey('');
-                        testKeypressStateRef.current.lastSymbolId = undefined;
                       }}
                       className="text-[11px] text-muted hover:text-accent cursor-pointer"
                     >
@@ -876,7 +809,7 @@ export const WidgetsTab: React.FC<WidgetsTabProps> = ({
                       testTypewriterRandomLetters={testTypewriterRandomLetters}
                       testActiveKeys={testActiveKeys}
                       testLastKey={testLastKey}
-                      testKeypressState={testKeypressStateRef.current}
+                      testKeypressState={testKeypressState}
                     />
                   </div>
                   <span className="text-[10px] font-mono text-muted tracking-wider uppercase mt-2 select-none">
@@ -2378,179 +2311,11 @@ interface InstancePreviewProps {
   testKeypressState?: KeypressState;
 }
 
-const InstancePreview: React.FC<InstancePreviewProps> = ({
-  widget, instance, symbolsGrid, symbolSlices, fontGrid, fontGlyphs, fontMappings,
-  customText, testBattery, testWpm, testOutputMode, testBleProfile, testBleState = 'connected', testLayer, layerNames, testSplitConnected, simulateMissingSymbols,
-  testBongoState = 0,
-  testTypewriterText,
-  testTypewriterLastChar,
-  testTypewriterLastTimestamp,
-  testTypewriterRandomPos,
-  testTypewriterRandomLetters,
-  testActiveKeys,
-  testLastKey,
-  testKeypressState,
-}) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const startTimeRef = useRef<number>(0);
-  const [animTimestamp, setAnimTimestamp] = useState<number>(0);
-
-  useEffect(() => {
-    if (widget.id !== 'animation' && widget.id !== 'loop' && widget.id !== 'typewriter' && widget.id !== 'connection') return;
-    const speedMs = widget.id === 'connection' ? 500 : widget.id === 'typewriter' ? 30 : Math.max(20, instance.config?.loopSpeedMs ?? 250);
-    startTimeRef.current = Date.now();
-    const timer = setInterval(() => {
-      const now = Date.now();
-      const elapsed = now - startTimeRef.current;
-      if (widget.id === 'typewriter') {
-        const cleaning = instance.config?.typewriterCleaning ?? 0;
-        if (cleaning > 0) {
-          const fadeSec = instance.config?.typewriterFadeTime ?? 0.15;
-          const bankCount = (testTypewriterRandomLetters && testTypewriterRandomLetters.length > 0) ? testTypewriterRandomLetters.length : 4;
-          const totalCycleMs = (bankCount + 1) * cleaning * 1000 + fadeSec * 1000 + 1000;
-          if (elapsed > totalCycleMs) {
-            startTimeRef.current = now;
-            setAnimTimestamp(0);
-            return;
-          }
-        }
-      }
-      setAnimTimestamp(elapsed);
-    }, speedMs);
-    return () => clearInterval(timer);
-  }, [
-    widget.id,
-    instance.id,
-    instance.config?.loopSpeedMs,
-    instance.config?.loop,
-    instance.config?.groupId,
-    instance.config?.typewriterCleaning,
-    instance.config?.typewriterLetterBank,
-    instance.config?.typewriterBankSize,
-    instance.config?.typewriterFadeType,
-    instance.config?.typewriterFadeTime,
-    instance.config?.typewriterMode,
-    instance.config?.mode,
-    testTypewriterRandomLetters,
-  ]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const scale = 3;
-    const effectiveSlices = simulateMissingSymbols ? [] : symbolSlices;
-    const naturalSize = getWidgetNaturalSize(widget, effectiveSlices, instance, fontGlyphs, fontMappings);
-    const width = Math.max(naturalSize.width, 14);
-    const height = Math.max(naturalSize.height, widget.defaultHeight, 14);
-
-    canvas.width = width * scale;
-    canvas.height = height * scale;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.fillStyle = '#080b10';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const tempGrid = new BwpxGrid(width, height);
-    
-    // Create an instances map for rendering just this instance
-    const tempInstances = { [widget.id]: [instance] };
-
-    const isTypewriter = widget.id === 'typewriter';
-    const effectiveBaseTimestamp = (isTypewriter && startTimeRef.current > 0)
-      ? startTimeRef.current
-      : testTypewriterLastTimestamp;
-    const fontSize = instance.config?.fontSize || (isTypewriter && (instance.config?.typewriterMode || instance.config?.mode) === 'random' ? 'both' : 'small');
-    const charW = fontSize === 'big' ? 10 : 5;
-    const charH = fontSize === 'big' ? 10 : 5;
-    const maxOffsetX = Math.max(0, width - charW);
-    const maxOffsetY = Math.max(0, height - charH);
-
-    const effectiveLetters = isTypewriter
-      ? (testTypewriterRandomLetters || []).map(l => {
-          let lx = l.x;
-          let ly = l.y;
-          // If coordinates are legacy integer pixels generated for a 32-high box (e.g. y <= 26) but box is taller,
-          // scale them proportionally so they span the full [0, maxOffsetY]
-          if (maxOffsetY > 32 && typeof ly === 'number' && Number.isInteger(ly) && ly <= 26) {
-            ly = Math.round((ly / 26) * maxOffsetY);
-          }
-          if (maxOffsetX > 32 && typeof lx === 'number' && Number.isInteger(lx) && lx <= 26) {
-            lx = Math.round((lx / 26) * maxOffsetX);
-          }
-          return {
-            ...l,
-            x: lx,
-            y: ly,
-            timestamp: effectiveBaseTimestamp,
-          };
-        })
-      : testTypewriterRandomLetters;
-
-    renderWidgetById(widget.id, tempGrid, 0, {
-      symbolsGrid,
-      symbolSlices: effectiveSlices,
-      fontGrid,
-      fontGlyphs,
-      fontMappings,
-      battery: testBattery,
-      outputMode: testOutputMode,
-      bleProfileIndex: testBleProfile,
-      bleState: testBleProfile === 0 ? 'disconnected' : testBleState,
-      currentLayer: testLayer,
-      layerNames: layerNames && layerNames.length > 0 ? layerNames : ['DEFAULT', 'LOWER', 'RAISE', 'ADJUST'],
-      wpm: testWpm,
-      splitConnected: testSplitConnected,
-      customText,
-      instances: tempInstances,
-      activeInstanceId: instance.id,
-      bongoState: testBongoState,
-      animationTimestamp: animTimestamp,
-      blockWidth: width,
-      blockHeight: height,
-      typewriterText: testTypewriterText,
-      typewriterState: {
-        text: testTypewriterText ?? 'TYPE...',
-        lastChar: testTypewriterLastChar,
-        lastTimestamp: effectiveBaseTimestamp,
-        randomX: testTypewriterRandomPos?.x,
-        randomY: testTypewriterRandomPos?.y,
-        letterBank: effectiveLetters,
-        randomLetters: effectiveLetters,
-        randomBank: effectiveLetters,
-      },
-      activeKeys: testActiveKeys,
-      lastKey: testLastKey,
-      keypressState: testKeypressState,
-    });
-
-    ctx.fillStyle = '#00d2ff';
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        if (tempGrid.get(x, y)) {
-          ctx.fillRect(x * scale, y * scale, scale - 0.4, scale - 0.4);
-        }
-      }
-    }
-  }, [
-    widget, instance, symbolsGrid, symbolSlices, fontGrid, fontGlyphs, fontMappings,
-    customText, testBattery, testWpm, testOutputMode, testBleProfile, testLayer, layerNames, testSplitConnected, simulateMissingSymbols,
-    testBongoState, animTimestamp, testTypewriterText, testTypewriterLastChar, testTypewriterLastTimestamp, testTypewriterRandomPos, testTypewriterRandomLetters, instance.config?.typewriterLetterBank, instance.config?.typewriterBankSize,
-    instance.config?.typewriterFadeType, instance.config?.typewriterFadeTime,
-    testActiveKeys, testLastKey, testKeypressState
-  ]);
-
+const InstancePreview: React.FC<InstancePreviewProps> = (props) => {
   return (
-    <canvas
-      ref={canvasRef}
-      className="pixel-preview-canvas cursor-pointer"
-      title="Click to replay animation"
-      onClick={() => {
-        startTimeRef.current = Date.now();
-        setAnimTimestamp(0);
-      }}
+    <WidgetPreviewCanvas
+      {...props}
+      mode="instance"
     />
   );
 };
